@@ -10,11 +10,9 @@ import com.alibaba.mnnllm.android.modelsettings.ModelConfig
 import com.alibaba.mnnllm.android.model.ModelTypeUtils
 import com.alibaba.mnnllm.android.modelsettings.ModelConfig.Companion.getExtraConfigFile
 import com.google.gson.Gson
-import timber.log.Timber
 import java.io.File
 import java.util.concurrent.locks.ReentrantReadWriteLock
 import kotlin.concurrent.Volatile
-import kotlin.concurrent.read
 import kotlin.concurrent.write
 import android.util.Pair
 import com.alibaba.mnnllm.android.utils.MmapUtils
@@ -25,6 +23,7 @@ import com.alibaba.mnnllm.android.modelsettings.JinjaContext
 import com.alibaba.mnnllm.android.modelsettings.ModelConfig.Companion.loadConfig
 import com.alibaba.mnnllm.android.utils.FileSplitter
 import com.alibaba.mnnllm.android.qnn.QnnModule
+import kotlinx.coroutines.CancellationException
 class LlmSession (
     private val modelId: String,
     override var sessionId: String,
@@ -42,9 +41,46 @@ class LlmSession (
     // them; release() takes the write side. Native never blocks inside these calls.
     private val nativeLock = ReentrantReadWriteLock()
 
-    private inline fun <T> withNative(fallback: T, block: (Long) -> T): T = nativeLock.read {
-        val ptr = nativePtr
-        if (ptr == 0L) fallback else block(ptr)
+    private inline fun <T> withNative(fallback: T, block: (Long) -> T): T {
+        val lock = nativeLock.readLock()
+        if (!lock.tryLock()) return fallback
+        return try {
+            val ptr = nativePtr
+            if (ptr == 0L || releaseRequested || modelLoading) fallback else block(ptr)
+        } finally {
+            lock.unlock()
+        }
+    }
+
+    private fun <T> withSessionOperation(block: (Long) -> T): T {
+        val ptr = synchronized(this) {
+            check(!releaseRequested && nativePtr != 0L) { "Session is not available; reload the model" }
+            check(!modelLoading && !generating) { "Session is busy" }
+            generating = true
+            nativePtr
+        }
+        try {
+            return block(ptr)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            releaseRequested = true
+            throw e
+        } catch (e: OutOfMemoryError) {
+            releaseRequested = true
+            throw e
+        } finally {
+            synchronized(this) {
+                generating = false
+                (this as Object).notifyAll()
+            }
+            if (releaseRequested) release()
+        }
+    }
+
+    private fun consumeResult(result: HashMap<String, Any>): HashMap<String, Any> {
+        if (result["session_invalid"] == true) releaseRequested = true
+        return result
     }
 
     @Volatile
@@ -61,6 +97,7 @@ class LlmSession (
 
     @Volatile
     private var releaseRequested = false
+    private var releaseStarted = false
 
     private var keepHistory = false
 
@@ -75,71 +112,60 @@ class LlmSession (
 
     override fun load() {
         Log.d(TAG, "MNN_DEBUG load begin modelId: $modelId backend: $backendType")
-        modelLoading = true
-        isQnn = ModelTypeUtils.isQnnModel(modelId)
-
-        checkAndMergeSplitFiles()
-        var historyStringList: List<String>? = null
-        var currentHistory = this.savedHistory
-        if (!contextSummary.isNullOrEmpty() && !currentHistory.isNullOrEmpty()) {
-            val anchorIndex = currentHistory.indexOfFirst { it.dbId == contextAnchorId }
-            if (anchorIndex >= 0) {
-                currentHistory = currentHistory.subList(anchorIndex, currentHistory.size)
-            } else {
-                // The summary would not line up with the history; native trimming applies instead.
-                contextSummary = null
+        synchronized(this) {
+            check(!releaseRequested) { "Session has been released" }
+            check(!modelLoading && !generating) { "Session is busy" }
+            if (nativePtr != 0L) return
+            modelLoading = true
+        }
+        try {
+            provide().beforeLoad(this)
+            check(!releaseRequested) { "Session has been released" }
+            isQnn = ModelTypeUtils.isQnnModel(modelId)
+            checkAndMergeSplitFiles()
+            var historyStringList: List<String>? = null
+            var currentHistory = savedHistory
+            if (!contextSummary.isNullOrEmpty() && !currentHistory.isNullOrEmpty()) {
+                val anchorIndex = currentHistory.indexOfFirst { it.dbId == contextAnchorId }
+                if (anchorIndex >= 0) {
+                    currentHistory = currentHistory.subList(anchorIndex, currentHistory.size)
+                } else {
+                    contextSummary = null
+                }
             }
-        }
-        if (!currentHistory.isNullOrEmpty()) {
-            historyStringList = NativeHistory.alternate(currentHistory)
-        }
-        val config = if (useCustomConfig) {
-            ModelConfig.loadMergedConfig(configPath, getExtraConfigFile(modelId))!!
-        } else {
-            ModelConfig.loadDefaultConfig(configPath)!!
-        }
-        var rootCacheDir: String? = ""
-        if (config.useMmap == true) {
-            rootCacheDir = MmapUtils.getMmapDir(modelId)
-            File(rootCacheDir).mkdirs()
-        }
-        val configMap = HashMap<String, Any>().apply {
-            put("is_r1", ModelTypeUtils.isR1Model(modelId))
-            put("mmap_dir", rootCacheDir ?: "")
-            put("keep_history", keepHistory)
-            contextSummary?.takeIf { it.isNotEmpty() }?.let { put("context_summary", it) }
-        }
-        val llmConfig = if (useCustomConfig) {
-            ModelConfig.loadMergedConfig(configPath, getExtraConfigFile(modelId))!!
-        } else {
-            ModelConfig.loadDefaultConfig(configPath)!!
-        }
-        // Override backend type from constructor only if not null
-        if (backendType != null) {
-            llmConfig.backendType = backendType
-        }
-        if (isQnn) {
-            llmConfig.visualModel = "visual_qnn_${QnnModule.modelMiddleName()}.mnn"
-        }
-        Log.d(TAG, "MNN_DEBUG load initNative")
-        nativePtr = initNative(
-                configPath,
-                historyStringList,
-        if (llmConfig != null) {
-            Gson().toJson(llmConfig)
-        } else {
-            "{}"
-        },
-        Gson().toJson(configMap)
-        )
-        Log.d(TAG, "MNN_DEBUG load initNative end")
-        modelLoading = false
-        if (nativePtr == 0L) {
-            Log.e(TAG, "Model load failed - native initialization returned null pointer")
-            throw IllegalStateException("Model load failed - the model module could not be loaded")
-        }
-        if (releaseRequested) {
-            release()
+            if (!currentHistory.isNullOrEmpty()) historyStringList = NativeHistory.alternate(currentHistory)
+            val llmConfig = if (useCustomConfig) {
+                ModelConfig.loadMergedConfig(configPath, getExtraConfigFile(modelId))!!
+            } else {
+                ModelConfig.loadDefaultConfig(configPath)!!
+            }
+            var rootCacheDir: String? = ""
+            if (llmConfig.useMmap == true) {
+                rootCacheDir = MmapUtils.getMmapDir(modelId)
+                File(rootCacheDir).mkdirs()
+            }
+            val configMap = HashMap<String, Any>().apply {
+                put("is_r1", ModelTypeUtils.isR1Model(modelId))
+                put("mmap_dir", rootCacheDir ?: "")
+                put("keep_history", keepHistory)
+                contextSummary?.takeIf { it.isNotEmpty() }?.let { put("context_summary", it) }
+            }
+            if (backendType != null) llmConfig.backendType = backendType
+            if (isQnn) llmConfig.visualModel = "visual_qnn_${QnnModule.modelMiddleName()}.mnn"
+            nativePtr = initNative(configPath, historyStringList, Gson().toJson(llmConfig), Gson().toJson(configMap))
+            check(nativePtr != 0L) { "Model load failed - the model module could not be loaded" }
+        } catch (e: Exception) {
+            releaseRequested = true
+            throw e
+        } catch (e: OutOfMemoryError) {
+            releaseRequested = true
+            throw e
+        } finally {
+            synchronized(this) {
+                modelLoading = false
+                (this as Object).notifyAll()
+            }
+            if (releaseRequested) release()
         }
     }
 
@@ -147,7 +173,7 @@ class LlmSession (
      * Check if the model is successfully loaded and ready for inference
      */
     fun isModelLoaded(): Boolean {
-        return nativePtr != 0L
+        return nativePtr != 0L && !modelLoading && !releaseRequested
     }
     
     /**
@@ -175,6 +201,8 @@ class LlmSession (
             } else {
                 Log.w(TAG, "Model directory not found: ${modelDir?.absolutePath}")
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Error checking/merging split files for model: $modelId", e)
         }
@@ -193,63 +221,38 @@ class LlmSession (
                           params: Map<String, Any>,
                           progressListener: GenerateProgressListener): HashMap<String, Any> {
         Log.d(TAG, "start generate prompt: $prompt")
-        synchronized(this) {
+        return withSessionOperation { ptr ->
             if (mockLatex) {
-                Timber.d("MNN_DEBUG generate intercepted by mockLatex")
-                return submitMockLatexHistory(progressListener)
+                submitMockLatexHistory(progressListener)
+            } else {
+                consumeResult(submitNative(ptr, prompt, keepHistory, progressListener))
             }
-            Log.d(TAG, "MNN_DEBUG submit$prompt")
-            generating = true
-            val result = try {
-                submitNative(nativePtr, prompt, keepHistory, progressListener)
-            } finally {
-                generating = false
-            }
-            if (releaseRequested) {
-                release()
-            }
-            return result
         }
     }
 
-    override fun reset(): String {
-        synchronized(this) {
-            resetNative(nativePtr)
-        }
-        return generateNewSessionId()
+    override fun reset(): String = withSessionOperation { ptr ->
+        resetNative(ptr)
+        generateNewSessionId().also { provide().updateSessionId(this) }
     }
 
     override fun release() {
-        synchronized(this) {
-            Log.d(
-                    TAG,
-                    "MNN_DEBUG release nativePtr: $nativePtr mGenerating: $generating"
-            )
-            if (!generating && !modelLoading) {
-                releaseInner()
-            } else {
-                releaseRequested = true
-                while (generating || modelLoading) {
-                    try {
-                        (this as Object).wait()
-                    } catch (e: InterruptedException) {
-                        Thread.currentThread().interrupt()
-                        Log.e(TAG, "Thread interrupted while waiting for release", e)
-                    }
-                }
-                releaseInner()
-            }
+        val ptr = synchronized(this) {
+            releaseRequested = true
+            if (generating || modelLoading || releaseStarted) return
+            releaseStarted = true
+            nativePtr.also { nativePtr = 0 }
         }
-    }
-
-    private fun releaseInner() {
-        if (nativePtr != 0L) {
-            nativeLock.write {
-                releaseNative(nativePtr)
-                nativePtr = 0
+        var succeeded = false
+        try {
+            if (ptr != 0L) nativeLock.write { releaseNative(ptr) }
+            succeeded = true
+        } finally {
+            try {
+                provide().removeSession(this)
+            } finally {
+                provide().onNativeReleased(this, succeeded)
+                synchronized(this) { (this as Object).notifyAll() }
             }
-            provide().removeSession(sessionId)
-            (this as Object).notifyAll()
         }
     }
 
@@ -291,13 +294,7 @@ class LlmSession (
 
 
     fun setAudioDataListener(listener: AudioDataListener?) {
-        synchronized(this) {
-            if (nativePtr != 0L) {
-                setWavformCallbackNative(nativePtr, listener)
-            } else {
-                Log.e(TAG, "nativePtr null")
-            }
-        }
+        withNative(false) { setWavformCallbackNative(it, listener) }
     }
 
     fun updateMaxNewTokens(maxNewTokens: Int) {
@@ -324,40 +321,25 @@ class LlmSession (
         withNative(Unit) { updateConfigNative(it, configJson) }
     }
 
-    // The context methods share the session monitor with generate()/release(), so they
-    // never run concurrently with a generation or after the native session is freed.
-    override fun checkContext(prompt: String): ContextCheck = synchronized(this) {
-        val ptr = nativePtr
-        if (ptr == 0L) return ContextCheck.NONE
+    override fun checkContext(prompt: String): ContextCheck = withSessionOperation { ptr ->
         val values = prepareContextNative(ptr, prompt)
-        if (values == null || values.size < 4) return ContextCheck.NONE
-        ContextCheck(values[0], values[1], values[2], ContextAction.fromCode(values[3]))
+        if (values == null || values.size < 4) ContextCheck.NONE else
+            ContextCheck(values[0], values[1], values[2], ContextAction.fromCode(values[3]))
     }
 
-    override fun compressContext(): ContextCompression = synchronized(this) {
-        val ptr = nativePtr
-        if (ptr == 0L) return ContextCompression(false, "", 0)
-        generating = true
-        try {
-            val result = compressContextNative(ptr)
-            ContextCompression(
-                success = result["success"] == true,
-                summary = result["summary"] as? String ?: "",
-                keptUserTurns = (result["kept_user_turns"] as? Number)?.toInt() ?: 0,
-            )
-        } finally {
-            generating = false
-        }
+    override fun compressContext(): ContextCompression = withSessionOperation { ptr ->
+        val result = consumeResult(compressContextNative(ptr))
+        ContextCompression(
+            success = result["success"] == true,
+            summary = result["summary"] as? String ?: "",
+            keptUserTurns = (result["kept_user_turns"] as? Number)?.toInt() ?: 0,
+        )
     }
 
-    override fun countContextTokens(): Int = synchronized(this) {
-        val ptr = nativePtr
-        if (ptr == 0L) 0 else countContextTokensNative(ptr)
-    }
+    override fun countContextTokens(): Int = withSessionOperation { countContextTokensNative(it) }
 
-    override fun contextLimits(): ContextLimits = synchronized(this) {
-        val ptr = nativePtr
-        val values = if (ptr == 0L) null else contextLimitsNative(ptr)
+    override fun contextLimits(): ContextLimits = withSessionOperation { ptr ->
+        val values = contextLimitsNative(ptr)
         if (values == null || values.size < 2) ContextLimits(0, 0) else ContextLimits(values[0], values[1])
     }
 
@@ -404,45 +386,28 @@ class LlmSession (
         history: List<Pair<String, String>>,
         progressListener: GenerateProgressListener
     ): HashMap<String, Any> {
-        synchronized(this) {
+        return withSessionOperation { ptr ->
             if (mockLatex) {
-                Timber.d("MNN_DEBUG submitFullHistory intercepted by mockLatex")
-                return submitMockLatexHistory(progressListener)
+                submitMockLatexHistory(progressListener)
+            } else {
+                val androidHistory = history.map { android.util.Pair(it.first, it.second) }
+                consumeResult(submitFullHistoryNative(ptr, androidHistory, progressListener))
             }
-            //Use Timber instead of Log
-            Timber.d("MNN_DEBUG submitFullHistory with ${history.size} messages")
-            //Type conversion: kotlin.Pair -> android.util.Pair
-            val androidHistory = history.map { android.util.Pair(it.first, it.second) }
-            //Call JNI method, remove unnecessary type conversion
-            val result = submitFullHistoryNative(nativePtr, androidHistory, progressListener)
-            generating = false
-            return result
         }
     }
 
     private fun submitMockLatexHistory(progressListener: GenerateProgressListener): HashMap<String, Any> {
         val mockText = mockLatexContent ?: "Here is a math formula:\n\n\$E=mc^2$\n\nAnd a block formula:\n\n\$\$a^2 + b^2 = c^2\$\$\n\nEnd of mock."
-        Thread {
-            try {
-                // Simulate streaming delay
-                var index = 0
-                val chunkSize = 3
-                while (index < mockText.length) {
-                    Thread.sleep(50)
-                    val endIndex = Math.min(index + chunkSize, mockText.length)
-                    val chunk = mockText.substring(index, endIndex)
-                    if (progressListener.onProgress(chunk)) {
-                        break
-                    }
-                    index = endIndex
-                }
-                progressListener.onProgress(null) // notify completion
-            } catch (e: Exception) {
-                Timber.e(e, "Mock generation failed")
-            } finally {
-                generating = false
-            }
-        }.start()
+        var index = 0
+        val chunkSize = 3
+        while (index < mockText.length) {
+            Thread.sleep(50)
+            val endIndex = Math.min(index + chunkSize, mockText.length)
+            val chunk = mockText.substring(index, endIndex)
+            if (progressListener.onProgress(chunk)) break
+            index = endIndex
+        }
+        progressListener.onProgress(null)
         val map = HashMap<String, Any>()
         map["success"] = true
         map["prompt_len"] = 10L
@@ -502,25 +467,27 @@ class LlmSession (
         testInstance: com.alibaba.mnnllm.android.benchmark.TestInstance,
         callback: com.alibaba.mnnllm.android.benchmark.BenchmarkCallback
     ): com.alibaba.mnnllm.android.benchmark.BenchmarkResult {
-        // Use coroutine instead of Thread for better lifecycle management
         return try {
-            // Run the actual benchmark in C++ following llm_bench.cpp structure
-            runBenchmarkNative(
-                nativePtr, 
-                commandParams.backend,
-                commandParams.threads,
-                commandParams.useMmap,
-                commandParams.power,
-                commandParams.precision,
-                commandParams.memory,
-                commandParams.dynamicOption,
-                commandParams.nPrompt,
-                commandParams.nGenerate,
-                commandParams.nRepeat,
-                commandParams.kvCache == "true",
-                testInstance,
-                callback
-            )
+            withSessionOperation { ptr ->
+                runBenchmarkNative(
+                    ptr,
+                    commandParams.backend,
+                    commandParams.threads,
+                    commandParams.useMmap,
+                    commandParams.power,
+                    commandParams.precision,
+                    commandParams.memory,
+                    commandParams.dynamicOption,
+                    commandParams.nPrompt,
+                    commandParams.nGenerate,
+                    commandParams.nRepeat,
+                    commandParams.kvCache == "true",
+                    testInstance,
+                    callback
+                )
+            }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             com.alibaba.mnnllm.android.benchmark.BenchmarkResult(
                 testInstance = testInstance,

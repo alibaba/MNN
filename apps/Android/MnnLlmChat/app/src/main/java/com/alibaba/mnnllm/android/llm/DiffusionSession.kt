@@ -3,33 +3,52 @@
 
 package com.alibaba.mnnllm.android.llm
 
-import android.util.Log
 import com.alibaba.mnnllm.android.chat.model.ChatDataItem
 import com.alibaba.mnnllm.android.llm.ChatService.Companion.provide
-import com.alibaba.mnnllm.android.llm.LlmSession.Companion.TAG
+import kotlinx.coroutines.CancellationException
 
 class DiffusionSession(
     private val modelId: String,
     override var sessionId: String,
     private val configPath: String,
     private var savedHistory: List<ChatDataItem>? = null
-): ChatSession{
+) : ChatSession {
     override var supportOmni: Boolean = false
     private var nativePtr: Long = 0
     override val debugInfo: String = ""
     @Volatile
     private var releaseRequested = false
-    @Volatile
+    private var releaseStarted = false
     private var generating = false
-    
+    private var modelLoading = false
+
     override fun load() {
-        nativePtr = initNative(
-            configPath,
-            DiffusionLoadConfigResolver.buildExtraConfigJson(modelId, configPath)
-        )
-        Log.d(TAG, "DiffusionSession load nativePtr=$nativePtr configPath=$configPath")
-        if (releaseRequested) {
-            release()
+        synchronized(this) {
+            check(!releaseRequested) { "Session has been released" }
+            check(!modelLoading && !generating) { "Session is busy" }
+            if (nativePtr != 0L) return
+            modelLoading = true
+        }
+        try {
+            provide().beforeLoad(this)
+            check(!releaseRequested) { "Session has been released" }
+            nativePtr = initNative(
+                configPath,
+                DiffusionLoadConfigResolver.buildExtraConfigJson(modelId, configPath)
+            )
+            check(nativePtr != 0L) { "Native diffusion session not initialized" }
+        } catch (e: Exception) {
+            releaseRequested = true
+            throw e
+        } catch (e: OutOfMemoryError) {
+            releaseRequested = true
+            throw e
+        } finally {
+            synchronized(this) {
+                modelLoading = false
+                (this as Object).notifyAll()
+            }
+            if (releaseRequested) release()
         }
     }
 
@@ -38,48 +57,75 @@ class DiffusionSession(
         params: Map<String, Any>,
         progressListener: GenerateProgressListener
     ): HashMap<String, Any> {
-        synchronized(this) {
-            Log.d(TAG, "MNN_DEBUG submit$prompt")
-            if (nativePtr == 0L) {
-                Log.e(TAG, "Diffusion nativePtr is 0, cannot generate")
-                return hashMapOf<String, Any>(
-                    "error" to true,
-                    "message" to "Native diffusion session not initialized"
-                )
-            }
+        val ptr = synchronized(this) {
+            check(!releaseRequested && nativePtr != 0L) { "Session is not available; reload the model" }
+            check(!modelLoading && !generating) { "Session is busy" }
             generating = true
-            val output = params["output"] as String
-            val iterNum = params["iterNum"] as Int
-            val randomSeed = params["randomSeed"] as Int
-            val nativeResult = submitDiffusionNative(
-                nativePtr,
+            nativePtr
+        }
+        try {
+            val result = submitDiffusionNative(
+                ptr,
                 prompt,
-                output,
-                iterNum,
-                randomSeed,
+                params["output"] as String,
+                params["iterNum"] as Int,
+                params["randomSeed"] as Int,
                 progressListener
-            )
-            val result: HashMap<String, Any> = nativeResult ?: hashMapOf<String, Any>(
-                "error" to true,
-                "message" to "Native diffusion returned null"
-            )
-            generating = false
-            if (releaseRequested) {
-                releaseInner()
-            }
+            ) ?: hashMapOf<String, Any>("error" to true, "message" to "Native diffusion returned null", "session_invalid" to true)
+            if (result["session_invalid"] == true || result["error"] == true) releaseRequested = true
             return result
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            releaseRequested = true
+            throw e
+        } catch (e: OutOfMemoryError) {
+            releaseRequested = true
+            throw e
+        } finally {
+            synchronized(this) {
+                generating = false
+                (this as Object).notifyAll()
+            }
+            if (releaseRequested) release()
         }
     }
 
-    private fun releaseInner() {
-        if (nativePtr != 0L) {
-            releaseNative(nativePtr)
-            nativePtr = 0
-            provide().removeSession(sessionId)
-            (this as Object).notifyAll()
+    override fun reset(): String = synchronized(this) {
+        check(!releaseRequested && !generating && !modelLoading) { "Session is not available" }
+        sessionId = System.currentTimeMillis().toString()
+        provide().updateSessionId(this)
+        sessionId
+    }
+
+    override fun release() {
+        val ptr = synchronized(this) {
+            releaseRequested = true
+            if (generating || modelLoading || releaseStarted) return
+            releaseStarted = true
+            nativePtr.also { nativePtr = 0 }
+        }
+        var succeeded = false
+        try {
+            if (ptr != 0L) releaseNative(ptr)
+            succeeded = true
+        } finally {
+            try {
+                provide().removeSession(this)
+            } finally {
+                provide().onNativeReleased(this, succeeded)
+                synchronized(this) { (this as Object).notifyAll() }
+            }
         }
     }
 
+    override fun setKeepHistory(keepHistory: Boolean) {}
+    override fun setEnableAudioOutput(enable: Boolean) {}
+    override fun getHistory(): List<ChatDataItem>? = savedHistory
+    override fun setHistory(history: List<ChatDataItem>?) {
+        savedHistory = history
+    }
+    override fun updateThinking(thinking: Boolean) {}
 
     private external fun submitDiffusionNative(
         instanceId: Long,
@@ -89,62 +135,12 @@ class DiffusionSession(
         randomSeed: Int,
         progressListener: GenerateProgressListener
     ): HashMap<String, Any>?
-
-    private fun generateNewSessionId(): String {
-        this.sessionId = System.currentTimeMillis().toString()
-        return this.sessionId
-    }
-
-    override fun reset(): String {
-        return generateNewSessionId()
-    }
-
-    override fun release() {
-        synchronized(this) {
-            Log.d(TAG, "MNN_DEBUG release nativePtr: $nativePtr generating: $generating")
-            if (!generating) {
-                releaseInner()
-            } else {
-                releaseRequested = true
-            }
-        }
-    }
-
-    override fun setKeepHistory(keepHistory: Boolean) {
-        // Diffusion models don't use keepHistory for generation, but we still store it for UI
-        // The history is managed by the UI layer, not the native layer
-    }
-
-    override fun setEnableAudioOutput(enable: Boolean) {
-        // Diffusion models don't support audio output
-    }
-
-    override fun getHistory(): List<ChatDataItem>? {
-        Log.d(TAG, "getHistory: returning ${savedHistory?.size ?: 0} items")
-        return savedHistory
-    }
-
-    override fun setHistory(history: List<ChatDataItem>?) {
-        Log.d(TAG, "setHistory: setting ${history?.size ?: 0} items")
-        savedHistory = history
-    }
-
-    override fun updateThinking(thinking: Boolean) {
-    }
-
-
-    private external fun initNative(
-        configPath: String,
-        extraConfig:String
-    ): Long
-
+    private external fun initNative(configPath: String, extraConfig: String): Long
     private external fun resetNative(instanceId: Long)
-
     private external fun releaseNative(instanceId: Long)
 
     companion object {
         const val TAG: String = "DiffusionSession"
-
         init {
             System.loadLibrary("mnnllmapp")
         }

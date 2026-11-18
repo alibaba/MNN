@@ -22,7 +22,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
-import com.alibaba.mls.api.ApplicationProvider
 import com.alibaba.mnnllm.android.llm.ChatSession
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.BuildConfig
@@ -54,7 +53,6 @@ import com.alibaba.mnnllm.android.chat.voice.VoiceModelMarketBottomSheet
 import com.alibaba.mnnllm.android.modelist.ModelItemWrapper
 import com.alibaba.mnnllm.android.utils.CrashReportContext
 import com.alibaba.mnnllm.android.utils.ConfigInfoDialog
-import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
@@ -213,12 +211,24 @@ class ChatActivity : AppCompatActivity() {
     }
 
     private fun setupSession() {
-        chatSession = chatPresenter.createSession()
-        sessionId = chatSession!!.sessionId
-        CrashReportContext.setCurrentModel(modelId, sessionId)
-        onSessionCreated()
-        Log.d(TAG, "current SessionId: $sessionId")
-        chatPresenter.load()
+        onLoadingChanged(true)
+        lifecycleScope.launch {
+            try {
+                chatSession = withContext(Dispatchers.IO) { chatPresenter.createSession() }
+                sessionId = chatSession!!.sessionId
+                CrashReportContext.setCurrentModel(modelId, sessionId)
+                onSessionCreated()
+                chatPresenter.load()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: OutOfMemoryError) {
+                chatPresenter.destroy()
+                onModelLoadFailed("Not enough memory to create the session")
+            } catch (e: Exception) {
+                chatPresenter.destroy()
+                onModelLoadFailed(e.message ?: "Model load failed")
+            }
+        }
     }
 
     private fun shouldStartMockStream(): Boolean {
@@ -475,7 +485,7 @@ class ChatActivity : AppCompatActivity() {
         }
     }
 
-    fun onLoadingChanged(loading: Boolean) {
+    fun onLoadingChanged(loading: Boolean, loaded: Boolean = !loading) {
         isLoading = loading
         this.chatInputModule!!.onLoadingStatesChanged(loading)
         layoutModelLoading!!.visibility =
@@ -484,7 +494,7 @@ class ChatActivity : AppCompatActivity() {
             supportActionBar!!.setDisplayHomeAsUpEnabled(true)
             binding.modelSwitcher.text = modelName
         }
-        if (!loading) {
+        if (!loading && loaded && chatSession != null && !isFinishing && !isDestroyed) {
             if (chatSession!!.supportOmni) {
                 setupOmni()
             }
@@ -499,6 +509,7 @@ class ChatActivity : AppCompatActivity() {
      * Called when model load fails (e.g. native init returned null). Shows error and finishes.
      */
     fun onModelLoadFailed(errorMessage: String) {
+        onLoadingChanged(false, loaded = false)
         Log.e(TAG, "Model load failed: $errorMessage")
         Toast.makeText(this, getString(R.string.model_load_failed, errorMessage), Toast.LENGTH_LONG).show()
         finish()
@@ -711,9 +722,7 @@ class ChatActivity : AppCompatActivity() {
         if (::chatPresenter.isInitialized) {
             chatPresenter.destroy()
         }
-        MainScope().launch {
-            ApiServiceManager.stopApiService(ApplicationProvider.get())
-        }
+        if (::chatPresenter.isInitialized && getChatPresenter() === chatPresenter) setChatPresenter(null)
     }
 
     private fun saveInterruptedResponseIfNeeded() {
@@ -738,7 +747,7 @@ class ChatActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
-        AudioPlayService.instance!!.destroy()
+        AudioPlayService.instance?.destroy()
     }
     fun onGenerateStart(userData: ChatDataItem) {
         chatListComponent.onStartSendMessage(userData)
@@ -895,16 +904,7 @@ class ChatActivity : AppCompatActivity() {
             // Trigger the same stop logic as the UI stop button
             chatPresenter.stopGenerate()
             
-            // Update UI state immediately
-            setIsGenerating(false)
-            val recentItem = chatListComponent.recentItem
-            recentItem?.loading = false
-            recentItem?.forceShowLoadingWithText = false
-            useDiffusionWaitHint = false
-            hasMeaningfulDiffusionProgress = false
-            showDiffusionPercentWhenZero = false
-            
-            Log.d(TAG, "Generation stopped by external request")
+            Log.d(TAG, "Generation stop requested; waiting for the active call to finish")
         } else {
             Log.d(TAG, "No active generation to stop")
         }

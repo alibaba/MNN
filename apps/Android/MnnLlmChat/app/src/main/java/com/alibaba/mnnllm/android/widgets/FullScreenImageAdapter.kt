@@ -1,7 +1,6 @@
 package com.alibaba.mnnllm.android.widgets
 
 import android.net.Uri
-import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -15,10 +14,6 @@ class FullScreenImageAdapter(
     private val onClick: () -> Unit,
     private val showShareOption: Boolean = true
 ) : RecyclerView.Adapter<FullScreenImageAdapter.ViewHolder>() {
-    companion object {
-        private const val TAG = "FullScreenImageAdapter"
-    }
-
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
         val view = LayoutInflater.from(parent.context)
             .inflate(R.layout.item_fullscreen_image, parent, false)
@@ -31,16 +26,17 @@ class FullScreenImageAdapter(
 
     override fun getItemCount(): Int = images.size
 
+    override fun onViewRecycled(holder: ViewHolder) {
+        holder.imageRequest.clear()
+        super.onViewRecycled(holder)
+    }
+
     inner class ViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         private val imageView: ImageView = itemView.findViewById(R.id.preview_image)
+        internal val imageRequest = ImageUtils.ImageRequest(imageView, ImageUtils.FULLSCREEN_MAX_DIMENSION)
 
         fun bind(uri: Uri) {
-            try {
-                imageView.setImageURI(uri)
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to decode fullscreen image: $uri", e)
-                imageView.setImageDrawable(null)
-            }
+            imageRequest.bind(uri)
             imageView.setOnClickListener {
                 onClick()
             }

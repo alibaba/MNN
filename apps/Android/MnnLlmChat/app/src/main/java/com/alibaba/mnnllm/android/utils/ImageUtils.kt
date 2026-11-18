@@ -2,7 +2,12 @@ package com.alibaba.mnnllm.android.utils
 
 import android.content.ContentValues
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.ColorSpace
+import android.graphics.Matrix
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -10,12 +15,29 @@ import android.provider.MediaStore
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
+import android.widget.ImageView
 import android.widget.Toast
+import androidx.annotation.CheckResult
+import androidx.annotation.WorkerThread
+import androidx.exifinterface.media.ExifInterface
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.findViewTreeLifecycleOwner
+import androidx.lifecycle.lifecycleScope
 import com.alibaba.mnnllm.android.R
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import java.io.File
-import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.IOException
+import java.io.InputStream
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 object ImageUtils {
     private const val TAG = "ImageUtils"
@@ -124,95 +146,269 @@ object ImageUtils {
         }
     }
 
-    /**
-     * Resizes and compresses an image file to reduce its size and memory footprint.
-     * Performs rotation based on EXIF metadata.
-     *
-     * @param file The image file to compress. This file will be overwritten with the compressed version.
-     * @param maxDimension The maximum allowed width or height for the output image. Defaults to 1024px.
-     * @param quality The JPEG compression quality level (0 to 100). Default is 80.
-     */
-    fun compressImageFile(file: java.io.File, maxDimension: Int = 1024, quality: Int = 80) {
-        try {
-            // Step 1: Decode only dimensions to calculate scaling factor without loading full bitmap into memory
-            val options = android.graphics.BitmapFactory.Options().apply {
-                inJustDecodeBounds = true
-            }
-            android.graphics.BitmapFactory.decodeFile(file.absolutePath, options)
+    const val ATTACHMENT_MAX_DIMENSION = 1024
+    const val FULLSCREEN_MAX_DIMENSION = 2048
+    const val PREVIEW_MAX_DIMENSION = 512
+    private val imageWorkLock = Any()
 
-            // Calculate inSampleSize: a power-of-two scaling done during decoding
-            var inSampleSize = 1
-            if (options.outHeight > maxDimension || options.outWidth > maxDimension) {
-                val halfHeight = options.outHeight / 2
-                val halfWidth = options.outWidth / 2
-                while (halfHeight / inSampleSize >= maxDimension && halfWidth / inSampleSize >= maxDimension) {
-                    inSampleSize *= 2
+    internal fun calculateInSampleSize(
+        width: Int,
+        height: Int,
+        maxDimension: Int,
+        maxPixels: Long
+    ): Int? {
+        if (width <= 0 || height <= 0 || maxDimension <= 0 || maxPixels <= 0) return null
+        var sample = 1
+        while (true) {
+            val sampledWidth = (width.toLong() + sample - 1) / sample
+            val sampledHeight = (height.toLong() + sample - 1) / sample
+            if (sampledWidth <= maxDimension && sampledHeight <= maxDimension &&
+                sampledWidth * sampledHeight <= maxPixels) return sample
+            if (sample >= (1 shl 30)) return null
+            sample *= 2
+        }
+    }
+
+    @WorkerThread
+    internal fun decodeBitmap(
+        context: Context,
+        uri: Uri,
+        maxDimension: Int,
+        maxPixels: Long = maxDimension.toLong() * maxDimension
+    ): Bitmap? = synchronized(imageWorkLock) {
+        decodeBitmap(maxDimension, maxPixels) {
+            context.contentResolver.openInputStream(uri) ?: throw IOException("Cannot open image")
+        }
+    }
+
+    private fun decodeBitmap(
+        maxDimension: Int,
+        maxPixels: Long,
+        open: () -> InputStream
+    ): Bitmap? {
+        var decoded: Bitmap? = null
+        var transformed: Bitmap? = null
+        try {
+            val limit = maxDimension.coerceAtMost(FULLSCREEN_MAX_DIMENSION)
+            val pixels = maxPixels.coerceAtMost(limit.toLong() * limit)
+            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            open().use { BitmapFactory.decodeStream(it, null, options) }
+            val sample = calculateInSampleSize(options.outWidth, options.outHeight, limit, pixels)
+                ?: return null
+            val orientation = try {
+                open().use {
+                    ExifInterface(it).getAttributeInt(
+                        ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL
+                    )
+                }
+            } catch (e: IOException) {
+                ExifInterface.ORIENTATION_NORMAL
+            }
+            options.inJustDecodeBounds = false
+            options.inSampleSize = sample
+            options.inScaled = false
+            options.inPreferredConfig = Bitmap.Config.ARGB_8888
+            options.inPreferredColorSpace = ColorSpace.get(ColorSpace.Named.SRGB)
+            open().use { decoded = BitmapFactory.decodeStream(it, null, options) }
+            val bitmap = decoded ?: return null
+            if (calculateInSampleSize(bitmap.width, bitmap.height, limit, pixels) != 1) return null
+            val matrix = Matrix().apply {
+                when (orientation) {
+                    ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> setScale(-1f, 1f)
+                    ExifInterface.ORIENTATION_ROTATE_180 -> setRotate(180f)
+                    ExifInterface.ORIENTATION_FLIP_VERTICAL -> setScale(1f, -1f)
+                    ExifInterface.ORIENTATION_TRANSPOSE -> {
+                        setRotate(90f)
+                        postScale(-1f, 1f)
+                    }
+                    ExifInterface.ORIENTATION_ROTATE_90 -> setRotate(90f)
+                    ExifInterface.ORIENTATION_TRANSVERSE -> {
+                        setRotate(270f)
+                        postScale(-1f, 1f)
+                    }
+                    ExifInterface.ORIENTATION_ROTATE_270 -> setRotate(270f)
                 }
             }
+            val result = if (matrix.isIdentity) bitmap else {
+                Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+            }
+            transformed = result
+            if (result !== bitmap) bitmap.recycle()
+            decoded = null
+            transformed = null
+            return result
+        } catch (e: IOException) {
+            Log.w(TAG, "Cannot read image", e)
+        } catch (e: SecurityException) {
+            Log.w(TAG, "Image access denied", e)
+        } catch (e: IllegalArgumentException) {
+            Log.w(TAG, "Invalid image", e)
+        } catch (e: OutOfMemoryError) {
+            Log.w(TAG, "Insufficient memory for bounded image decode")
+        } finally {
+            if (transformed !== decoded) transformed?.recycle()
+            decoded?.recycle()
+        }
+        return null
+    }
 
-            // Step 2: Decode the bitmap with calculated scale
-            options.inJustDecodeBounds = false
-            options.inSampleSize = inSampleSize
-            val bitmap = android.graphics.BitmapFactory.decodeFile(file.absolutePath, options) ?: return
-
-            // Step 3: Handle orientation using EXIF data
-            val exif = try {
-                android.media.ExifInterface(file.absolutePath)
-            } catch (e: Exception) {
+    @WorkerThread
+    @CheckResult
+    fun createImageAttachment(context: Context, uri: Uri, directory: File): File? =
+        synchronized(imageWorkLock) {
+            try {
+                val path = directory.canonicalPath
+                if (!path.startsWith(context.filesDir.canonicalPath + File.separator)) return null
+                if (!directory.isDirectory && !directory.mkdirs()) return null
+                val bitmap = decodeBitmap(context, uri, ATTACHMENT_MAX_DIMENSION) ?: return null
+                try {
+                    writeDerivedImage(bitmap, directory, 80)
+                } finally {
+                    bitmap.recycle()
+                }
+            } catch (e: IOException) {
+                Log.w(TAG, "Cannot create image attachment", e)
+                null
+            } catch (e: SecurityException) {
+                Log.w(TAG, "Cannot access image attachment directory", e)
                 null
             }
-            val orientation = exif?.getAttributeInt(
-                android.media.ExifInterface.TAG_ORIENTATION,
-                android.media.ExifInterface.ORIENTATION_UNDEFINED
-            ) ?: android.media.ExifInterface.ORIENTATION_UNDEFINED
+        }
 
-            val matrix = android.graphics.Matrix()
-            // Map EXIF orientation to degrees of rotation
-            when (orientation) {
-                android.media.ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
-                android.media.ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
-                android.media.ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+    private fun writeDerivedImage(bitmap: Bitmap, directory: File, quality: Int): File? {
+        var output: File? = null
+        var complete = false
+        try {
+            if (quality !in 0..100) return null
+            val file = File.createTempFile("image_", ".jpg", directory)
+            output = file
+            FileOutputStream(file).use {
+                if (!bitmap.compress(Bitmap.CompressFormat.JPEG, quality, it)) return null
             }
+            if (file.length() == 0L) return null
+            complete = true
+            return file
+        } catch (e: IOException) {
+            Log.w(TAG, "Cannot write derived image", e)
+        } catch (e: SecurityException) {
+            Log.w(TAG, "Cannot access derived image", e)
+        } catch (e: IllegalArgumentException) {
+            Log.w(TAG, "Cannot encode derived image", e)
+        } catch (e: OutOfMemoryError) {
+            Log.w(TAG, "Insufficient memory for image encoding")
+        } finally {
+            if (!complete) output?.delete()
+        }
+        return null
+    }
 
-            // Step 4: Optimization - Combine precise scaling and rotation into a single operation
-            // This avoids creating intermediate bitmaps for rotation then scaling separately.
-            val finalBitmap = if (bitmap.width > maxDimension || bitmap.height > maxDimension || !matrix.isIdentity) {
-                // Calculate precise scale to fit within maxDimension
-                val ratio = bitmap.width.toFloat() / bitmap.height.toFloat()
-                val targetWidth: Int
-                val targetHeight: Int
-                if (ratio > 1) {
-                    targetWidth = maxDimension
-                    targetHeight = (maxDimension / ratio).toInt()
-                } else {
-                    targetHeight = maxDimension
-                    targetWidth = (maxDimension * ratio).toInt()
+    @WorkerThread
+    @CheckResult
+    fun compressImageFile(
+        file: File,
+        maxDimension: Int = ATTACHMENT_MAX_DIMENSION,
+        quality: Int = 80
+    ): Boolean = synchronized(imageWorkLock) {
+        var derived: File? = null
+        try {
+            val bitmap = decodeBitmap(maxDimension, maxDimension.toLong() * maxDimension) {
+                file.inputStream()
+            } ?: return false
+            derived = try {
+                writeDerivedImage(bitmap, file.absoluteFile.parentFile ?: return false, quality)
+            } finally {
+                bitmap.recycle()
+            }
+            val output = derived ?: return false
+            Files.move(output.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+            true
+        } catch (e: IOException) {
+            Log.w(TAG, "Cannot replace captured image", e)
+            false
+        } catch (e: SecurityException) {
+            Log.w(TAG, "Cannot access captured image", e)
+            false
+        } finally {
+            derived?.delete()
+        }
+    }
+
+    internal class ImageRequest(
+        private val imageView: ImageView,
+        private val maxDimension: Int,
+        private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
+        private val decode: (Context, Uri, Int) -> Bitmap? = { context, uri, limit ->
+            decodeBitmap(context, uri, limit)
+        }
+    ) : View.OnAttachStateChangeListener {
+        private var uri: Uri? = null
+        private var job: Job? = null
+        private var generation = 0L
+
+        init {
+            imageView.addOnAttachStateChangeListener(this)
+        }
+
+        fun bind(uri: Uri) {
+            clear()
+            this.uri = uri
+            if (imageView.isAttachedToWindow) load()
+        }
+
+        fun clear() {
+            uri = null
+            cancel()
+        }
+
+        private fun cancel() {
+            generation++
+            job?.cancel()
+            job = null
+            imageView.setImageDrawable(null)
+        }
+
+        private fun load() {
+            val source = uri ?: return
+            val owner = imageView.findViewTreeLifecycleOwner() ?: findLifecycleOwner(imageView.context)
+                ?: return
+            if (owner.lifecycle.currentState == Lifecycle.State.DESTROYED) return
+            val token = generation
+            val context = imageView.context.applicationContext
+            job = owner.lifecycleScope.launch {
+                var bitmap: Bitmap? = null
+                try {
+                    withContext(dispatcher) {
+                        synchronized(imageWorkLock) {
+                            ensureActive()
+                            bitmap = decode(context, source, maxDimension)
+                        }
+                    }
+                    ensureActive()
+                    if (token == generation && imageView.isAttachedToWindow) {
+                        imageView.setImageBitmap(bitmap)
+                        bitmap = null
+                    }
+                } finally {
+                    bitmap?.recycle()
                 }
-
-                // Add scaling to the transformation matrix
-                val scaleWidth = targetWidth.toFloat() / bitmap.width
-                val scaleHeight = targetHeight.toFloat() / bitmap.height
-                matrix.postScale(scaleWidth, scaleHeight)
-
-                // Create final bitmap with combined transformation
-                android.graphics.Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
-            } else {
-                bitmap
             }
+        }
 
-            // Step 5: Save the compressed bitmap back to the original file
-            java.io.FileOutputStream(file).use { out ->
-                finalBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, quality, out)
-            }
+        override fun onViewAttachedToWindow(view: View) {
+            load()
+        }
 
-            // Step 6: Memory Cleanup
-            if (finalBitmap != bitmap) {
-                finalBitmap.recycle()
+        override fun onViewDetachedFromWindow(view: View) {
+            cancel()
+        }
+
+        private fun findLifecycleOwner(context: Context): LifecycleOwner? {
+            var current = context
+            while (true) {
+                if (current is LifecycleOwner) return current
+                if (current !is ContextWrapper || current.baseContext === current) return null
+                current = current.baseContext
             }
-            bitmap.recycle()
-            Log.d(TAG, "Image successfully compressed: ${file.length() / 1024} KB")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to compress image due to exception", e)
         }
     }
 }

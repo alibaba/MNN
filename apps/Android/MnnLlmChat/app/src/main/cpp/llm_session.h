@@ -7,6 +7,7 @@
 #include <string>
 #include <chrono>
 #include <mutex>
+#include <memory>
 #include <unordered_map>
 #include "nlohmann/json.hpp"
 #include "llm/llm.hpp"
@@ -62,14 +63,20 @@ public:
     LlmSession(std::string, json config, json extra_config, std::vector<std::string> string_history);
     void Reset();
     bool Load();
-    bool isModelReady() const { return llm_ != nullptr && model_loaded_; }
+    bool isModelReady() const { return llm_ != nullptr && model_loaded_.load(); }
+    const char* lastEngineError() const { return last_engine_error_.load(); }
+    void failAudioCallback() {
+        last_engine_error_.store("Native audio callback failed");
+        model_loaded_.store(false);
+    }
     /** Last error message when Load() fails. Cleared on success. */
     const std::string& getLastLoadError() const { return last_load_error_; }
     ~LlmSession();
     std::string getDebugInfo();
     void SetWavformCallback(std::function<bool(const float*, size_t, bool)> callback);
     const MNN::Transformer::LlmContext *
-    Response(const std::string &prompt, const std::function<bool(const std::string &, bool is_eop)> &on_progress);
+    Response(const std::string &prompt, const std::function<bool(const std::string &, bool is_eop)> &on_progress,
+             const std::function<bool()>& should_abort = {});
     void SetMaxNewTokens(int i);
 
     // Context budget. These take session_mutex_ and may run for a while (prepare
@@ -95,7 +102,8 @@ public:
     // 新增：API服务历史消息推理方法
     const MNN::Transformer::LlmContext *
     ResponseWithHistory(const std::vector<PromptItem>& full_history,
-                        const std::function<bool(const std::string &, bool is_eop)> &on_progress);
+                        const std::function<bool(const std::string &, bool is_eop)> &on_progress,
+                        const std::function<bool()>& should_abort = {});
 
     std::string getSystemPrompt() const;
 
@@ -156,6 +164,7 @@ public:
         std::function<void(const BenchmarkProgressInfo& progressInfo)> onProgress;
         std::function<void(const std::string& error)> onError;
         std::function<void(const std::string& detailed_stats)> onIterationComplete;
+        std::function<bool()> shouldAbort;
     };
     
     // Pure C++ benchmark method (platform-independent)
@@ -166,7 +175,9 @@ public:
 
 private:
     // All *Locked helpers require session_mutex_.
+    bool checkEngineStatusLocked();
     void applyPendingConfigLocked();
+    void applyPendingWaveformCallbackLocked();
     void applyContextKeys(const json& cfg);
     void rebuildSystemMessageLocked();
     int messageTokensLocked(const PromptItem& message);
@@ -203,12 +214,13 @@ private:
     json extra_config_{};
     json config_{};
     bool is_r1_{false};
-    bool stop_requested_{false};
+    std::atomic<bool> stop_requested_{false};
     bool generate_text_end_{false};
     bool keep_history_{true};
     std::vector<float> waveform{};
     Llm* llm_{nullptr};
-    bool model_loaded_{false};
+    std::atomic<bool> model_loaded_{false};
+    std::atomic<const char*> last_engine_error_{nullptr};
     std::string prompt_string_for_debug{};
     std::atomic<int> max_new_tokens_{2048};
     std::string system_prompt_;
@@ -226,6 +238,10 @@ private:
     json pending_config_ = json::object();
     bool has_pending_system_prompt_{false};
     std::string pending_system_prompt_;
+    using WaveformCallback = std::function<bool(const float*, size_t, bool)>;
+    std::shared_ptr<WaveformCallback> pending_waveform_callback_;
+    std::shared_ptr<WaveformCallback> waveform_callback_;
+    bool waveform_callback_installed_{false};
 
     int requested_limit_{8192}; // user's choice, before the model-window cap
     std::atomic<int> context_limit_{8192};

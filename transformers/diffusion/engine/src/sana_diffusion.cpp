@@ -37,6 +37,12 @@ namespace MNN
 {
     namespace DIFFUSION
     {
+        namespace {
+        bool waitForTensor(const VARP& value) {
+            auto* tensor = value.get() ? const_cast<Tensor*>(value->getTensor()) : nullptr;
+            return tensor && tensor->wait(Tensor::MAP_TENSOR_READ, true) == 0;
+        }
+        }
 
         SanaDiffusion::SanaDiffusion(std::string modelPath, DiffusionModelType modelType, MNNForwardType backendType, int memoryMode)
             : Diffusion(modelPath, modelType, backendType, memoryMode)
@@ -46,6 +52,8 @@ namespace MNN
         bool SanaDiffusion::load()
         {
             AUTOTIME;
+            mModules.clear();
+            runtime_manager_.reset();
 
             // 配置后端
             ScheduleConfig config;
@@ -74,12 +82,20 @@ namespace MNN
             config.backendConfig = &backendConfig;
 
             auto exe = ExecutorScope::Current();
+            if (!exe) {
+                MNN_ERROR("Sana: executor is unavailable\n");
+                return false;
+            }
             exe->lazyEval = false;
             exe->setGlobalExecutorConfig(config.type, backendConfig, config.numThread);
 
             Module::Config module_config;
             module_config.shapeMutable = false;
             runtime_manager_.reset(Executor::RuntimeManager::createRuntimeManager(config));
+            if (!runtime_manager_) {
+                MNN_ERROR("Sana: runtime manager creation failed\n");
+                return false;
+            }
 
             // 内存优化配置
             if (mMemoryMode == 0)
@@ -99,18 +115,26 @@ namespace MNN
 
             // 加载模型组件
             // Sana架构：LLM特征 -> Connector -> Projector -> DiT Transformer -> VAE Decoder
-            mModules.resize(5);
+            std::vector<std::shared_ptr<Module>> modules(5);
             {
                 // 模块0: Connector - 桥接LLM特征空间
                 {
                     std::string model_path = mModelPath + "/connector.mnn";
-                    mModules[0].reset(Module::load({"llm_out"}, {"connector_out"}, model_path.c_str(), runtime_manager_, &module_config));
+                    modules[0].reset(Module::load({"llm_out"}, {"connector_out"}, model_path.c_str(), runtime_manager_, &module_config));
+                    if (!modules[0]) {
+                        MNN_ERROR("Sana: failed to load %s\n", model_path.c_str());
+                        return false;
+                    }
                 }
 
                 // 模块1: Projector - 投影到Diffusion特征空间
                 {
                     std::string model_path = mModelPath + "/projector.mnn";
-                    mModules[1].reset(Module::load({"connector_out"}, {"prompt_embeds"}, model_path.c_str(), runtime_manager_, &module_config));
+                    modules[1].reset(Module::load({"connector_out"}, {"prompt_embeds"}, model_path.c_str(), runtime_manager_, &module_config));
+                    if (!modules[1]) {
+                        MNN_ERROR("Sana: failed to load %s\n", model_path.c_str());
+                        return false;
+                    }
                 }
 
                 // 模块2: DiT Transformer - 核心去噪模型
@@ -119,14 +143,15 @@ namespace MNN
                 {
                     std::string model_path = mModelPath + "/transformer.mnn";
                     MNN_PRINT("Loading transformer from %s\n", model_path.c_str());
-                    mModules[2].reset(Module::load(
+                    modules[2].reset(Module::load(
                         {"sample", "encoder_hidden_states", "timestep", "encoder_attention_mask", "ref_latents"},
                         {"noise_pred"},
                         model_path.c_str(), runtime_manager_, &module_config));
 
-                    if (mModules[2] == nullptr)
+                    if (modules[2] == nullptr)
                     {
                         MNN_ERROR("Failed to load transformer model\n");
+                        return false;
                     }
                     else
                     {
@@ -137,12 +162,16 @@ namespace MNN
                 // 模块3: VAE Decoder - 将latent解码为图像
                 {
                     std::string model_path = mModelPath + "/vae_decoder.mnn";
-                    mModules[3].reset(Module::load({"latent_sample"}, {"sample"}, model_path.c_str(), runtime_manager_, &module_config));
+                    modules[3].reset(Module::load({"latent_sample"}, {"sample"}, model_path.c_str(), runtime_manager_, &module_config));
+                    if (!modules[3]) {
+                        MNN_ERROR("Sana: failed to load %s\n", model_path.c_str());
+                        return false;
+                    }
                 }
             }
 
             // 模块4: VAE Encoder - 延迟加载（仅img2img模式需要）
-            mModules[4] = nullptr;
+            mModules = std::move(modules);
 
             return true;
         }
@@ -151,11 +180,19 @@ namespace MNN
         VARP SanaDiffusion::vae_decoder(VARP latent)
         {
             AUTOTIME;
+            if (!latent.get() || mModules.size() < 4 || !mModules[3]) {
+                MNN_ERROR("Sana: VAE decoder or latent is unavailable\n");
+                return nullptr;
+            }
 
             // 反归一化latent (scaling_factor = 0.41407)
             latent = latent / _Const(0.41407f);
 
             auto outputs = mModules[3]->onForward({latent});
+            if (outputs.empty() || !outputs[0].get()) {
+                MNN_ERROR("Sana: VAE decoder forward failed\n");
+                return nullptr;
+            }
             auto output = _Convert(outputs[0], NCHW);
 
             // 后处理：归一化到[0,1]并转换为uint8图像
@@ -172,6 +209,16 @@ namespace MNN
         VARP SanaDiffusion::vae_encoder(VARP image)
         {
             AUTOTIME;
+            if (!image.get() || mModules.size() < 5 || !runtime_manager_) {
+                MNN_ERROR("Sana: VAE encoder input or runtime is unavailable\n");
+                return nullptr;
+            }
+            const auto* image_info = image->getInfo();
+            if (!image_info || image_info->size != 1 * 3 * 512 * 512 ||
+                image_info->type != halide_type_of<float>()) {
+                MNN_ERROR("Sana: invalid VAE encoder input\n");
+                return nullptr;
+            }
 
             // 延迟加载VAE Encoder（仅img2img模式需要）
             if (mModules[4] == nullptr)
@@ -205,6 +252,7 @@ namespace MNN
             }
 
             auto input_var = _Input({1, 3, 512, 512}, NCHW, halide_type_of<float>());
+            if (!input_var.get()) return nullptr;
             auto image_ptr = image->readMap<void>();
             auto input_ptr = input_var->writeMap<void>();
 
@@ -235,8 +283,11 @@ namespace MNN
         VARP SanaDiffusion::load_and_process_image(const std::string &imagePath, int &orig_width, int &orig_height, int &pad_left, int &pad_top)
         {
             VARP image = imread(imagePath);
-
-            auto info = image->getInfo();
+            auto info = image.get() ? image->getInfo() : nullptr;
+            if (!info || info->dim.size() != 3 || info->dim[0] <= 0 || info->dim[1] <= 0 || info->dim[2] != 3) {
+                MNN_ERROR("Sana: invalid input image %s\n", imagePath.c_str());
+                return nullptr;
+            }
             orig_height = info->dim[0];
             orig_width = info->dim[1];
 
@@ -286,7 +337,8 @@ namespace MNN
         }
 
     bool SanaDiffusion::run(const std::string prompt, const std::string imagePath, int iterNum, int randomSeed, std::function<void(int)> progressCallback) {
-        return true;
+        MNN_ERROR("Sana requires LLM input embeddings\n");
+        return false;
     }
         // 核心推理流程
         // 输入：LLM特征(来自Qwen3-0.6B) -> Connector -> Projector -> DiT去噪 -> VAE解码 -> 输出图像
@@ -303,6 +355,17 @@ namespace MNN
                                 std::function<void(int)> progressCallback)
         {
             AUTOTIME;
+            if (!runtime_manager_ || mModules.size() < 5 ||
+                !mModules[0] || !mModules[1] || !mModules[2] || !mModules[3]) {
+                MNN_ERROR("Sana: required modules are not loaded\n");
+                return false;
+            }
+            const auto* input_info = input_embeds.get() ? input_embeds->getInfo() : nullptr;
+            if (!input_info || input_info->size <= 0 || outputImagePath.empty() || iterNum < 2 ||
+                !std::isfinite(cfg_scale) || (mode != "text2img" && mode != "img2img" && mode != "image_edit")) {
+                MNN_ERROR("Sana: invalid generation input (at least two steps required)\n");
+                return false;
+            }
 
             // 验证分辨率（必须是32的倍数，因为VAE scale factor是32）
             if (width % 32 != 0 || height % 32 != 0)
@@ -353,7 +416,7 @@ namespace MNN
 
                 if (mMemoryMode != 1)
                 {
-                    ((MNN::Tensor *)(ref_latents->getTensor()))->wait(Tensor::MAP_TENSOR_READ, true);
+                    if (!waitForTensor(ref_latents)) return false;
                     // 只有当mModules[4]不为空时才reset
                     if (mModules[4] != nullptr)
                     {
@@ -373,6 +436,10 @@ namespace MNN
             // Connector: 初步转换LLM特征
             MNN_PRINT("Running Connector...\n");
             auto connector_res = mModules[0]->onForward({llm_out});
+            if (connector_res.empty() || !connector_res[0].get()) {
+                MNN_ERROR("Sana: connector forward failed\n");
+                return false;
+            }
             auto connector_out = connector_res[0];
 
             if (mMemoryMode != 1)
@@ -384,6 +451,10 @@ namespace MNN
             // Projector: 投影到Diffusion特征空间
             MNN_PRINT("Running Projector...\n");
             auto projector_res = mModules[1]->onForward({connector_out});
+            if (projector_res.empty() || !projector_res[0].get()) {
+                MNN_ERROR("Sana: projector forward failed\n");
+                return false;
+            }
             auto prompt_embeds = projector_res[0];
 
             if (mMemoryMode != 1)
@@ -394,16 +465,13 @@ namespace MNN
 
             // ========== 步骤3: 处理CFG（Classifier-Free Guidance） ==========
             auto prompt_info = prompt_embeds->getInfo();
-            int batch_size = 1;
-            if (prompt_info && prompt_info->dim.size() > 0)
-            {
-                batch_size = prompt_info->dim[0];
+            if (!prompt_info || prompt_info->dim.size() < 2 ||
+                (prompt_info->dim[0] != 1 && prompt_info->dim[0] != 2) || prompt_info->dim[1] <= 0) {
+                MNN_ERROR("Sana: invalid projector output shape\n");
+                return false;
             }
-            int seq_len = 256;
-            if (prompt_info && prompt_info->dim.size() > 1)
-            {
-                seq_len = prompt_info->dim[1];
-            }
+            int batch_size = prompt_info->dim[0];
+            int seq_len = prompt_info->dim[1];
 
             // 处理CFG：根据use_cfg和batch_size调整prompt_embeds
             if (use_cfg)
