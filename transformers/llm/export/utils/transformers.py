@@ -134,9 +134,9 @@ class Attention(torch.nn.Module):
             self.rotary = None
         if config.model_type == 'mobilemoe' and attn.attn_temperature_tuning and not attn.use_rope:
             raise ValueError('MobileMoE attention temperature tuning is not supported')
-        if config.model_type in ['qwen3_5', 'qwen3_5_moe', 'qwen3_5_text', 'minicpmv4_7', 'minicpm_ocr']:
-            # Qwen3.5 attention norms use gamma=(1+weight). FusedRoPE stores
-            # norm.weight as gamma, so canonicalize the offset semantics first.
+        if config.model_type in ['qwen3_5', 'qwen3_5_moe', 'qwen3_5_text', 'minicpmv4_7', 'minicpm_ocr',
+                                 'gemma3', 'gemma3_text']:
+            # FusedRoPE reads gamma directly; these attention norms use gamma=(1+weight).
             self.q_norm = canonical_rms_norm(getattr(self, 'q_norm', None), 1.0)
             self.k_norm = canonical_rms_norm(getattr(self, 'k_norm', None), 1.0)
         self.q_gate_proj = None
