@@ -163,8 +163,38 @@ class RemoteModelCatalogTest {
         assertEquals(1.7, item.sizeB, 0.01)
         assertEquals(1_200_000_000L, item.fileSize)
         assertEquals("LFM3-1.7B-MNN", item.modelName)
-        assertEquals("", item.vendor)
+        // No CDN label -> vendor is inferred from the family prefix.
+        assertEquals("LFM", item.vendor)
         assertNull(item.minAppVersion)
+    }
+
+    // ==================== vendor inference ====================
+
+    @Test
+    fun inferVendor_matchesFamilyPrefixes() {
+        assertEquals("Qwen", RemoteModelCatalog.inferVendor("Qwen3-4B-MNN"))
+        assertEquals("Qwen", RemoteModelCatalog.inferVendor("QwQ-32B-MNN"))
+        assertEquals("DeepSeek", RemoteModelCatalog.inferVendor("DeepSeek-R1-7B-Qwen-MNN"))
+        assertEquals("LFM", RemoteModelCatalog.inferVendor("LFM2-1.2B-MNN"))
+        assertEquals("stability.ai", RemoteModelCatalog.inferVendor("stable-diffusion-v1-5-mnn-opencl"))
+        assertEquals("stability.ai", RemoteModelCatalog.inferVendor("MNN-Sana-Edit-V2"))
+        assertEquals("InternLM", RemoteModelCatalog.inferVendor("InternVL2_5-1B-MNN"))
+        assertEquals("Other", RemoteModelCatalog.inferVendor("Unknown-Family-MNN"))
+    }
+
+    @Test
+    fun toItem_blankLabelVendorFallsBackToInference() {
+        val label = ModelMarketItem(
+            modelName = "X-MNN", vendor = "", sizeB = 1.0, tags = emptyList(),
+            categories = emptyList(), sources = emptyMap()
+        )
+        val item = RemoteModelCatalog.toItem(
+            "X-MNN",
+            ms = RemoteModelCatalog.MsRepo(id = "MNN/X-MNN", fileSize = 1_000L),
+            hf = null,
+            label = label
+        )
+        assertEquals("Other", item.vendor)
     }
 
     @Test

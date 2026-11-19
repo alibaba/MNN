@@ -64,6 +64,7 @@ object ModelRepository {
     private const val NETWORK_URL_PROD = "https://meta.alicdn.com/data/mnn/apis/model_market.json"
     private const val NETWORK_URL_DEV = "https://meta.alicdn.com/data/mnn/apis/model_market_dev.json"
     private const val CACHE_FILE_NAME = "model_market_cache.json"
+    private const val SNAPSHOT_FILE_NAME = "model_market_snapshot.json"
     private const val CACHE_TIMESTAMP_KEY = "model_market_cache_timestamp"
     private const val CACHE_VALID_DURATION = 1 * 60 * 60 * 1000L 
     private const val KEY_ALLOW_NETWORK_MARKET_DATA = "debug_allow_network_market_data"
@@ -206,18 +207,54 @@ object ModelRepository {
     }
 
     /**
-     * Enumerate the ModelScope and HuggingFace APIs and compose a market payload.
+     * Enumerate the ModelScope/HuggingFace APIs and compose a market payload.
      * The CDN index (assets or network) only supplies curated labels; voice models
      * and libs cannot be discovered through the hub APIs and are carried over as-is.
+     * [emitPartial] streams the already-verified subset to the UI while the rest of
+     * the repos are still being format-checked.
      * Returns null when both hubs are unreachable so callers fall back to the CDN.
      */
-    private suspend fun composeFromApis(labelsSource: ModelMarketData?): ModelMarketData? {
+    private suspend fun composeFromApis(
+        labelsSource: ModelMarketData?,
+        emitPartial: (suspend (ModelMarketData) -> Unit)? = null
+    ): ModelMarketData? {
         if (!isAllowNetwork(context)) {
             return null
         }
         val cdnData = labelsSource ?: fetchFromNetwork() ?: loadFromCache()
         val labels = cdnData?.let { (it.models) + (it.ttsModels ?: emptyList()) + (it.asrModels ?: emptyList()) + (it.libs ?: emptyList()) }
-        val discovered = RemoteModelCatalog.fetchCatalog(httpClient, labels) ?: return null
+
+        fun composePayload(discovered: List<ModelMarketItem>): ModelMarketData {
+            val discoveredNames = discovered.map { it.modelName }.toSet()
+            val cdnOnly = (cdnData?.models ?: emptyList()).filter { it.modelName !in discoveredNames }
+            return ModelMarketData(
+                version = API_CATALOG_VERSION,
+                tagTranslations = cdnData?.tagTranslations ?: emptyMap(),
+                quickFilterTags = cdnData?.quickFilterTags ?: emptyList(),
+                vendorOrder = cdnData?.vendorOrder,
+                models = discovered + cdnOnly,
+                ttsModels = cdnData?.ttsModels,
+                asrModels = cdnData?.asrModels,
+                libs = cdnData?.libs
+            )
+        }
+
+        val discovered = RemoteModelCatalog.fetchCatalog(
+            httpClient,
+            labels,
+            onPartial = emitPartial?.let { emit ->
+                { partial ->
+                    // Best-effort streaming of the verified subset; never fail the crawl.
+                    try {
+                        val payload = composePayload(partial)
+                        saveCacheToFile(payload)
+                        emit(payload)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "composeFromApis partial emit failed", e)
+                    }
+                }
+            }
+        ) ?: return null
 
         // CDN-only entries survive as fallback when their hub listing failed but the
         // curated index still ships a source for the selected provider.
@@ -276,11 +313,19 @@ object ModelRepository {
      * Prefers the live ModelScope/HuggingFace catalog (CDN index as labels);
      * falls back to the CDN index alone when both hubs are unreachable.
      * Will still prefer assets if network version is older than assets.
+     * [emitPartial] streams verified-subset catalogs to the UI while crawling.
      */
-    suspend fun refreshFromNetwork(): ModelMarketConfig? = withContext(Dispatchers.IO) {
+    suspend fun refreshFromNetwork(emitPartial: (suspend (ModelMarketConfig) -> Unit)? = null): ModelMarketConfig? = withContext(Dispatchers.IO) {
         try {
             val assetsData = loadFromAssets()
-            val composed = composeFromApis(assetsData)
+            val composed = composeFromApis(
+                assetsData,
+                emitPartial = emitPartial?.let { emit ->
+                    { payload ->
+                        emit(convertToConfig(payload))
+                    }
+                }
+            )
             if (composed != null) {
                 val config = convertToConfig(composed)
                 cachedModelMarketData = config
@@ -407,15 +452,38 @@ object ModelRepository {
             val cacheFile = File(context.filesDir, CACHE_FILE_NAME)
             val jsonString = gson.toJson(data)
             cacheFile.writeText(jsonString)
-            
+
+            // Persist the verification snapshot so the next cold start can skip
+            // per-repo file checks for unchanged repos.
+            try {
+                File(context.filesDir, SNAPSHOT_FILE_NAME)
+                    .writeText(gson.toJson(RemoteModelCatalog.snapshot()))
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to persist catalog snapshot", e)
+            }
+
             // Save timestamp
             val sharedPrefs = PreferenceManager.getDefaultSharedPreferences(context)
             sharedPrefs.edit()
                 .putLong(CACHE_TIMESTAMP_KEY, System.currentTimeMillis())
                 .apply()
-            
+
         } catch (e: Exception) {
             Log.e(TAG, "Failed to save cache", e)
+        }
+    }
+
+    /** Restore the hub verification snapshot from disk (call before the first crawl). */
+    private fun restoreSnapshotFromDisk() {
+        try {
+            val file = File(context.filesDir, SNAPSHOT_FILE_NAME)
+            if (!file.exists()) return
+            val type = object : com.google.gson.reflect.TypeToken<Map<String, RemoteModelCatalog.SnapshotEntry>>() {}.type
+            val entries: Map<String, RemoteModelCatalog.SnapshotEntry> = gson.fromJson(file.readText(), type) ?: return
+            RemoteModelCatalog.restoreSnapshot(entries)
+            Log.i(TAG, "Restored catalog snapshot: ${entries.size} repos")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to restore catalog snapshot", e)
         }
     }
 
@@ -608,8 +676,18 @@ object ModelRepository {
             try {
                 _loadingStateFlow.value = LoadingState.LOADING_NETWORK
                 Log.i(TAG, "background refresh started: env=${getMarketEnvironment(context)}, url=${getMarketNetworkUrl(context)}")
-                
-                val networkConfig = refreshFromNetwork()
+
+                // Warm the verification snapshot so unchanged repos skip file checks.
+                restoreSnapshotFromDisk()
+
+                val networkConfig = refreshFromNetwork(emitPartial = { partialConfig ->
+                    // Stream the verified subset immediately; the final emission below
+                    // replaces it with the complete catalog.
+                    _marketDataFlow.value = partialConfig
+                    TagMapper.initializeFromConfig(partialConfig)
+                    buildCacheFromData(partialConfig)
+                    Log.i(TAG, "background refresh partial: models=${partialConfig.llmModels.size}")
+                })
                 
                 if (networkConfig != null) {
                     _marketDataFlow.value = networkConfig

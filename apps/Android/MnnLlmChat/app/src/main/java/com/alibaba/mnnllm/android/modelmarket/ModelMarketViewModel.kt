@@ -143,50 +143,56 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
         _models.postValue(filteredList)
     }
 
+    private var loadJob: kotlinx.coroutines.Job? = null
+
     fun loadModels() {
-        viewModelScope.launch {
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
             try {
-                // Set loading state
-                _isLoading.postValue(true)
                 _loadError.postValue(null)
-                
-                // Get pre-processed config with all models
-                val config = ModelRepository.getModelMarketData()
-                modelMarketConfig = config
-                
-                if (config == null) {
-                    // Handle case where data couldn't be loaded
-                    _isLoading.postValue(false)
-                    _loadError.postValue("Failed to load model data")
-                    return@launch
-                }
-                
-                // Initialize TagMapper with config
-                TagMapper.initializeFromConfig(config)
-                
-                // Use pre-processed models directly from config
-                val marketItems = config.llmModels
-                allModels = marketItems.map {
-                    val downloadInfo = downloadManager.getDownloadInfo(it.modelId)
-                    // If download hasn't started and we have file size in metadata, use it
-                    if (downloadInfo.totalSize == 0L && it.fileSize > 0) {
-                        downloadInfo.totalSize = it.fileSize
+
+                // Render immediately from cache/assets if available; the repository
+                // streams network updates (partial API catalog -> full catalog) through
+                // marketDataFlow, so the list grows instead of blocking on the crawl.
+                if (allModels.isEmpty()) {
+                    val cached = ModelRepository.loadCachedOrAssets()
+                    if (cached != null) {
+                        applyConfig(cached)
+                    } else {
+                        _isLoading.postValue(true)
                     }
-                    Log.d(TAG, "Model: ${it.modelName}, modelId: ${it.modelId} initial downloadState: ${downloadInfo.downloadState}")
-                    ModelMarketItemWrapper(it, downloadInfo)
+                } else {
+                    // Source switch etc.: keep showing the current list while refreshing.
+                    _isLoading.postValue(false)
                 }
-                Log.d(TAG, "allModels: ${allModels.size} models loaded")
-                
-                // Clear loading state
-                _isLoading.postValue(false)
-                applyCurrentFilters()
-                
+
+                ModelRepository.subscribeToMarketData().collect { config ->
+                    applyConfig(config)
+                }
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.e(TAG, "Failed to load models", e)
                 _isLoading.postValue(false)
                 _loadError.postValue("Loading failed: ${e.message}")
             }
         }
+    }
+
+    private fun applyConfig(config: ModelMarketConfig) {
+        modelMarketConfig = config
+        TagMapper.initializeFromConfig(config)
+
+        val marketItems = config.llmModels
+        allModels = marketItems.map {
+            val downloadInfo = downloadManager.getDownloadInfo(it.modelId)
+            if (downloadInfo.totalSize == 0L && it.fileSize > 0) {
+                downloadInfo.totalSize = it.fileSize
+            }
+            ModelMarketItemWrapper(it, downloadInfo)
+        }
+        Log.d(TAG, "applyConfig: ${allModels.size} models, version=${config.version}")
+        _isLoading.postValue(false)
+        applyCurrentFilters()
     }
 
 
@@ -223,7 +229,9 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun getAvailableVendors(): List<String> {
-        val availableVendors = allModels.map { it.modelMarketItem.vendor }.distinct()
+        val availableVendors = allModels.map { it.modelMarketItem.vendor }
+            .filter { it.isNotBlank() }
+            .distinct()
         val vendorOrder = modelMarketConfig?.vendorOrder ?: emptyList()
         
         // Sort vendors according to the custom order, with unlisted vendors at the end
@@ -242,6 +250,7 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
 
     fun getAvailableTags(): List<Tag> {
         return allModels.flatMap { it.modelMarketItem.structuredTags }
+            .filter { it.key.isNotBlank() }
             .distinctBy { it.key }
             .sortedBy { it.getDisplayText() }
     }

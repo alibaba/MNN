@@ -15,6 +15,7 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Discovers the model-market catalog straight from the ModelScope and HuggingFace
@@ -40,7 +41,6 @@ object RemoteModelCatalog {
 
     private const val MS_LIST_URL = "https://modelscope.cn/openapi/v1/models"
     private const val MS_FILES_URL = "https://modelscope.cn/api/v1/models/%s/repo/files?Root=&Revision=master"
-    private const val HF_LIST_URL = "https://huggingface.co/api/models?author=taobao-mnn&limit=1000&full=true"
 
     private const val MS_OWNER = "MNN"
     private const val MS_PAGE_SIZE = 50
@@ -49,21 +49,49 @@ object RemoteModelCatalog {
 
     private val gson = Gson()
 
+    /**
+     * In-memory verification snapshot: modelName -> (lastModified, verified file list).
+     * Repos whose hub `last_modified` matches skip the per-repo file-list call entirely,
+     * which turns a cold ~200-request crawl into a warm delta check.
+     */
+    data class SnapshotEntry(val lastModified: String?, val files: Set<String>)
+
+    private val fileSnapshot = ConcurrentHashMap<String, SnapshotEntry>()
+
+    /** Replace the snapshot from a persisted copy (called by ModelRepository on load). */
+    fun restoreSnapshot(entries: Map<String, SnapshotEntry>) {
+        fileSnapshot.clear()
+        fileSnapshot.putAll(entries)
+    }
+
+    /** Current snapshot for persistence. */
+    fun snapshot(): Map<String, SnapshotEntry> = HashMap(fileSnapshot)
+
     // ==================== Public entry point ====================
 
     /**
      * Enumerate both hubs, verify package format and merge into market items.
      * [labels] are the curated CDN entries keyed by model name; they may be null.
+     * [onPartial] (optional) receives an intermediate catalog as soon as the hub
+     * listings are in and the snapshot-verified subset is merged, so the UI can
+     * render most of the list while the remaining repos are still being verified.
      * Returns null when neither hub could be reached so the caller can fall back
      * to the CDN index.
      */
     suspend fun fetchCatalog(
         client: OkHttpClient,
-        labels: List<ModelMarketItem>?
+        labels: List<ModelMarketItem>?,
+        onPartial: (suspend (List<ModelMarketItem>) -> Unit)? = null
     ): List<ModelMarketItem>? = withContext(Dispatchers.IO) {
         try {
-            val ms = listModelScope(client)
-            val hf = listHuggingFace(client)
+            val t0 = System.currentTimeMillis()
+            // Enumerate both hubs in parallel; either one alone is enough to proceed.
+            val (ms, hf) = coroutineScope {
+                val msDeferred = async { listModelScope(client) }
+                val hfDeferred = async { listHuggingFace(client) }
+                msDeferred.await() to hfDeferred.await()
+            }
+            Log.i(TAG, "fetchCatalog: listing done in ${System.currentTimeMillis() - t0}ms ms=${ms.size} hf=${hf.size}")
             if (ms.isEmpty() && hf.isEmpty()) {
                 Log.w(TAG, "fetchCatalog: both hubs returned nothing")
                 return@withContext null
@@ -74,16 +102,37 @@ object RemoteModelCatalog {
 
             // HuggingFace already ships the file list (siblings) in the list response,
             // so only ModelScope-exclusive candidates need an extra repo/files call.
+            // The snapshot lets unchanged repos reuse the previously verified file list.
             val filesByName = HashMap<String, Set<String>>()
             val needMsFiles = ArrayList<String>()
             for (name in (msByName.keys + hfByName.keys).toSet()) {
                 val hfFiles = hfByName[name]?.fileNames()
                 if (!hfFiles.isNullOrEmpty()) {
                     filesByName[name] = hfFiles
-                } else if (msByName.containsKey(name)) {
+                    rememberSnapshot(name, hfByName[name]?.lastModified, hfFiles)
+                    continue
+                }
+                val msRepo = msByName[name] ?: continue
+                val cached = fileSnapshot[name]
+                if (cached != null && cached.files.isNotEmpty() &&
+                    msRepo.lastModified != null && msRepo.lastModified == cached.lastModified
+                ) {
+                    filesByName[name] = cached.files
+                } else {
                     needMsFiles.add(name)
                 }
             }
+
+            // Phase 1: emit everything already verified (HF siblings + snapshot hits)
+            // so the market renders within one round-trip instead of waiting for the
+            // per-repo verification crawl.
+            if (onPartial != null && filesByName.isNotEmpty()) {
+                val partial = merge(ms, hf, filesByName, labelsByName)
+                Log.i(TAG, "fetchCatalog: partial emit ${partial.size} items, ${needMsFiles.size} repos still verifying")
+                onPartial(partial)
+            }
+
+            // Phase 2: verify the remaining ModelScope-exclusive repos.
             if (needMsFiles.isNotEmpty()) {
                 val semaphore = Semaphore(MS_FILE_CONCURRENCY)
                 coroutineScope {
@@ -91,7 +140,10 @@ object RemoteModelCatalog {
                         async {
                             semaphore.withPermit {
                                 val files = fetchModelScopeFiles(client, msByName[name]!!.id)
-                                if (files != null) name to files else null
+                                if (files != null) {
+                                    rememberSnapshot(name, msByName[name]?.lastModified, files)
+                                    name to files
+                                } else null
                             }
                         }
                     }.awaitAll().filterNotNull().forEach { (name, files) -> filesByName[name] = files }
@@ -100,12 +152,18 @@ object RemoteModelCatalog {
             val merged = merge(ms, hf, filesByName, labelsByName)
             Log.i(
                 TAG,
-                "fetchCatalog: ms=${ms.size} hf=${hf.size} files=${filesByName.size} merged=${merged.size}"
+                "fetchCatalog: total ${System.currentTimeMillis() - t0}ms files=${filesByName.size} merged=${merged.size}"
             )
             merged
         } catch (e: Exception) {
             Log.e(TAG, "fetchCatalog failed", e)
             null
+        }
+    }
+
+    private fun rememberSnapshot(name: String, lastModified: String?, files: Set<String>) {
+        if (files.isNotEmpty()) {
+            fileSnapshot[name] = SnapshotEntry(lastModified, files)
         }
     }
 
@@ -186,7 +244,7 @@ object RemoteModelCatalog {
 
         return ModelMarketItem(
             modelName = name,
-            vendor = label?.vendor ?: "",
+            vendor = label?.vendor?.takeIf { it.isNotBlank() } ?: inferVendor(name),
             sizeB = sizeB,
             tags = tags,
             categories = categories,
@@ -196,6 +254,51 @@ object RemoteModelCatalog {
             fileSize = fileSize,
             extraTags = label?.extraTags ?: emptyList()
         )
+    }
+
+    /**
+     * Family-prefix vendor inference for API-discovered models without CDN labels.
+     * Mirrors the curated CDN vendor taxonomy so the vendor filter never shows blanks.
+     * Longest prefix wins (e.g. "InternVL" before "Intern").
+     */
+    private val VENDOR_PREFIXES: List<Pair<String, String>> = listOf(
+        "Baichuan" to "Baichuan",
+        "DeepSeek" to "DeepSeek",
+        "ERNIE" to "ERNIE",
+        "FastVLM" to "FastVLM",
+        "Fun-Audio" to "FunAudio",
+        "GUI-Owl" to "Qwen",
+        "Hunyuan" to "Hunyuan",
+        "InternVL" to "InternLM",
+        "InternLM" to "InternLM",
+        "LFM" to "LFM",
+        "Lingshu" to "Lingshu",
+        "Llama" to "Llama",
+        "Meta-Llama" to "Llama",
+        "MiMo" to "MiMo",
+        "MiniCPM" to "MiniCPM",
+        "MiniMind" to "Nanbeige",
+        "MobileLLM" to "MobileLLM",
+        "Nanbeige" to "Nanbeige",
+        "Phi" to "Phi",
+        "Qwen" to "Qwen",
+        "QwQ" to "Qwen",
+        "Smol" to "Smol",
+        "THUDM" to "THUDM",
+        "TinyLlama" to "TinyLlama",
+        "VibeThinker" to "VibeThinker",
+        "YuFeng" to "YuFeng",
+        "Gemma" to "Gemma",
+        "GPT" to "GPT",
+        "stable-diffusion" to "stability.ai",
+        "MNN-Sana" to "stability.ai"
+    ).sortedByDescending { it.first.length }
+
+    internal fun inferVendor(name: String): String {
+        for ((prefix, vendor) in VENDOR_PREFIXES) {
+            if (name.startsWith(prefix, ignoreCase = true)) return vendor
+        }
+        return "Other"
     }
 
     private fun apiTags(ms: MsRepo?, hf: HfRepo?): List<String> {
@@ -218,33 +321,57 @@ object RemoteModelCatalog {
     // ==================== Network ====================
 
     private suspend fun listModelScope(client: OkHttpClient): List<MsRepo> = withContext(Dispatchers.IO) {
-        val out = ArrayList<MsRepo>()
-        var page = 1
-        while (page <= MS_MAX_PAGES) {
-            val url = "$MS_LIST_URL?owner=$MS_OWNER&page_size=$MS_PAGE_SIZE&page_number=$page"
-            val body = httpGet(client, url) ?: break
-            val data = try {
-                gson.fromJson(body, MsPage::class.java)?.data
+        // Page 1 discovers total_count; remaining pages are fetched in parallel.
+        fun pageUrl(page: Int) = "$MS_LIST_URL?owner=$MS_OWNER&page_size=$MS_PAGE_SIZE&page_number=$page"
+        fun parsePage(page: Int, body: String?): MsPageData? {
+            if (body == null) return null
+            return try {
+                gson.fromJson(body, MsPage::class.java)?.data?.takeIf { it.pageNumber == page }
             } catch (e: Exception) {
                 Log.w(TAG, "ModelScope page $page parse failed: ${e.message}")
                 null
-            } ?: break
-            if (data.pageNumber != page) break
-            out.addAll(data.models)
-            if (data.models.isEmpty() || page.toLong() * MS_PAGE_SIZE >= data.totalCount) break
-            page++
+            }
+        }
+
+        val first = parsePage(1, httpGet(client, pageUrl(1))) ?: return@withContext emptyList()
+        val out = ArrayList<MsRepo>(first.models)
+        val lastPage = minOf(
+            MS_MAX_PAGES,
+            ((first.totalCount + MS_PAGE_SIZE - 1) / MS_PAGE_SIZE).coerceAtLeast(1)
+        )
+        if (lastPage > 1) {
+            val semaphore = Semaphore(MS_FILE_CONCURRENCY)
+            coroutineScope {
+                (2..lastPage).map { page ->
+                    async {
+                        semaphore.withPermit {
+                            page to parsePage(page, httpGet(client, pageUrl(page)))?.models
+                        }
+                    }
+                }.awaitAll()
+                    .sortedBy { it.first }
+                    .forEach { (_, models) -> if (models != null) out.addAll(models) }
+            }
         }
         out
     }
 
     private suspend fun listHuggingFace(client: OkHttpClient): List<HfRepo> = withContext(Dispatchers.IO) {
-        val body = httpGet(client, HF_LIST_URL) ?: return@withContext emptyList()
-        try {
-            gson.fromJson(body, Array<HfRepo>::class.java).toList()
-        } catch (e: Exception) {
-            Log.w(TAG, "HuggingFace list parse failed: ${e.message}")
-            emptyList()
+        // Primary endpoint first; hf-mirror.com mirrors the same API for networks
+        // where huggingface.co is slow or blocked.
+        for (base in listOf("https://huggingface.co", "https://hf-mirror.com")) {
+            val body = httpGet(client, "$base/api/models?author=taobao-mnn&limit=1000&full=true") ?: continue
+            try {
+                val repos = gson.fromJson(body, Array<HfRepo>::class.java).toList()
+                if (repos.isNotEmpty()) {
+                    Log.i(TAG, "HuggingFace list from $base: ${repos.size}")
+                    return@withContext repos
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "HuggingFace list parse failed ($base): ${e.message}")
+            }
         }
+        emptyList()
     }
 
     private suspend fun fetchModelScopeFiles(client: OkHttpClient, repoId: String): Set<String>? =
