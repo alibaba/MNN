@@ -458,7 +458,9 @@ static_check() {
         log_err "cppcheck is required for static_check"
         _fail_static
     fi
-    if cppcheck --error-exitcode=1 --language=c++ --std=c++14 ${source_change} >/dev/null; then
+    # MNN_PUBLIC only carries symbol visibility. Left unresolved, cppcheck misparses
+    # `class MNN_PUBLIC X` and reports a bogus syntaxError inside the class body.
+    if cppcheck --error-exitcode=1 --language=c++ --std=c++14 -DMNN_PUBLIC= ${source_change} >/dev/null; then
         printf "TEST_NAME_STATIC_CHECK: cppcheck静态分析\nTEST_CASE_AMOUNT_STATIC_CHECK: {\"blocked\":0,\"failed\":0,\"passed\":1,\"skipped\":0}\n"
     else
         printf "TEST_NAME_STATIC_CHECK: cppcheck静态分析\nTEST_CASE_AMOUNT_STATIC_CHECK: {\"blocked\":0,\"failed\":1,\"passed\":0,\"skipped\":0}\n"

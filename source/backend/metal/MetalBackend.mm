@@ -566,6 +566,11 @@ void MetalBackend::aliasTensor(const Tensor* tensor, const Tensor* owner, size_t
                       const_cast<Tensor*>(tensor));
 }
 
+bool MetalBackend::onCanShareBuffer(const Tensor* source, const Tensor* view) const {
+    return TensorUtils::isBufferLayoutCompatible(source, view, 4) &&
+        getTensorSizeInBytes(source) >= getTensorSizeInBytes(view);
+}
+
 Backend::MemObj* MetalBackend::onAcquire(const Tensor *_tensor, StorageType storageType) {
     auto tensor  = const_cast<Tensor *>(_tensor);
     size_t size = getTensorSizeInBytes(_tensor);
@@ -1133,12 +1138,18 @@ ErrorCode MetalBackend::applyLinearAttnGateFolds() {
             MNN_ERROR("MetalBackend: incomplete LinearAttention gate fold request\n");
             return NOT_SUPPORT;
         }
-        if (!onAcquireBuffer(req->rawA, Backend::STATIC)) {
+        // An identity-aliased raster output borrows its origin's chunk; re-homing
+        // would sever it from the content the raster never copied.
+        bool rawAAliased = TensorUtils::getDescribe(req->rawA)->storageRoot != nullptr;
+        bool rawBAliased = TensorUtils::getDescribe(req->rawB)->storageRoot != nullptr;
+        if (!rawAAliased && !onAcquireBuffer(req->rawA, Backend::STATIC)) {
             MNN_ERROR("MetalBackend: cannot re-home LinearAttention gate fold input\n");
             return OUT_OF_MEMORY;
         }
-        if (!onAcquireBuffer(req->rawB, Backend::STATIC)) {
-            onReleaseBuffer(req->rawA, Backend::STATIC);
+        if (!rawBAliased && !onAcquireBuffer(req->rawB, Backend::STATIC)) {
+            if (!rawAAliased) {
+                onReleaseBuffer(req->rawA, Backend::STATIC);
+            }
             MNN_ERROR("MetalBackend: cannot re-home LinearAttention beta fold input\n");
             return OUT_OF_MEMORY;
         }

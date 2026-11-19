@@ -176,6 +176,9 @@ void VulkanBackend::onResizeBegin() {
         _resetIndirectSegments();
     }
 }
+void VulkanBackend::onReallocResizeBegin() {
+    // The eager allocator needs no reset, and recorded group-1 segments must survive.
+}
 ErrorCode VulkanBackend::onResizeEnd() {
     if (!mDirect) {
         _sealIndirectSegment();

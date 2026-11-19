@@ -168,12 +168,18 @@ public:
     virtual void onResizeBegin() {
         // nothing to do
     }
+    // Re-allocation pass on a fixed plan must not drop commands the fixed group already
+    // recorded. Backends recording commands at resize time override this to keep them.
+    virtual void onReallocResizeBegin() { onResizeBegin(); }
     /**
      * @brief callback after resize ops.
      */
     virtual ErrorCode onResizeEnd() = 0;
     // Graph backends may combine consecutive commands after their shapes are known.
     virtual ErrorCode onResizeEnd(const std::vector<Command*>& commands) { return onResizeEnd(); }
+
+    // Whether the source allocation covers a full-range view with identical physical element order.
+    virtual bool onCanShareBuffer(const Tensor* source, const Tensor* view) const { return false; }
 
     /**
      * @brief callback before executing ops.

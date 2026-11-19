@@ -434,6 +434,11 @@ bool MetalConvolution1x1::setupQKVFusion(const Tensor* selfOutput,
                                          MetalConvolution1x1* peerK, const Tensor* peerKOutput,
                                          MetalConvolution1x1* peerV, const Tensor* peerVOutput,
                                          MetalConvolution1x1* peerW, const Tensor* peerWOutput) {
+    for (auto output : {selfOutput, peerKOutput, peerVOutput, peerWOutput}) {
+        if (output != nullptr && TensorUtils::getDescribe(output)->storageRoot != nullptr) {
+            return false;
+        }
+    }
     if (!mIs2sgDecode || !peerK->mIs2sgDecode || !peerV->mIs2sgDecode) {
         return false;
     }
