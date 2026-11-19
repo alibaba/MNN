@@ -284,6 +284,7 @@ public:
     }
     
     virtual Backend::MemObj* onAcquire(const Tensor *Tensor, StorageType storageType) override;
+    bool onCanShareBuffer(const Tensor* source, const Tensor* view) const override;
     virtual bool onClearBuffer() override;
     virtual void onCopyBuffer(const Tensor *srcTensor, const Tensor *dstTensor) const override;
 

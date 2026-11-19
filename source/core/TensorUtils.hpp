@@ -102,6 +102,9 @@ struct Tensor::InsideDescribe {
         bool applyQuant = false;
         bool isMutable = true;
         bool overlap = false; // Only used by strideSliceWrite now
+        // Storage group planned by Pipeline: a view points at its root, a root points at itself.
+        // Only Raster outputs become views; backends must not re-home any member.
+        Tensor* storageRoot = nullptr;
         int index = -1;
         int group = 0;
 		int channel_pack_num = 4;
@@ -209,6 +212,10 @@ public:
 
     static size_t getRawSize(const Tensor* t);
     static void setRasterInputs(Command* cmd);
+
+    // Mapping and physical storage compatibility are checked separately before planning a view.
+    static bool isFullBufferView(const Tensor* source, const Tensor* view);
+    static bool isBufferLayoutCompatible(const Tensor* source, const Tensor* view, int channelPack);
 
     static bool refTensorContent(Tensor* dst, const Tensor* src);
 

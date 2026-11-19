@@ -676,6 +676,11 @@ void CPUBackend::enqueueTask(std::function<int()>&& task) {
     }
 }
 
+bool CPUBackend::onCanShareBuffer(const Tensor* source, const Tensor* view) const {
+    return TensorUtils::isBufferLayoutCompatible(source, view, 0) &&
+        getTensorSize(source, true) == getTensorSize(view, true);
+}
+
 Backend::MemObj* CPUBackend::onAcquire(const MNN::Tensor* nativeTensorConst, StorageType storageType) {
     if (nativeTensorConst == nullptr) {
         return nullptr;
