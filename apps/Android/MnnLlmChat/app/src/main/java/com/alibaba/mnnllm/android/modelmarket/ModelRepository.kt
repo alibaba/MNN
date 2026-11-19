@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import androidx.preference.PreferenceManager
 import com.alibaba.mls.api.download.DownloadPersistentData
+import com.alibaba.mls.api.source.ModelSources
 import com.alibaba.mnnllm.android.mainsettings.MainSettings
 import com.alibaba.mnnllm.android.utils.AppUtils
 import com.google.gson.Gson
@@ -67,6 +68,8 @@ object ModelRepository {
     private const val CACHE_VALID_DURATION = 1 * 60 * 60 * 1000L 
     private const val KEY_ALLOW_NETWORK_MARKET_DATA = "debug_allow_network_market_data"
     private const val KEY_MARKET_ENV = "debug_market_data_environment"
+    // API-discovered catalogs always outrank the curated CDN index (version "22" etc.).
+    private const val API_CATALOG_VERSION = "99999"
     
     private fun isAllowNetwork(context: Context): Boolean {
         return com.alibaba.mnnllm.android.utils.PreferenceUtils.getBoolean(context, KEY_ALLOW_NETWORK_MARKET_DATA, true)
@@ -125,6 +128,16 @@ object ModelRepository {
             
             // Try to get data from network first (only once per app lifecycle)
             if (!isNetworkRequestAttempted) {
+                // API-discovered catalog first; the CDN index below is the fallback.
+                val composedData = composeFromApis(assetsData)
+                if (composedData != null) {
+                    val config = convertToConfig(composedData)
+                    cachedModelMarketData = config
+                    saveCacheToFile(composedData)
+                    isNetworkRequestAttempted = true
+                    Log.i(TAG, "getModelMarketData loaded from hub APIs: models=${composedData.models.size}")
+                    return@withContext config
+                }
                 val networkData = fetchFromNetwork()
                 if (networkData != null) {
                     // Compare versions
@@ -192,6 +205,38 @@ object ModelRepository {
         }
     }
 
+    /**
+     * Enumerate the ModelScope and HuggingFace APIs and compose a market payload.
+     * The CDN index (assets or network) only supplies curated labels; voice models
+     * and libs cannot be discovered through the hub APIs and are carried over as-is.
+     * Returns null when both hubs are unreachable so callers fall back to the CDN.
+     */
+    private suspend fun composeFromApis(labelsSource: ModelMarketData?): ModelMarketData? {
+        if (!isAllowNetwork(context)) {
+            return null
+        }
+        val cdnData = labelsSource ?: fetchFromNetwork() ?: loadFromCache()
+        val labels = cdnData?.let { (it.models) + (it.ttsModels ?: emptyList()) + (it.asrModels ?: emptyList()) + (it.libs ?: emptyList()) }
+        val discovered = RemoteModelCatalog.fetchCatalog(httpClient, labels) ?: return null
+
+        // CDN-only entries survive as fallback when their hub listing failed but the
+        // curated index still ships a source for the selected provider.
+        val discoveredNames = discovered.map { it.modelName }.toSet()
+        val cdnOnly = (cdnData?.models ?: emptyList()).filter { it.modelName !in discoveredNames }
+        Log.i(TAG, "composeFromApis: discovered=${discovered.size}, cdnOnly=${cdnOnly.size}")
+
+        return ModelMarketData(
+            version = API_CATALOG_VERSION,
+            tagTranslations = cdnData?.tagTranslations ?: emptyMap(),
+            quickFilterTags = cdnData?.quickFilterTags ?: emptyList(),
+            vendorOrder = cdnData?.vendorOrder,
+            models = discovered + cdnOnly,
+            ttsModels = cdnData?.ttsModels,
+            asrModels = cdnData?.asrModels,
+            libs = cdnData?.libs
+        )
+    }
+
     private suspend fun fetchFromNetwork(): ModelMarketData? = withContext(Dispatchers.IO) {
         // If not allowed to use network, skip network and use assets
         if (!isAllowNetwork(context)) {
@@ -228,11 +273,25 @@ object ModelRepository {
 
     /**
      * Force refresh market data from network and update cache.
+     * Prefers the live ModelScope/HuggingFace catalog (CDN index as labels);
+     * falls back to the CDN index alone when both hubs are unreachable.
      * Will still prefer assets if network version is older than assets.
      */
     suspend fun refreshFromNetwork(): ModelMarketConfig? = withContext(Dispatchers.IO) {
         try {
             val assetsData = loadFromAssets()
+            val composed = composeFromApis(assetsData)
+            if (composed != null) {
+                val config = convertToConfig(composed)
+                cachedModelMarketData = config
+                saveCacheToFile(composed)
+                isNetworkRequestAttempted = true
+                Log.i(
+                    TAG,
+                    "refreshFromNetwork applied API catalog: version=${composed.version}, models=${composed.models.size}"
+                )
+                return@withContext config
+            }
             val networkData = fetchFromNetwork()
             if (networkData != null) {
                 if (assetsData != null) {
@@ -367,7 +426,7 @@ object ModelRepository {
         
         
         return@withContext models.filter { 
-            if (!it.sources.containsKey(selectedSource)) {
+            if (it.sources.isEmpty()) {
                 return@filter false
             }
             if (!isAppVersionSupported(currentAppVersion, it.minAppVersion)) {
@@ -379,9 +438,17 @@ object ModelRepository {
             }
             true
         }.onEach { item ->
-            item.currentSource = selectedSource
-            item.currentRepoPath = item.sources[selectedSource]!!
-            item.modelId = "$selectedSource/${item.sources[selectedSource]!!}"
+            // Mirrors iOS ModelInfo.downloadSource: the selected hub decides
+            // membership, but a repo missing from it falls back instead of
+            // disappearing (e.g. Modelers-only selections on discovered models).
+            val repoPath = item.sources[selectedSource]
+                ?: item.sources[ModelSources.sourceModelScope]
+                ?: item.sources[ModelSources.sourceHuffingFace]
+                ?: item.sources.values.first()
+            val source = item.sources.entries.first { it.value == repoPath }.key
+            item.currentSource = source
+            item.currentRepoPath = repoPath
+            item.modelId = "$source/$repoPath"
             
             // Save file_size to DownloadPersistentData if available
             if (item.fileSize > 0) {
