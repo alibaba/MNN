@@ -4,6 +4,7 @@
 
 #include "mnncli_server.hpp"
 #include "chat_page.hpp"
+#include "prompt_checkpoint.hpp"
 #include "omni.hpp"
 #include <atomic>
 #include <climits>
@@ -40,6 +41,9 @@ struct Request {
 };
 
 struct Result {
+    size_t cached_tokens = 0;
+    const char* cache_reason = "disabled";
+    const char* checkpoint = "disabled";
     int prompt_tokens = 0;
     int completion_tokens = 0;
     int decode_tokens = 0;
@@ -360,15 +364,161 @@ json samplerDefaults(const std::string& model_config) {
             {"top_p", config.topP()}};
 }
 
+const char* CheckpointStatus(const json& config) {
+    if (!config.value("prompt_cache", false)) return "prompt_cache_disabled";
+    if (config.value("sampler_type", std::string("mixed")) != "greedy") return "unsupported_sampler";
+    if (!config.value("speculative_type", std::string()).empty()) return "speculative_enabled";
+    if (config.value("prompt_cache_slots", 0) <= 0) return "slots_disabled";
+    if (config.value("prompt_cache_max_mb", 256) <= 0) return "budget_disabled";
+    if (!config.value("kvcache_mmap", false)) return "kv_mmap_disabled";
+    if (config.value("backend_type", std::string("cpu")) != "cpu") return "unsupported_backend";
+    if (config.value("quant_kv", 0) != 0) return "quantized_kv";
+    return "eligible";
+}
+
+struct SessionCache {
+    PromptCheckpointStore prompt_checkpoints_;
+    std::vector<int> prompt_cache_tokens_;
+    const char* reason = "disabled";
+    const char* checkpoint = "disabled";
+    size_t respond(Llm* llm, const std::vector<int>& tokens, const json& config,
+                   std::ostream* output, int max_tokens);
+};
+
+size_t SessionCache::respond(Llm* llm, const std::vector<int>& tokens, const json& config,
+                             std::ostream* output, int max_tokens) {
+    const char* prompt_checkpoint_status_ = CheckpointStatus(config);
+    const auto cached = prompt_cache_tokens_.size();
+    const auto history = llm->getCurrentHistory();
+    const auto compare = std::min(cached, tokens.size());
+    const auto common = static_cast<size_t>(std::mismatch(prompt_cache_tokens_.begin(),
+        prompt_cache_tokens_.begin() + compare, tokens.begin()).first - prompt_cache_tokens_.begin());
+    const bool hit = cached > 0 && cached == history && tokens.size() > cached && common == cached;
+    reason = hit ? "exact_prefix" : cached == 0 ? "empty_cache" :
+        cached != history ? "history_mismatch" : common < compare ? "prefix_changed" :
+        "not_an_extension";
+    if (!hit) llm->reset();
+    size_t prefix = hit ? cached : 0;
+    const bool reuse = config.value("reuse_kv", false);
+    llm->set_config("{\"reuse_kv\":true}");
+    const int slots = std::max(0, std::min(16, config.value("prompt_cache_slots", 0)));
+    const int megabytes = std::max(0, std::min(4096, config.value("prompt_cache_max_mb", 256)));
+    const size_t tail = std::max(1, std::min(1024, config.value("prompt_cache_tail_tokens", 64)));
+    const bool refresh = config.value("prompt_cache_refresh", false);
+    bool checkpoints = false;
+    if ((!hit || refresh) && std::strcmp(prompt_checkpoint_status_, "eligible") == 0) {
+        checkpoints = prompt_checkpoints_.configure(config.value("prefix_cache_path", std::string("prefixcache")),
+                                                    slots, static_cast<size_t>(megabytes) * 1024 * 1024);
+        if (!checkpoints) prompt_checkpoint_status_ = "directory_unavailable";
+    }
+    auto match = checkpoints && !hit ? prompt_checkpoints_.find(tokens) : PromptCheckpointStore::Match{};
+    if (refresh && checkpoints) {
+        llm->generate_init(output, "");
+        size_t consumed = prefix;
+        std::string failed_restore;
+        if (!hit && match.tokens > 0) {
+            const bool restored = llm->setPrefixCacheFile(match.name);
+            llm->generate(std::vector<int>(tokens.begin(), tokens.begin() + match.tokens), 0);
+            if (!restored) {
+                prompt_checkpoints_.forget(match.name);
+                const auto status = llm->getContext()->status;
+                const bool rebuilt = (status == MNN::Transformer::LlmStatus::RUNNING ||
+                    status == MNN::Transformer::LlmStatus::NORMAL_FINISHED ||
+                    status == MNN::Transformer::LlmStatus::MAX_TOKENS_FINISHED) &&
+                    llm->getCurrentHistory() == match.tokens &&
+                    prompt_checkpoints_.save(match.name, std::vector<int>(tokens.begin(), tokens.begin() + match.tokens));
+                failed_restore = match.name;
+                reason = "checkpoint_invalid";
+                prompt_checkpoint_status_ = rebuilt ? "rebuilt" : "rebuild_failed";
+            }
+            // Materialize a restored state before exporting a later checkpoint.
+            llm->generate(std::vector<int>{tokens[match.tokens]}, 0);
+            consumed = match.tokens + 1;
+            if (restored) {
+                prefix = match.tokens;
+                reason = "checkpoint_restored";
+                prompt_checkpoint_status_ = "restored";
+            }
+        }
+        const size_t target = tokens.size() > tail ? tokens.size() - tail : 0;
+        if (target > consumed && target > 256) {
+            const auto name = prompt_checkpoints_.nextName();
+            const bool exported = llm->prefillWithSnapshot(
+                std::vector<int>(tokens.begin() + consumed, tokens.begin() + target), name);
+            const bool saved = exported && llm->getCurrentHistory() == target &&
+                prompt_checkpoints_.save(name, std::vector<int>(tokens.begin(), tokens.begin() + target));
+            prompt_checkpoints_.removeFiles(name);
+            consumed = target;
+            prompt_checkpoint_status_ = saved ? "refreshed" : "refresh_failed";
+            if (prefix == 0) reason = saved ? "checkpoint_created" : "checkpoint_not_saved";
+        } else if (target <= consumed) {
+            prompt_checkpoint_status_ = "refresh_skipped_tail";
+        } else {
+            prompt_checkpoint_status_ = "prompt_too_short";
+        }
+        if (consumed < tokens.size()) {
+            llm->generate(std::vector<int>(tokens.begin() + consumed, tokens.end()), max_tokens);
+        } else {
+            llm->generate(max_tokens < 0 ? config.value("max_new_tokens", 512) : max_tokens);
+        }
+        if (!failed_restore.empty()) prompt_checkpoints_.removeFiles(failed_restore);
+
+    } else if (!hit && checkpoints && (match.tokens > 0 || tokens.size() > tail + 256)) {
+        const size_t checkpoint_tokens = match.tokens > 0 ? match.tokens : tokens.size() - tail;
+        const auto name = match.tokens > 0 ? match.name : prompt_checkpoints_.nextName();
+        const bool restored = llm->setPrefixCacheFile(name);
+        std::vector<int> checkpoint(tokens.begin(), tokens.begin() + checkpoint_tokens);
+        llm->response(checkpoint, output, "", 0);
+        bool saved = false;
+        if (!restored) {
+            prompt_checkpoints_.forget(name);
+            // PendingWrite files are live, writable KV. Freeze them before prefill/decode continues.
+            const auto status = llm->getContext()->status;
+            if ((status == MNN::Transformer::LlmStatus::RUNNING ||
+                 status == MNN::Transformer::LlmStatus::NORMAL_FINISHED ||
+                 status == MNN::Transformer::LlmStatus::MAX_TOKENS_FINISHED) &&
+                llm->getCurrentHistory() == checkpoint_tokens) {
+                saved = prompt_checkpoints_.save(name, checkpoint);
+            }
+        }
+        // A zero-token cached prefill can finish normally; generate() checks actual error states itself.
+        llm->generate(std::vector<int>(tokens.begin() + checkpoint_tokens, tokens.end()), max_tokens);
+        if (!restored) prompt_checkpoints_.removeFiles(name);
+        prefix = restored ? checkpoint_tokens : 0;
+
+        reason = restored ? "checkpoint_restored" : saved ? "checkpoint_created" : "checkpoint_not_saved";
+        prompt_checkpoint_status_ = restored ? "restored" : saved ? "saved" : "save_failed";
+    } else {
+        if (!hit && checkpoints) prompt_checkpoint_status_ = "prompt_too_short";
+        // Only exact physical prefixes can continue without restoring every recurrent/attention layer.
+        llm->response(std::vector<int>(tokens.begin() + prefix, tokens.end()), output, "", max_tokens);
+    }
+    llm->set_config(json({{"reuse_kv", reuse}}).dump());
+
+    prompt_cache_tokens_ = tokens;
+    const auto* ctx = llm->getContext();
+    prompt_cache_tokens_.insert(prompt_cache_tokens_.end(), ctx->output_tokens.begin(), ctx->output_tokens.end());
+    const auto physical = llm->getCurrentHistory();
+    if ((ctx->status != MNN::Transformer::LlmStatus::NORMAL_FINISHED &&
+         ctx->status != MNN::Transformer::LlmStatus::MAX_TOKENS_FINISHED) ||
+        physical < tokens.size() || physical > prompt_cache_tokens_.size()) {
+        prompt_cache_tokens_.clear();
+    } else {
+        // A sampled EOS is in output_tokens but has not necessarily been forwarded into KV/state.
+        prompt_cache_tokens_.resize(physical);
+    }
+    checkpoint = prompt_checkpoint_status_;
+    return prefix;
+}
+
 Result generate(
-    Llm* llm, const Request& request, const json& defaults, const std::function<void(const std::string&)>& on_text,
+    Llm* llm, SessionCache& cache, const Request& request, const json& defaults, const std::function<void(const std::string&)>& on_text,
     const std::function<void(size_t)>& on_ready = [](size_t) {}) {
     Result result;
     Utf8StreamProcessor processor(on_text);
     LlmStreamBuffer buffer([&](const char* data, size_t size) { processor.processStream(data, size); });
     std::ostream output(&buffer);
-    // Each HTTP request contains its own full history; never reuse another client's KV state.
-    llm->reset();
+
     auto settings = defaults;
     settings.update(request.sampler);
     if (!llm->set_config(settings.dump()))
@@ -377,9 +527,20 @@ Result generate(
     if (ids.empty())
         return result;
     on_ready(ids.size());
-    llm->response(ids, &output, "", request.max_tokens);
+    const auto config = json::parse(llm->dump_config());
+    if (config.value("prompt_cache", false) && request.prompt.images.empty() &&
+        settings.value("sampler_type", std::string()) == "greedy" &&
+        config.value("speculative_type", std::string()).empty()) {
+        result.cached_tokens = cache.respond(llm, ids, config, &output, request.max_tokens);
+        result.cache_reason = cache.reason;
+        result.checkpoint = cache.checkpoint;
+    } else {
+        cache.prompt_cache_tokens_.clear();
+        llm->reset();
+        llm->response(ids, &output, "", request.max_tokens);
+    }
     const auto* context = llm->getContext();
-    result.prompt_tokens = context->prompt_len;
+    result.prompt_tokens = ids.size();
     result.completion_tokens = static_cast<int>(context->output_tokens.size());
     result.decode_tokens = result.completion_tokens;
     if (!context->output_tokens.empty() && context->status == LlmStatus::NORMAL_FINISHED)
@@ -392,7 +553,8 @@ Result generate(
 }
 
 json generationTimings(const Result& result) {
-    return {{"prefill_ms", result.prefill_us / 1000.0},
+    return {{"cache_reason", result.cache_reason}, {"checkpoint_status", result.checkpoint},
+            {"prefill_ms", result.prefill_us / 1000.0},
             {"decode_ms", result.decode_us / 1000.0},
             {"decode_tokens", result.decode_tokens},
             {"vision_ms", result.vision_us / 1000.0}};
@@ -415,6 +577,7 @@ bool MnncliServer::Start(Llm* llm, const std::string& model, const std::string& 
                          const std::string& embedding_model, const std::string& config_path, bool verbose) {
     httplib::Server server;
     server.set_payload_max_length(16 * 1024 * 1024);
+    auto cache = std::make_shared<SessionCache>();
     const auto model_config = llm->dump_config();
     const auto defaults = samplerDefaults(model_config);
     const auto config = json::parse(model_config, nullptr, false);
@@ -551,6 +714,8 @@ bool MnncliServer::Start(Llm* llm, const std::string& model, const std::string& 
         if (!authorized(req, res, false))
             return;
         std::lock_guard<std::mutex> lock(llm_mutex_);
+        cache->prompt_checkpoints_.clear();
+        cache->prompt_cache_tokens_.clear();
         llm->reset();
         res.set_content("{\"status\":\"ok\"}", "application/json");
     });
@@ -584,7 +749,7 @@ bool MnncliServer::Start(Llm* llm, const std::string& model, const std::string& 
         if (!request.stream) {
             std::lock_guard<std::mutex> lock(llm_mutex_);
             std::string text;
-            auto result = generate(llm, request, defaults, [&](const std::string& chunk) { text += chunk; });
+            auto result = generate(llm, *cache, request, defaults, [&](const std::string& chunk) { text += chunk; });
             if (!successful(result)) {
                 sendError(res, 500, "Model generation failed", anthropic);
                 return;
@@ -611,6 +776,7 @@ bool MnncliServer::Start(Llm* llm, const std::string& model, const std::string& 
                             {"usage",
                              {{"prompt_tokens", result.prompt_tokens},
                               {"completion_tokens", result.completion_tokens},
+                              {"prompt_tokens_details", {{"cached_tokens", result.cached_tokens}}},
                               {"total_tokens", result.prompt_tokens + result.completion_tokens}}},
                             {"mnn_timings", generationTimings(result)}};
             }
@@ -650,7 +816,7 @@ bool MnncliServer::Start(Llm* llm, const std::string& model, const std::string& 
                            {"content_block", {{"type", "text"}, {"text", ""}}}});
             };
             auto result = generate(
-                llm, request, defaults,
+                llm, *cache, request, defaults,
                 [&](const std::string& text) {
                     if (anthropic)
                         sendEvent(sink, "content_block_delta",
@@ -685,7 +851,8 @@ bool MnncliServer::Start(Llm* llm, const std::string& model, const std::string& 
                                {"usage",
                                 {{"prompt_tokens", result.prompt_tokens},
                                  {"completion_tokens", result.completion_tokens},
-                                 {"total_tokens", result.prompt_tokens + result.completion_tokens}}},
+                                 {"prompt_tokens_details", {{"cached_tokens", result.cached_tokens}}},
+                              {"total_tokens", result.prompt_tokens + result.completion_tokens}}},
                                {"mnn_timings", generationTimings(result)}});
                 }
                 const std::string done = "data: [DONE]\n\n";
