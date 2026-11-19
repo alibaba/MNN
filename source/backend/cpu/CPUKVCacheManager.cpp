@@ -9,11 +9,21 @@
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 
 #include "CPUKVCacheManager.hpp"
+#include "CPUPrefixSnapshot.hpp"
 #include "core/Concurrency.h"
 #include "core/TensorUtils.hpp"
 #include <memory>
 
 namespace MNN {
+
+bool CPUKVCacheManager::savePrefixSnapshot(const std::string& name, int layer) {
+    if (mKeyQuantMode != KVQuantMode::None || mValueQuantMode != KVQuantMode::None) return false;
+    const auto base = MNNFilePathConcat(mConfig.mPrefixCacheDir, name) + "_" + std::to_string(layer);
+    return writePrefixSnapshot(base + ".k", keyAddr(), mKvNumHead * mCurrentKeySizePerHead) &&
+           writePrefixSnapshot(base + ".v", valudAddr(), mKvNumHead * mCurrentValueSizePerHead);
+}
+
+
 
 static inline int c4Offset(int token, int channel, int seqLen, int pack) {
     return (channel / pack) * seqLen * pack + token * pack + (channel % pack);
@@ -474,8 +484,10 @@ ErrorCode CPUKVCacheManager::onAlloc(KVMeta* meta, int seq_len) {
                 MNNFilePathConcat(mConfig.mPrefixCacheDir, mMeta->file_name) + "_" + std::to_string(mMeta->layer_index);
             keyStoredDst = sharePrefixKv ? mBasePrefixFileName + ".k" : "";
             valueStoredDst = sharePrefixKv ? mBasePrefixFileName + ".v" : "";
-            mMeta->layer_index++;
-            mMeta->layer_index = mMeta->layer_index % mMeta->layer_nums;
+            if (mMeta->file_flag != KVMeta::PendingSnapshot) {
+                mMeta->layer_index++;
+                mMeta->layer_index = mMeta->layer_index % mMeta->layer_nums;
+            }
         }
         createKVCacheFile(keyStoredDst, valueStoredDst);
         resetKVCacheFileSize(keySize, valueSize);
