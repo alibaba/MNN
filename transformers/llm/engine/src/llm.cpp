@@ -22,6 +22,9 @@
 #include "llm/llm.hpp"
 #include "kvmeta.hpp"
 #include "llmconfig.hpp"
+#ifdef MNN_LLM_DELEGATES
+#include "../delegates/LlmDelegate.hpp"
+#endif
 #include "tokenizer/tokenizer.hpp"
 #ifdef MNN_LLM_TOKEN_COMPRESS
 #include "token_compressor.hpp"
@@ -69,6 +72,11 @@ Llm* Llm::createLLM(std::shared_ptr<LlmResources> resources) {
         MNN_ERROR("Invalid resource model configuration.\n");
         return nullptr;
     }
+#ifdef MNN_LLM_DELEGATES
+    if (!config->delegate().empty()) {
+        return createLlmDelegate(config);
+    }
+#endif
     if (config->is_visual() || config->is_audio() || config->has_talker()) {
         return new Omni(config);
     }
@@ -151,6 +159,11 @@ Llm* Llm::createLLM(const std::string& config_path) {
     }
     std::shared_ptr<LlmConfig> config(new LlmConfig(config_path));
     Llm* llm = nullptr;
+#ifdef MNN_LLM_DELEGATES
+    if (!config->delegate().empty()) {
+        return createLlmDelegate(config);
+    }
+#endif
     if (config->is_visual() || config->is_audio() || config->has_talker()) {
         llm = new Omni(config);
     } else {
@@ -598,7 +611,7 @@ void Llm::tuning(TuneType type, std::vector<int> candidates) {
         return;
     }
     // FIXME: Currently OpenCL Don't support KVMeta
-    if (mConfig->backend_type() == "opencl") {
+    if (!mRuntimeManager || mConfig->backend_type() == "opencl") {
         return;
     }
     // The tuned hint (OP_ENCODER_NUMBER_FOR_COMMIT) is only read by the Metal and OpenCL backends. On Hexagon
