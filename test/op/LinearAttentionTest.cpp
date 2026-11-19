@@ -26,12 +26,16 @@
 #include <algorithm>
 #include <tuple>
 #include <sys/stat.h>
-#ifdef __APPLE__
+#if defined(__APPLE__) || (defined(MNN_USE_RVV) && defined(__linux__))
 #include <cerrno>
 #include <cstdlib>
 #include <dirent.h>
 #include <fcntl.h>
 #include <unistd.h>
+#endif
+#if defined(MNN_USE_RVV) && defined(__linux__)
+#include <signal.h>
+#include <sys/resource.h>
 #endif
 
 using namespace MNN::Express;
@@ -485,11 +489,8 @@ public:
             MNN_PRINT("LinearAttention No-L2Norm Test (L=%d) PASSED\n", L);
         }
 
-        // ─── Test 4: Chunk-64 prefill (Qwen3.5 shape) ───
-        // dk=dv=128 with L >= 64 is the only shape that reaches the chunked
-        // prefill kernels; the cases above all stay on the scalar/decode paths.
-        // L=192 is an exact chunk multiple, L=100 leaves a partial tail chunk
-        // whose padded lanes still carry the chunk's gate cumsum.
+        // Qwen3.5 prefill. L=17 exercises a full RVV block plus its one-token tail.
+        // L=192 and L=100 cover exact and partial 64-token blocks.
         {
             const int numHeads = 16;
             const int wideKDim = 128, wideVDim = 128;
@@ -501,7 +502,7 @@ public:
             // precision, so one 1% band covers both with ~4x headroom.
             const float wideTolerance = 0.01f;
 
-            for (int L : {192, 100}) {
+            for (int L : {17, 192, 100}) {
                 auto module = _makeLinearAttentionModule(numHeads, numHeads, wideKDim, wideVDim, useL2Norm);
                 if (!module) {
                     MNN_PRINT("Error: Failed to create chunk64 LinearAttention module\n");
@@ -548,6 +549,10 @@ public:
                 int worst = 0;
                 for (int i = 0; i < outSize; ++i) {
                     float diff = fabs(resultPtr[i] - expected[i]);
+                    if (!std::isfinite(diff)) {
+                        MNN_ERROR("Non-finite prefill result at L=%d index=%d\n", L, i);
+                        return false;
+                    }
                     if (diff > maxDiff) {
                         maxDiff = diff;
                         worst = i;
@@ -1664,6 +1669,92 @@ public:
     }
 };
 MNNTestSuiteRegister(LinearAttentionPrefixWriteTest, "op/linear_attention_prefix_write");
+
+#if defined(MNN_USE_RVV) && defined(__linux__)
+class RvvPrefixWriteFailureTest : public MNNTestCase {
+    struct CacheDirectory {
+        char pattern[64] = "/tmp/mnn-rvv-prefix-XXXXXX";
+        const char* path = ::mkdtemp(pattern);
+        ~CacheDirectory() {
+            if (!path) return;
+            auto dir = ::opendir(path);
+            if (!dir) return;
+            while (auto entry = ::readdir(dir)) {
+                if (entry->d_name[0] != '.') ::unlink((std::string(path) + "/" + entry->d_name).c_str());
+            }
+            ::closedir(dir);
+            ::rmdir(path);
+        }
+    };
+
+public:
+    bool run(int) override {
+        MNNTEST_CPU_ONLY();
+        constexpr int dim = 16, channels = 3 * dim, length = 4;
+        CacheDirectory directory;
+        MNNTEST_ASSERT(directory.path != nullptr);
+        auto qkv = _Input({1, channels, length}, NCHW, halide_type_of<float>());
+        auto gate = _Input({1, length, 1}, NCHW, halide_type_of<float>());
+        auto beta = _Input({1, length, 1}, NCHW, halide_type_of<float>());
+        auto weight = _Input({channels, 1, 2}, NCHW, halide_type_of<float>());
+        fillGate(gate->writeMap<float>(), length);
+        fillBeta(beta->writeMap<float>(), length);
+        fillConvWeight(weight->writeMap<float>(), channels * 2);
+        auto forward = [&](int flag, float seed) -> std::vector<float> {
+            MNN::KVMeta meta;
+            meta.layer_nums = 1;
+            meta.file_name = "prefix";
+            meta.file_flag = flag;
+            meta.add = length;
+            auto module = _makeLinearAttentionModuleWithMeta(1, 1, dim, dim, true, &meta, "gated_delta_rule", directory.path);
+            if (!module) return {};
+            fillDeterministic(qkv->writeMap<float>(), channels * length, 0.1f, seed);
+            auto result = module->onForward({qkv, gate, beta, weight});
+            if (result.empty() || !result[0].get()) return {};
+            auto ptr = result[0]->readMap<float>();
+            if (!ptr) return {};
+            return {ptr, ptr + length * dim};
+        };
+        using Meta = MNN::KVMeta;
+        MNNTEST_ASSERT(!forward(Meta::PendingWrite, 0.1f).empty());
+        const auto original = forward(Meta::PendingRead, 0.3f);
+        MNNTEST_ASSERT(!original.empty());
+
+        // The conv state is 192 bytes. The 1024-byte recurrent state must hit a short write.
+        struct rlimit saved;
+        MNNTEST_ASSERT(::getrlimit(RLIMIT_FSIZE, &saved) == 0 && saved.rlim_cur > 256);
+        struct sigaction ignored = {}, previous;
+        ignored.sa_handler = SIG_IGN;
+        sigemptyset(&ignored.sa_mask);
+        MNNTEST_ASSERT(::sigaction(SIGXFSZ, &ignored, &previous) == 0);
+        auto limit = saved;
+        limit.rlim_cur = 256;
+        const bool limited = ::setrlimit(RLIMIT_FSIZE, &limit) == 0;
+        const bool rejected = limited && forward(Meta::PendingWrite, 0.8f).empty();
+        const bool restored = ::setrlimit(RLIMIT_FSIZE, &saved) == 0;
+        const bool resetSignal = ::sigaction(SIGXFSZ, &previous, nullptr) == 0;
+        MNNTEST_ASSERT(restored && resetSignal && rejected);
+        MNNTEST_ASSERT(forward(Meta::PendingRead, 0.3f) == original);
+        const std::string base = std::string(directory.path) + "/prefix_0";
+        const auto key = base + ".k", value = base + ".v", originalValue = base + ".first";
+        MNNTEST_ASSERT(::link(value.c_str(), originalValue.c_str()) == 0);
+        MNNTEST_ASSERT(!forward(Meta::PendingWrite, 0.8f).empty());
+        const auto updated = forward(Meta::PendingRead, 0.3f);
+        MNNTEST_ASSERT(!updated.empty() && updated != original);
+
+        // Readers must recover the same pair both before and after replacing the public value.
+        MNNTEST_ASSERT(::rename(value.c_str(), (value + ".prev").c_str()) == 0);
+        MNNTEST_ASSERT(forward(Meta::PendingRead, 0.3f) == updated);
+        MNNTEST_ASSERT(::rename(key.c_str(), (key + ".prev").c_str()) == 0);
+        MNNTEST_ASSERT(::rename(originalValue.c_str(), value.c_str()) == 0);
+        MNNTEST_ASSERT(forward(Meta::PendingRead, 0.3f) == updated);
+        MNNTEST_ASSERT(!forward(Meta::PendingWrite, 0.1f).empty());
+        MNNTEST_ASSERT(forward(Meta::PendingRead, 0.3f) == original);
+        return true;
+    }
+};
+MNNTestSuiteRegister(RvvPrefixWriteFailureTest, "op/linear_attention_rvv_prefix_write_failure");
+#endif
 
 class LinearAttentionSpecRejectionTest : public MNNTestCase {
     bool runCase(int precision, int accepted, int nextLength, bool nextVerify) {
@@ -3005,19 +3096,23 @@ class LinearAttentionC4ModelShapeTest : public MNNTestCase {
         for (auto v : ref) {
             maxRef = std::max(maxRef, fabsf(v));
         }
+        float maxError = 0;
         const float tol = std::max(0.02f, 0.02f * maxRef);
         for (size_t i = 0; i < ref.size(); ++i) {
+            maxError = std::max(maxError, fabsf(ref[i] - got[i]));
             if (!(fabsf(ref[i] - got[i]) <= tol)) {
                 MNN_PRINT("LinearAttention C4 %s step %d FAILED at %d: expected %f, got %f (tol %f)\n", name, step,
                           (int)i, ref[i], got[i], tol);
                 return false;
             }
         }
+        MNN_PRINT("LinearAttention C4 %s step %d max_abs=%g\n", name, step, maxError);
         return true;
     }
 
     // gated_delta_rule; steps[0] is the prefill length, the rest are decode steps (normally 1).
-    bool runDelta(const char* name, int Hk, int Hv, int dk, int dv, int K, bool fold, const std::vector<int>& steps) {
+    bool runDelta(const char* name, int Hk, int Hv, int dk, int dv, int K, bool fold,
+                  const std::vector<int>& steps, bool largeValues = false) {
         const int D = 2 * Hk * dk + Hv * dv;
         std::vector<float> coef(Hv), bias(Hv), convW(D * K);
         for (int h = 0; h < Hv; ++h) {
@@ -3037,6 +3132,7 @@ class LinearAttentionC4ModelShapeTest : public MNNTestCase {
             std::vector<float> qkv(D * L), in1(L * Hv), in2(L * Hv), gate(L * Hv), beta(L * Hv);
             for (int i = 0; i < D * L; ++i) {
                 qkv[i] = (float)(((i + base * 7) * 13 % 23) - 11) * 0.03f;
+                if (largeValues && !s && i / L >= 2 * Hk * dk) qkv[i] *= 16000000.f;
             }
             for (int i = 0; i < L * Hv; ++i) {
                 const int h = i % Hv;
@@ -3115,7 +3211,10 @@ public:
         // Every case runs so one failure does not hide the others.
         bool ok = runShortConv("short-conv", 128, 3, {11, 1, 1});
         ok = runDelta("gdr-decode-first", 1, 2, 64, 128, 4, true, {1, 1}) && ok;
+        ok = runDelta("gdr-c4-channel-tail", 1, 1, 5, 7, 4, false, {19, 1, 1}) && ok;
         ok = runDelta("gdr-gqa", 2, 4, 128, 64, 4, false, {9, 1, 1, 1}) && ok;
+        ok = runDelta("gdr-chunk-gqa", 2, 4, 128, 128, 4, false, {65, 1, 1}) && ok;
+        ok = runDelta("gdr-large-v", 1, 2, 128, 128, 4, false, {65, 1, 1}, true) && ok;
         ok = runDelta("gdr-fold", 2, 2, 128, 128, 4, true, {37, 1, 1}) && ok;
         // Qwen3.5-0.8B linear-attention layer shape.
         ok = runDelta("gdr-qwen35", 16, 16, 128, 128, 4, true, {518, 1, 1, 1}) && ok;

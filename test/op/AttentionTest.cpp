@@ -1242,7 +1242,9 @@ public:
                 pass = false;
             }
         }
-        return pass;
+        const auto biased = maxRelError(64, 8, 2, 256, 4, kBiasedWindow);
+        MNN_PRINT("[attention_nocache_mask] GQA biased window max_rel=%g\n", biased);
+        return pass && biased < tol;
     }
 
 private:
@@ -1260,7 +1262,8 @@ private:
     //                          a no-op, so the sentinel may only remove work. If this
     //                          case diverges while kAllVisibleDense passes, a backend
     //                          has read the sentinel as causal.
-    enum MaskKind { kAllVisibleDense = 0, kCausalDense = 1, kWindowBlockDense = 2, kBidirectionalSentinel = 3 };
+    enum MaskKind { kAllVisibleDense, kCausalDense, kWindowBlockDense, kBidirectionalSentinel, kBiasedWindow };
+    static float attentionBias(int i, int j) { return float((i + 3 * j) % 7 - 3) * 0.5f; }
     // maskRank: 3 = [1,seq,seq], 4 = [1,1,seq,seq]. The no-mask form is covered by
     // AttentionTest unit test 3; CPUAttention does not support it yet.
     static float maxRelError(int seqLen, int numHead, int kvNumHead, int headDim, int maskRank, MaskKind maskKind) {
@@ -1268,6 +1271,7 @@ private:
         const float scale = 1.0f / sqrtf((float)headDim);
         const float kMaskNegative = -1e9f;
         const int blockSize = std::max(4, seqLen / 4);
+        const bool window = maskKind == kWindowBlockDense || maskKind == kBiasedWindow;
 
         uint32_t state = 12345;
         auto next = [&state]() {
@@ -1312,8 +1316,8 @@ private:
                 for (int i = 0; i < seqLen; ++i) {
                     for (int j = 0; j < seqLen; ++j) {
                         const bool masked = (kCausalDense == maskKind && j > i) ||
-                                            (kWindowBlockDense == maskKind && j / blockSize != i / blockSize);
-                        maskPtr[i * seqLen + j] = masked ? kMaskNegative : 0.0f;
+                                            (window && j / blockSize != i / blockSize);
+                        maskPtr[i * seqLen + j] = masked ? kMaskNegative : maskKind == kBiasedWindow ? attentionBias(i, j) : 0.f;
                     }
                 }
             }
@@ -1332,9 +1336,9 @@ private:
             for (int i = 0; i < seqLen; ++i) {
                 // Visible key range for query i. scores[] is indexed by absolute key
                 // position, so a non-zero kBegin needs no renumbering.
-                const int kBegin = (kWindowBlockDense == maskKind) ? (i / blockSize) * blockSize : 0;
+                const int kBegin = window ? (i / blockSize) * blockSize : 0;
                 const int kEnd   = (kCausalDense == maskKind)      ? (i + 1)
-                                 : (kWindowBlockDense == maskKind) ? std::min((i / blockSize + 1) * blockSize, seqLen)
+                                 : window ? std::min((i / blockSize + 1) * blockSize, seqLen)
                                                                    : seqLen;
                 float maxScore = -std::numeric_limits<float>::max();
                 for (int j = kBegin; j < kEnd; ++j) {
@@ -1342,7 +1346,7 @@ private:
                     for (int d = 0; d < headDim; ++d) {
                         dot += q[(i * numHead + h) * headDim + d] * k[(j * kvNumHead + kvh) * headDim + d];
                     }
-                    scores[j] = dot * scale;
+                    scores[j] = dot * scale + (maskKind == kBiasedWindow ? attentionBias(i, j) : 0.f);
                     maxScore = std::max(maxScore, scores[j]);
                 }
                 float sum = 0.0f;
@@ -1358,6 +1362,7 @@ private:
                     acc /= sum;
                     float out = got[(i * numHead + h) * headDim + d];
                     float denom = std::max(fabsf(acc), 0.05f);
+                    if (!std::isfinite(out)) return std::numeric_limits<float>::infinity();
                     maxRel = std::max(maxRel, fabsf(out - acc) / denom);
                 }
             }
@@ -1860,6 +1865,7 @@ public:
                 for (int d = 0; d < HeadDim; ++d) {
                     int c = h * HeadDim + d;
                     int logicalIndex = i * hidden + c;
+                    if (!std::isfinite(resultPtr[logicalIndex])) return false;
                     actual[logicalIndex] = resultPtr[logicalIndex];
                     expected[logicalIndex] = expected_result[i][h][d];
                 }
@@ -1872,9 +1878,13 @@ public:
         return true;
     }
 
-    bool runOne(int seqLen, int precision) {
+    bool runOne(int seqLen, int precision, float largeValue = 0.0f) {
         std::shared_ptr<NaiveAttention> naiveAttention(new NaiveAttention);
         generateInput(seqLen, precision);
+        if (largeValue > 0.0f) {
+            value[0][0][0] = largeValue;
+            Value = vector_to_var(value);
+        }
         generateMask(seqLen, seqLen);
         expected_result = naiveAttention->onExecute(query, key, value, mask, seqLen);
 
@@ -1993,7 +2003,7 @@ public:
 // kv-cache causal prefill, which is what selects the fused prefill kernels, so
 // this is the correctness gate for the 8-output-tile tc path. 100 is a multiple
 // of neither the 64-wide q tile nor the 32-wide kv tile.
-class AttentionHeadDim256Test : public AttentionTest {
+class AttentionHeadDim256Test : public AttentionC4Test {
 public:
     virtual bool run(int precision) {
         const int originalNumHead = NumHead;
@@ -2019,6 +2029,16 @@ public:
                 pass = false;
                 break;
             }
+        }
+        if (pass && MNNTestSuite::get()->pStaus.forwardType == MNN_FORWARD_CPU) {
+            // The K3 matrix path writes packed C4 output and carries the KV cache into decode.
+            // Keep the portable stress value representable in native FP16 KV storage.
+#ifdef MNN_USE_RVV
+            constexpr float largeValue = 131072.0f; // RVV stores FP32 KV and narrows only inside the fast path.
+#else
+            constexpr float largeValue = 32768.0f;
+#endif
+            pass = runOne(192, precision) && runOne(64, precision, largeValue);
         }
         NumHead = originalNumHead;
         KvNumHead = originalKvNumHead;

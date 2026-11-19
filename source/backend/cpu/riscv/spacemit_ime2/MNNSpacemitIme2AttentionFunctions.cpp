@@ -11,6 +11,7 @@
 #include <atomic>
 
 #include "backend/cpu/CPUKVCacheManager.hpp"
+#include "backend/cpu/CPUBackend.hpp"
 
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 
@@ -22,6 +23,8 @@ extern "C" int MNNSpacemitIme2FlashAttentionFp32C4Pair(float* dst, const float* 
                                                        const float* value, int seqLen, int numHeads, int headDim,
                                                        float scale, void* scratch, size_t scratchBytes);
 extern "C" int MNNSpacemitIme2FlashAttentionFp32C4Supported();
+
+#include "MNNSpacemitIme2Half.hpp"
 
 using MNNRvvAttentionTask = void (*)(size_t taskIndex, void* taskScratch, size_t taskScratchBytes, void* context);
 extern "C" size_t MNNSpacemitIme2RunTcmTasks(size_t taskCount, MNNRvvAttentionTask task, void* context);
@@ -91,6 +94,32 @@ bool MNNSpacemitIme2Attention::tryExecuteFastPath(const int8_t* query, int8_t* o
                                                   int paddingLength, float qScale, float attentionScale,
                                                   bool lowerTriangular, bool hasSinks, bool outputC4,
                                                   bool directC4Output) {
+#if defined(__riscv_zvfh)
+    if (MNNIme2::halfPrefillEnabled() && static_cast<CPUBackend*>(backend())->precisionMode() == BackendConfig::Precision_Low && mUseFlashAttention && mKeyQuantMode == KVQuantMode::None && mValueQuantMode == KVQuantMode::None &&
+        mBytes == 4 && mPack == 4 && hP == 4 && lP == 1 && mHeadDim == 256 && mQNumHead >= mKvNumHead &&
+        mKvNumHead > 0 && mQNumHead % mKvNumHead == 0 && directC4Output && lowerTriangular && !hasSinks &&
+        paddingLength == 0 && qScale == 1.0f && seqLen == kvSeqLen && seqLen >= 64 && seqLen <= 512 &&
+        seqLen % 64 == 0 && mKvBlockSize == 64 && mKVCacheManager->getFlashAttentionBlockKv() == 64 && mThreadNum > 0 &&
+        mThreadNum <= 8 && query && output) {
+        const float* localHeads[16];
+        std::unique_ptr<const float*[]> extra;
+        if (mKvNumHead > 8) {
+            extra.reset(new (std::nothrow) const float*[2 * size_t(mKvNumHead)]);
+        }
+        auto keys = mKvNumHead <= 8 ? localHeads : extra.get();
+        if (keys) {
+            auto values = keys + mKvNumHead;
+            for (int h = 0; h < mKvNumHead; ++h) {
+                keys[h] = reinterpret_cast<const float*>(mKVCacheManager->addrOfKey(h));
+                values[h] = reinterpret_cast<const float*>(mKVCacheManager->addrOfValue(h));
+            }
+            if (MNNIme2CausalAttention(reinterpret_cast<const float*>(query), keys, values,
+                                       reinterpret_cast<float*>(output), seqLen, mHeadDim, mQNumHead, mKvNumHead,
+                                       mThreadNum, attentionScale))
+                return true;
+        }
+    }
+#endif
     if (MNNSpacemitIme2FlashAttentionFp32C4Supported() && mUseFlashAttention && mKeyQuantMode == KVQuantMode::None &&
         mValueQuantMode == KVQuantMode::None && mBytes == 4 && mPack == 4 && hP == 4 && lP == 1 && mQNumHead == 16 &&
         mKvNumHead == 8 && mThreadNum == 8 && directC4Output && seqLen == kvSeqLen && seqLen >= 64 && seqLen <= 512 &&
