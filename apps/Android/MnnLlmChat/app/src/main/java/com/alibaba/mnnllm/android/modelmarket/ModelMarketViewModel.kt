@@ -25,6 +25,12 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
 
     companion object {
         private const val TAG = "ModelMarketViewModel"
+
+        /** Featured models pinned to the top of the market list. Prefix-matched
+         *  so new Pocket releases (e.g. -DFlash) are pinned automatically. */
+        @JvmStatic
+        internal fun isPinnedModel(item: ModelMarketItem): Boolean =
+            item.modelName.startsWith("MNN-Pocket", ignoreCase = true)
     }
 
     private val downloadManager = ModelDownloadManager.getInstance(application)
@@ -129,6 +135,10 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
                 modelMarketItem.tags.any { it.lowercase(Locale.getDefault()).contains(searchLower) }
             }
         }
+
+        // Featured models (MNN-Pocket family) stay on top; sortedBy is stable so
+        // everything else keeps its catalog order.
+        filteredList = filteredList.sortedBy { if (isPinnedModel(it.modelMarketItem)) 0 else 1 }
 
         _models.postValue(filteredList)
     }
