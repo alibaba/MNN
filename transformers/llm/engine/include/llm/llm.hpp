@@ -288,6 +288,7 @@ protected:
     int mSeqLenIndex = 0;
     std::shared_ptr<MNN::Express::Executor> mExecutor;
 protected:
+    friend class LlmDelegate;
     friend class ArGeneration;
     friend class LookaheadGeneration;
     friend class MtpGeneration;

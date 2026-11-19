@@ -294,6 +294,9 @@ public:
     // generate config end >
 
     // < backend config start
+    std::string delegate() const {
+        return config_.value("delegate", "");
+    }
     std::string backend_type(bool mllm = false) const {
         if (mllm) return mllm_config_.value("backend_type", "cpu");
         return config_.value("backend_type", "cpu");

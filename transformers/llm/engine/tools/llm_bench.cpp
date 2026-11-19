@@ -1,4 +1,5 @@
 #include "llm/llm.hpp"
+#include "../src/ujson.hpp"
 #include "core/MNNFileUtils.h"
 #include "Utils.hpp"
 #include <MNN/AutoTime.hpp>
@@ -180,6 +181,7 @@ struct TestInstance {
 //    static const std::string build_commit;
     std::string              modelConfigFile;
     std::string              modelType;
+    std::string              delegate;
     uint64_t                 modelSize;
     int                      threads;
     bool                     useMmap;
@@ -402,14 +404,20 @@ struct markdownPrinter : public Printer {
             if (field == "model") {
                 value = t.modelType;
             } else if (field == "modelSize") {
-                if (t.modelSize < 1024 * 1024 * 1024) {
+                if (!t.delegate.empty() && !t.modelSize) {
+                    snprintf(buf, sizeof(buf), "n/a");
+                } else if (t.modelSize < 1024 * 1024 * 1024) {
                     snprintf(buf, sizeof(buf), "%.2f MiB", t.modelSize / 1024.0 / 1024.0);
                 } else {
                     snprintf(buf, sizeof(buf), "%.2f GiB", t.modelSize / 1024.0 / 1024.0 / 1024.0);
                 }
                 value = buf;
             }  else if (field == "backend") {
-                if (t.backend == 1) value = "METAL";
+                if (!t.delegate.empty()) {
+                    value = t.delegate;
+                } else if (t.backend == 1) {
+                    value = "METAL";
+                }
                 else if (t.backend == 2) value = "CUDA";
                 else if (t.backend == 3) value = "OPENCL";
                 else if (t.backend == 7) value = "VULKAN";
@@ -513,9 +521,17 @@ struct jsonAggregator : public Printer {
         writer.Key("model");
         writer.String(t.modelType.c_str());
         writer.Key("modelSize");
-        writer.Double(t.modelSize / 1024.0 / 1024.0 / 1024.0); // GB
+        if (!t.delegate.empty() && !t.modelSize) {
+            writer.Null();
+        } else {
+            writer.Double(t.modelSize / 1024.0 / 1024.0 / 1024.0); // GB
+        }
         writer.Key("backend");
-        if (t.backend == 1) writer.String("METAL");
+        if (!t.delegate.empty()) {
+            writer.String(t.delegate.c_str());
+        } else if (t.backend == 1) {
+            writer.String("METAL");
+        }
         else if (t.backend == 3) writer.String("OPENCL");
         else if (t.backend == 7) writer.String("VULKAN");
         else if (t.backend == 10) writer.String("HEXAGON");
@@ -1377,18 +1393,6 @@ int main(int argc, char ** argv) {
             notedPackageSize = true;
         }
 
-        file_t file = MNNOpenFile(llmWeightPath.c_str(), MNN_FILE_READ);
-        if (file == INVALID_FILE) {
-            MNN_ERROR("Cannot open model file: %s\n", llmWeightPath.c_str());
-            return 1;
-        }
-        const bool gotSize = modelFileSize(file, t.modelSize);
-        MNNCloseFile(file);
-        if (!gotSize) {
-            MNN_ERROR("Cannot determine model size: %s\n", llmWeightPath.c_str());
-            return 1;
-        }
-
         MNN::BackendConfig backendConfig;
         // Map backend parameter to MNN forward type (0=CPU, 1=METAL, 2=CUDA, 3=OPENCL)
         MNNForwardType forwardType = static_cast<MNNForwardType>(instance.mCmdParam.backend);
@@ -1401,6 +1405,24 @@ int main(int argc, char ** argv) {
             return 1;
         }
         std::unique_ptr<Llm> llm(llmPtr);
+        const auto config = ujson::json::parse(llm->dump_config());
+        t.delegate = config.value("delegate", "");
+        if (!t.delegate.empty()) {
+            const auto size = config["model_size_bytes"];
+            t.modelSize = size.is_number_unsigned() ? size.get<uint64_t>() : 0;
+        } else {
+            file_t file = MNNOpenFile(llmWeightPath.c_str(), MNN_FILE_READ);
+            if (file == INVALID_FILE) {
+                MNN_ERROR("Cannot open model file: %s\n", llmWeightPath.c_str());
+                return 1;
+            }
+            const bool gotSize = modelFileSize(file, t.modelSize);
+            MNNCloseFile(file);
+            if (!gotSize) {
+                MNN_ERROR("Cannot determine model size: %s\n", llmWeightPath.c_str());
+                return 1;
+            }
+        }
         if (enableProfile) {
             llm->set_config(R"({"enable_debug":true})");
             llm->setDebugCallback(
@@ -1422,11 +1444,13 @@ int main(int argc, char ** argv) {
         if (instance.mCmdParam.loadingTime == "true") {
             for (int k = 0; k < 3; ++k) {
                 Timer loadingCost;
-                llm->load();
+                if (!llm->load()) {
+                    return 1;
+                }
                 t.loadingS.push_back((double)loadingCost.durationInUs() / 1e6);
             }
-        } else {
-            llm->load();
+        } else if (!llm->load()) {
+            return 1;
         }
         std::shared_ptr<MNN::Express::Executor::Activation> act = llm->getExecutor()->activte();
         tuning_prepare(llm.get());
