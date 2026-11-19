@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <riscv_vector.h>
 
 void MNNPackC4(float* dst, const float* src, size_t area, size_t depth, int* areaOffset) {
@@ -179,6 +180,17 @@ void MNNPackCUnitInt16_RVV(int16_t* dst, const int16_t* src, size_t area, size_t
 }
 
 void MNNPackCUnitTranspose_RVV(float* dst, const float* src, size_t area, size_t depth, int* areaOffset) {
+    if (depth % 4 == 0 && area >= 16) {
+        for (size_t row = 0; row < area; row += 16) {
+            const size_t count = std::min<size_t>(16, area - row);
+            for (size_t c = 0; c < depth; c += 4) {
+                float* target = dst + c * areaOffset[1] + row * 4;
+                for (size_t r = 0; r < count; ++r)
+                    ::memcpy(target + r * 4, src + (row + r) * depth + c, 4 * sizeof(float));
+            }
+        }
+        return;
+    }
     _packCUnitTranspose(dst, src, area, depth, areaOffset);
 }
 

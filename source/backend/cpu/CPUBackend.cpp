@@ -30,6 +30,9 @@
 #ifdef MNN_USE_ARMV82
 #include "backend/arm82/Arm82Backend.hpp"
 #endif
+#if defined(__riscv) && defined(MNN_USE_RVV)
+#include "riscv/rvv/RVVBackend.hpp"
+#endif
 #define MAX_THREAD_NUMBER 32
 #define LARGE_MEMORY 1024 * 1024 * 500
 #ifdef MNN_SUPPORT_BF16
@@ -349,6 +352,12 @@ Backend* CPURuntime::onCreate(const BackendConfig* config, Backend* origin) cons
 #ifdef MNN_USE_SSE
         if (AVX2Backend::isValid()) {
             res = new AVX2Backend(this, memory, flags);
+            break;
+        }
+#endif
+#if defined(__riscv) && defined(MNN_USE_RVV)
+        if (MNNGetCoreFunctions()->supportRVV) {
+            res = new RVVBackend(this, precision, memory, MNN_FORWARD_CPU, flags);
             break;
         }
 #endif

@@ -204,6 +204,33 @@ public:
 };
 MNNTestSuiteRegister(RasterC4ToNCHWRegionTest, "op/raster_c4_to_nchw_region");
 
+class RasterC4ReshapeTest : public MNNTestCase {
+public:
+    bool run(int) override {
+        const int rows = 3, heads = 2, width = 8;
+        auto input = _Input({rows * heads, width, 1, 1}, NCHW);
+        auto data = input->writeMap<float>();
+        for (int i = 0; i < rows * heads * width; ++i) data[i] = float(i + 1);
+        auto packed = _Convert(input, NC4HW4);
+        for (bool transpose : {false, true}) {
+            auto out = _RasterRaw({packed}, {0, heads * width, width, 1,
+                0, transpose ? width : heads * width, transpose ? rows * width : width, 1, rows, heads, width},
+                {rows, heads * width, 1, 1}, halide_type_of<float>(), NC4HW4);
+            auto logical = _Convert(out, NCHW);
+            const float* got = logical->readMap<float>();
+            MNNTEST_ASSERT(got != nullptr);
+            for (int r = 0; r < rows; ++r)
+                for (int h = 0; h < heads; ++h)
+                    for (int c = 0; c < width; ++c) {
+                        const int dst = ((transpose ? h * rows + r : r * heads + h) * width) + c;
+                        MNNTEST_ASSERT(got[dst] == float((r * heads + h) * width + c + 1));
+                    }
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(RasterC4ReshapeTest, "op/raster_c4_reshape");
+
 class ReduceBlitTest : public MNNTestCase {
 public:
     virtual ~ReduceBlitTest() = default;

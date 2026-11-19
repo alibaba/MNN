@@ -8,6 +8,7 @@
 
 #include "backend/cpu/compute/CommonOptFunction.h"
 #include "backend/cpu/compute/CPUExtension.hpp"
+#include "MNNRvvPrefill.hpp"
 
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 #include "MNNRvvAttention.hpp"
@@ -16,6 +17,7 @@
 namespace MNN {
 
 void MNNRvvInitializeFastPathFunctions(CoreFunctions* core) {
+    MNNRvvInitPackedNorm(core);
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
     static constexpr CPUExtension extension(nullptr, MNNRvvCreateAttentionExecution);
 #else

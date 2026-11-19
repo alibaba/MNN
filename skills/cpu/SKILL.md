@@ -108,11 +108,11 @@ L1 Runtime 线程 / L2 Executor 调度 / L3 Layout 内存 / L4 Dispatch 函数�
 
 | 维度 | ARM | x86_64 | RISC-V |
 |---|---|---|---|
-| 第二张函数表按什么分 | **精度**：fp16 是另一张表 + 另一个 Backend（`Arm82Functions` / `Arm82Backend`），fp32 留在基表 | **ISA**：SSE 直接打进基表，AVX2/AVX512 才是另一张表 + 另一个 Backend（`AVX2Functions` / `AVX2Backend`） | **没有第二张表，也没有第二个 Backend**：RVV 与 vendor 都在基表上逐字段覆盖 |
+| 第二张函数表按什么分 | **精度**：fp16 是另一张表 + 另一个 Backend（`Arm82Functions` / `Arm82Backend`），fp32 留在基表 | **ISA**：SSE 直接打进基表，AVX2/AVX512 才是另一张表 + 另一个 Backend（`AVX2Functions` / `AVX2Backend`） | RVV 与 vendor 共用 CPU 基表，`RVVBackend::onCreate` 选择架构专用执行器 |
 | 二级表怎么构造 | arm82 是**逐字段赋值**（约 120 条），漏字段 → `nullptr` 或**不确定值** → 崩溃/乱码/随构建抖动 | `new` 后**整体拷贝**基表再打补丁，漏字段 → 继承 SSE 实现 → **慢但对** | 就地覆盖基表字段，漏字段 → 保留标量实现 → **慢但对** |
-| `Precision_Low` 语义 | 真 fp16：`bytes=2`、`pack=8`，是一条独立路径 | **不是 fp16**，`bytes` 仍为 4；而且被 `AVX2Backend` 构造函数写死，用户请求的精度无效 → **precision 轴在 x86_64 上是死的** | **没有 RVV fp16 路径**，precision 轴不切换函数表 |
+| `Precision_Low` 语义 | 真 fp16：`bytes=2`、`pack=8`，是一条独立路径 | **不是 fp16**，`bytes` 仍为 4；而且被 `AVX2Backend` 构造函数写死，用户请求的精度无效 → **precision 轴在 x86_64 上是死的** | RVV 张量保持 FP32、pack=4。Low 模式可在 K3 的 W4 投影和因果 attention 内部用 FP16 面板、FP32 累加；MulSiLU 仍用 FP32，Low 模式少做一次倒数迭代 |
 | ISA 档之间怎么做 A/B | `MNN_CPU_TARGET` 降档（需 `-DMNN_PIPELINE_PROFILE=ON`），clamp 0..3 | 同左，clamp 0..4 | **只能用两个独立 build 目录**：`MNN_RVV_SPACEMIT_IME2` ON/OFF 两个注册 TU 定义同名符号，是**构建期互斥**，没有运行时开关 |
-| `MNN_CPU_USE_DEFAULT_BACKEND` | 不影响 fp16（fp16 分支在它**之前**） | **静默绕过整条 AVX2/AVX512**，pack 从 8/16 掉回 4 | 不改路径（它后面没有第二个 Backend），只是跳过多线程初始化 |
+| `MNN_CPU_USE_DEFAULT_BACKEND` | 不影响 fp16（fp16 分支在它**之前**） | **静默绕过整条 AVX2/AVX512**，pack 从 8/16 掉回 4 | 显式选择通用 `CPUBackend`，跳过 RVV 专用执行器，继续使用同一张基表。仅关闭 K3 的 half prefill（含 gated-delta）可在进程启动前设 `MNN_CPU_DISABLE_IME2_HALF_PREFILL=1`。投影和因果 attention 的 8 线程上限按配置线程数判断 |
 
 推论，三侧都常被踩：
 
