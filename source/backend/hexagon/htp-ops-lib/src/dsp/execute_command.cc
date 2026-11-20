@@ -3,6 +3,7 @@
 #include <qurt_memory.h>
 #include "htp_ops.h"
 #include "htp_command.h"
+#include "dsp/int8_cnn.h"
 #include "dsp/ops.h"
 #include "schema/current/Command_generated.h"
 #include "HAP_farf.h"
@@ -207,6 +208,95 @@ extern "C" unsigned long htp_ops_command_seq(void) {
   return g_command_seq;
 }
 
+static bool tensor_has_bytes(const DSPCOMMAND::Tensor* tensor,
+                             int64_t required) {
+    return tensor != nullptr && required >= 0 &&
+           required <= INT32_MAX && tensor->size() >= required;
+}
+
+static bool tensor_sized_product(
+    int64_t* result, const int64_t* factors, size_t factorCount) {
+    if (result == nullptr || factors == nullptr) {
+        return false;
+    }
+    int64_t value = 1;
+    for (size_t i = 0; i < factorCount; ++i) {
+        if (factors[i] <= 0 || value > INT32_MAX / factors[i]) {
+            return false;
+        }
+        value *= factors[i];
+    }
+    *result = value;
+    return true;
+}
+
+static bool conv_w8a8_buffers_valid(
+    const flatbuffers::Vector<flatbuffers::Offset<DSPCOMMAND::Tensor>>* inputs,
+    const flatbuffers::Vector<flatbuffers::Offset<DSPCOMMAND::Tensor>>* outputs,
+    const DSPConv2DInt8Param* p) {
+    if (inputs == nullptr || outputs == nullptr || p == nullptr ||
+        inputs->size() != 4 || outputs->size() != 1 ||
+        p->batch <= 0 || p->inputHeight <= 0 || p->inputWidth <= 0 ||
+        p->inputChannels <= 0 || p->outputChannels <= 0 ||
+        p->channelPack <= 0) {
+        return false;
+    }
+    const int64_t inputBlocks =
+        (static_cast<int64_t>(p->inputChannels) + p->channelPack - 1) /
+        p->channelPack;
+    const int64_t outputBlocks =
+        (static_cast<int64_t>(p->outputChannels) + p->channelPack - 1) /
+        p->channelPack;
+    const int64_t inputTiles =
+        (static_cast<int64_t>(p->inputChannels) + 31) / 32;
+    const int64_t outputTiles =
+        (static_cast<int64_t>(p->outputChannels) + 31) / 32;
+    const int64_t paddedOutputChannels = outputTiles * 32;
+    const int64_t inputFactors[] = {
+        p->batch, inputBlocks, p->inputHeight, p->inputWidth,
+        p->channelPack,
+    };
+    const int64_t outputFactors[] = {
+        p->batch, outputBlocks, p->outputHeight, p->outputWidth,
+        p->channelPack,
+    };
+    const int64_t weightFactors[] = {inputTiles, outputTiles, 1024};
+    const int64_t biasFactors[] = {
+        paddedOutputChannels, static_cast<int64_t>(sizeof(int32_t)),
+    };
+    const int64_t requantFactors[] = {
+        paddedOutputChannels,
+        static_cast<int64_t>(sizeof(DSPRequantParam)),
+    };
+    int64_t inputBytes = 0;
+    int64_t outputBytes = 0;
+    int64_t weightBytes = 0;
+    int64_t biasBytes = 0;
+    int64_t requantBytes = 0;
+    if (!tensor_sized_product(
+            &inputBytes, inputFactors,
+            sizeof(inputFactors) / sizeof(inputFactors[0])) ||
+        !tensor_sized_product(
+            &outputBytes, outputFactors,
+            sizeof(outputFactors) / sizeof(outputFactors[0])) ||
+        !tensor_sized_product(
+            &weightBytes, weightFactors,
+            sizeof(weightFactors) / sizeof(weightFactors[0])) ||
+        !tensor_sized_product(
+            &biasBytes, biasFactors,
+            sizeof(biasFactors) / sizeof(biasFactors[0])) ||
+        !tensor_sized_product(
+            &requantBytes, requantFactors,
+            sizeof(requantFactors) / sizeof(requantFactors[0]))) {
+        return false;
+    }
+    return tensor_has_bytes(inputs->Get(0), inputBytes) &&
+           tensor_has_bytes(inputs->Get(1), weightBytes) &&
+           tensor_has_bytes(inputs->Get(2), biasBytes) &&
+           tensor_has_bytes(inputs->Get(3), requantBytes) &&
+           tensor_has_bytes(outputs->Get(0), outputBytes);
+}
+
 int htp_execute_command(MmapManager* mmap_manager, const DSPCOMMAND::Command* command) {
   ++g_command_seq;
   int32_t opType  = command->type();
@@ -257,6 +347,93 @@ int htp_execute_command(MmapManager* mmap_manager, const DSPCOMMAND::Command* co
     const float* floatParams = (const float*)intParams;
 
     switch(opType) {
+        case DSP_OP_QUANTIZE_I8: {
+            if (inputs->size() != 1 || outputs->size() != 1 ||
+                params == nullptr ||
+                params->size() * sizeof(int32_t) != sizeof(DSPQuantizeParam)) {
+                ret = AEE_EBADPARM;
+                break;
+            }
+            const DSPQuantizeParam* quant =
+                reinterpret_cast<const DSPQuantizeParam*>(intParams);
+            const int64_t inputBytes =
+                static_cast<int64_t>(quant->size) * quant->bytes;
+            if (!tensor_has_bytes(inputs->Get(0), inputBytes) ||
+                !tensor_has_bytes(outputs->Get(0), quant->size)) {
+                ret = AEE_EBADPARM;
+                break;
+            }
+            ret = htp_ops_quantize_i8_nc(
+                mapped_ptrs[1], mapped_ptrs[0], quant->size, quant->bytes,
+                quant->scale, quant->zero, quant->batch, quant->channels,
+                quant->area, quant->pack);
+            break;
+        }
+        case DSP_OP_DEQUANTIZE_I8: {
+            if (inputs->size() != 1 || outputs->size() != 1 ||
+                params == nullptr ||
+                params->size() * sizeof(int32_t) != sizeof(DSPQuantizeParam)) {
+                ret = AEE_EBADPARM;
+                break;
+            }
+            const DSPQuantizeParam* quant =
+                reinterpret_cast<const DSPQuantizeParam*>(intParams);
+            const int64_t outputBytes =
+                static_cast<int64_t>(quant->size) * quant->bytes;
+            if (!tensor_has_bytes(inputs->Get(0), quant->size) ||
+                !tensor_has_bytes(outputs->Get(0), outputBytes)) {
+                ret = AEE_EBADPARM;
+                break;
+            }
+            ret = htp_ops_dequantize_i8(
+                mapped_ptrs[1], mapped_ptrs[0], quant->size, quant->bytes,
+                quant->scale, quant->zero);
+            break;
+        }
+        case DSP_OP_REQUANTIZE_I8: {
+            if (inputs->size() != 1 || outputs->size() != 1 ||
+                params == nullptr ||
+                params->size() * sizeof(int32_t) !=
+                    sizeof(DSPRequantizeCommandParam)) {
+                ret = AEE_EBADPARM;
+                break;
+            }
+            const DSPRequantizeCommandParam* requant =
+                reinterpret_cast<const DSPRequantizeCommandParam*>(intParams);
+            if (!tensor_has_bytes(
+                    inputs->Get(0),
+                    static_cast<int64_t>(requant->size) *
+                        sizeof(int32_t)) ||
+                !tensor_has_bytes(outputs->Get(0), requant->size)) {
+                ret = AEE_EBADPARM;
+                break;
+            }
+            ret = htp_ops_requantize_i8(
+                mapped_ptrs[1],
+                reinterpret_cast<const int32_t*>(mapped_ptrs[0]),
+                requant->size, &requant->requant);
+            break;
+        }
+        case DSP_OP_CONV2D_W8A8: {
+            if (inputs->size() != 4 || outputs->size() != 1 ||
+                params == nullptr ||
+                params->size() * sizeof(int32_t) !=
+                    sizeof(DSPConv2DInt8Param)) {
+                ret = AEE_EBADPARM;
+                break;
+            }
+            const DSPConv2DInt8Param* conv =
+                reinterpret_cast<const DSPConv2DInt8Param*>(intParams);
+            if (!conv_w8a8_buffers_valid(inputs, outputs, conv)) {
+                ret = AEE_EBADPARM;
+                break;
+            }
+            ret = htp_ops_dispatch_conv2d_w8a8(
+                mapped_ptrs[4], mapped_ptrs[0], mapped_ptrs[1],
+                mapped_ptrs[2], mapped_ptrs[3], intParams,
+                static_cast<int32_t>(params->size()));
+            break;
+        }
         case DSP_OP_MATMUL_Q4A16_FP16: {
             int m = intParams[0];
             int k = intParams[1];
