@@ -8,6 +8,9 @@
 
 #ifndef MNNAsmGlobal_h
 #define MNNAsmGlobal_h
+#ifdef __ELF__
+.section .note.GNU-stack,"",%progbits
+#endif
 .macro asm_function fname
 #ifdef __APPLE__
 .globl _\fname
