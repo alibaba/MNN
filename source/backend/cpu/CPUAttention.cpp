@@ -9,6 +9,7 @@
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 
 #include <atomic>
+#include <cmath>
 #include <limits>
 #include "CPUAttention.hpp"
 #include "CPUBackend.hpp"
@@ -31,6 +32,20 @@
 #endif
 
 namespace MNN {
+
+template <typename T>
+static void softcapQK(T* scores, int rows, int columns, int pack, int validOffset, int kvOffset, bool causal,
+                      float scale, float cap) {
+    for (int row = 0; row < rows; ++row) {
+        // Causal GEMM can leave fully masked tiles uninitialized.
+        const int validColumns = causal ? ALIMAX(0, ALIMIN(columns, row + validOffset + 1 - kvOffset)) : columns;
+        for (int column = 0; column < validColumns; ++column) {
+            const size_t index = (column / pack) * rows * pack + row * pack + column % pack;
+            const float score = static_cast<float>(scores[index]) * scale;
+            scores[index] = static_cast<T>(cap * std::tanh(score / cap));
+        }
+    }
+}
 
 // noElementMask: one-element mask (causal or bidirectional), only scale QK; the causal triangle is
 // applied in MNNSoftmax.
@@ -537,7 +552,8 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
     }
 
 #ifdef MNN_USE_RVV
-    if (tryExecuteFastPath(queryPtr, outputs[0]->host<int8_t>(), seqLen, kvSeqLen, padSeqLength, q_scale, mScale,
+    if (mSoftcap == 0.0f &&
+        tryExecuteFastPath(queryPtr, outputs[0]->host<int8_t>(), seqLen, kvSeqLen, padSeqLength, q_scale, mScale,
                            isLowerTriangular, sinksPtr != nullptr, outputC4, directC4Output)) {
         if (!mKVCache) {
             mKVCacheManager->onClear();
@@ -1123,8 +1139,19 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
                 {
                     bool scaleApplied =
                         (mKeyQuantMode == KVQuantMode::Int8 || mKeyQuantMode == KVQuantMode::None);
+                    if (mSoftcap > 0.0f) {
+                        const float scoreScale = scaleApplied ? 1.0f : mScale;
+                        if (mBytes == 2) {
+                            softcapQK(reinterpret_cast<FLOAT16_T*>(qkPacked), qRows, curKvBlockSize, mPack,
+                                      kvValidOffset, i * mKvBlockSize, useMaskInSoftmax, scoreScale, mSoftcap);
+                        } else {
+                            softcapQK(reinterpret_cast<float*>(qkPacked), qRows, curKvBlockSize, mPack,
+                                      kvValidOffset, i * mKvBlockSize, useMaskInSoftmax, scoreScale, mSoftcap);
+                        }
+                        scaleApplied = true;
+                    }
                     if (!scaleApplied || noElementMask == false || sinksPtr != nullptr) {
-                        if (mBytes == 4 && gcore->MNNAttentionMaskQK != nullptr) {
+                        if (mSoftcap == 0.0f && mBytes == 4 && gcore->MNNAttentionMaskQK != nullptr) {
                             const float* maskPtr = mask == nullptr ? nullptr : mask->host<float>();
                             const size_t maskSize = mask == nullptr ? 0 : mask->elementSize();
                             gcore->MNNAttentionMaskQK((float*)qkPacked, &mScale, qRows, curKvBlockSize, mPack,
@@ -1570,16 +1597,23 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
 }
 
 bool CPUAttention::onClone(Backend* bn, const Op* op, Execution** dst) {
+    auto param = op->main_as_AttentionParam();
+    const float softcap = param ? param->softcap() : mSoftcap;
+    const bool kvCache = param ? param->kv_cache() : mKVCache;
+    if (!std::isfinite(softcap) || softcap < 0.0f) {
+        return false;
+    }
     if (nullptr == dst) {
         return true;
     }
-    auto param = op->main_as_AttentionParam();
     const bool kvShared = param && param->kv_shared_layer_index() >= 0;
     if (kvShared && nullptr == mMeta) {
         // The shared layer reads its length from KVMeta.
         return false;
     }
-    auto tmp = createClone(bn);
+    auto tmp = softcap > 0.0f ? new CPUAttention(bn, kvCache, softcap) : createClone(bn);
+    tmp->mKVCache = kvCache;
+    tmp->mSoftcap = softcap;
     // Share KV cache when cloning within the same session (same meta pointer)
     if (bn->getMetaPtr() == mMeta) {
         tmp->mKVCacheManager = mKVCacheManager;
@@ -1589,7 +1623,8 @@ bool CPUAttention::onClone(Backend* bn, const Op* op, Execution** dst) {
     return true;
 }
 
-CPUAttention::CPUAttention(Backend* backend, bool kvCache) : Execution(backend), mKVCache(kvCache) {
+CPUAttention::CPUAttention(Backend* backend, bool kvCache, float softcap)
+    : Execution(backend), mKVCache(kvCache), mSoftcap(softcap) {
     mMeta = (KVMeta*)(backend->getMetaPtr());
     mPackQ.reset(Tensor::createDevice<float>({1, 1, 1, 1}));
     mPackQKV.reset(Tensor::createDevice<float>({1, 1, 1, 1}));
@@ -1621,7 +1656,7 @@ bool CPUAttention::tryExecuteFastPath(const int8_t* query, int8_t* output, int s
 }
 
 CPUAttention* CPUAttention::createClone(Backend* backend) const {
-    return new CPUAttention(backend, mKVCache);
+    return new CPUAttention(backend, mKVCache, mSoftcap);
 }
 
 class CPUAttentionCreator : public CPUBackend::Creator {
@@ -1629,14 +1664,17 @@ public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override {
         auto param = op->main_as_AttentionParam();
+        if (!std::isfinite(param->softcap()) || param->softcap() < 0.0f) {
+            return nullptr;
+        }
         auto extension = static_cast<CPUBackend*>(backend)->functions()->extension;
-        if (extension != nullptr && extension->createAttentionExecution != nullptr) {
+        if (param->softcap() == 0.0f && extension != nullptr && extension->createAttentionExecution != nullptr) {
             auto execution = extension->createAttentionExecution(backend, param->kv_cache());
             if (execution != nullptr) {
                 return execution;
             }
         }
-        return new CPUAttention(backend, param->kv_cache());
+        return new CPUAttention(backend, param->kv_cache(), param->softcap());
     }
 };
 

@@ -36,7 +36,7 @@ class FakeLinear(torch.nn.Module):
 class FusedAttentionOp(torch.autograd.Function):
     @staticmethod
     def symbolic(g, query, key, value, attention_mask, output_dim, kv_cache, name, layer_index,
-                 kv_shared_layer_index, head_dim, attention_sink):
+                 kv_shared_layer_index, head_dim, attention_sink, softcap=0.0):
         # These become the operator attributes.
         kwargs = {
             "output_dim_i": output_dim,
@@ -45,6 +45,7 @@ class FusedAttentionOp(torch.autograd.Function):
             "layer_index_i": layer_index,
             "kv_shared_layer_index_i": kv_shared_layer_index,
             "head_dim_i": head_dim,
+            "softcap_f": softcap,
         }
         from torch.onnx.symbolic_helper import _get_tensor_sizes
         out_sizes = _get_tensor_sizes(query)[:2] + [output_dim]
@@ -57,13 +58,13 @@ class FusedAttentionOp(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, query, key, value, attention_mask, output_dim, kv_cache, name, layer_index,
-                kv_shared_layer_index, head_dim, attention_sink):
+                kv_shared_layer_index, head_dim, attention_sink, softcap=0.0):
         out_shape = list(query.shape)[:2] + [output_dim]
         return query.new_zeros(out_shape)
 
 class FusedAttention(torch.nn.Module):
     def __init__(self, hidden_size, kv_cache, name, layer_index=-1, kv_shared_layer_index=-1,
-                 head_dim=0):
+                 head_dim=0, softcap=0.0):
         super(FusedAttention, self).__init__()
         self.hidden_size = hidden_size
         self.kv_cache = int(kv_cache)
@@ -71,11 +72,12 @@ class FusedAttention(torch.nn.Module):
         self.layer_index = layer_index
         self.kv_shared_layer_index = kv_shared_layer_index
         self.head_dim = int(head_dim)
+        self.softcap = float(softcap)
 
     def forward(self, query, key, value, attention_mask, attention_sink=None):
         return FusedAttentionOp.apply(
             query, key, value, attention_mask, self.hidden_size, self.kv_cache, self.name,
-            self.layer_index, self.kv_shared_layer_index, self.head_dim, attention_sink)
+            self.layer_index, self.kv_shared_layer_index, self.head_dim, attention_sink, self.softcap)
 
 class FusedRoPEOp(torch.autograd.Function):
     @staticmethod

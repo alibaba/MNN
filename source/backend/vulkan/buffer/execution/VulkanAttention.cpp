@@ -499,13 +499,16 @@ VulkanAttention::~VulkanAttention() {
 }
 
 bool VulkanAttention::onClone(Backend* bn, const Op* op, VulkanBasicExecution** dst) {
+    auto param = op->main_as_AttentionParam();
+    if (nullptr != param && param->softcap() != 0.0f) {
+        return false;
+    }
     if (nullptr == dst) {
         return true;
     }
     auto res = new VulkanAttention(op, bn);
     res->mKVCache = mKVCache;
     res->mMeta = mMeta;
-    auto param = op->main_as_AttentionParam();
     res->mIsKVShared = nullptr != param && param->kv_shared_layer_index() >= 0;
     *dst = res;
     return true;
@@ -1196,8 +1199,11 @@ class VulkanAttentionCreator : public VulkanBackend::Creator {
 public:
     VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                    const MNN::Op* op, Backend* backend) const override {
-        // attention_fused.comp, the kv_cache=false shader, still caps headDim at 256.
         auto param = op->main_as_AttentionParam();
+        if (nullptr != param && param->softcap() != 0.0f) {
+            return nullptr;
+        }
+        // attention_fused.comp, the kv_cache=false shader, still caps headDim at 256.
         const bool kvCache = nullptr != param && param->kv_cache();
         if (!kvCache && !inputs.empty() && inputs[0]->dimensions() == 4 && inputs[0]->length(3) > 256) {
             return nullptr;

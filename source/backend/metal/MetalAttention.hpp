@@ -78,10 +78,13 @@ public:
     // changes bail out to a normal encode + re-record.
     virtual bool onReplayUpdate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override {
+        auto param = op->main_as_AttentionParam();
+        if (nullptr != param && param->softcap() != 0.0f) {
+            return false;
+        }
         if (nullptr == dst) {
             return true;
         }
-        auto param = op->main_as_AttentionParam();
         const bool kvShared = nullptr != param && param->kv_shared_layer_index() >= 0;
         const bool canShare = mKVCache && bn->getMetaPtr() == mMeta && mMeta != nullptr;
         if (kvShared && !canShare) {
