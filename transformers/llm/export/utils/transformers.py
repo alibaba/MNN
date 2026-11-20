@@ -130,7 +130,7 @@ class Attention(torch.nn.Module):
             self.num_key_value_heads = config.num_key_value_heads
         self.num_key_value_groups = self.num_heads // self.num_key_value_heads
         ModelMapper.do_map(self, attn, mapper['attention'])
-        if config.model_type == 'mobilemoe' and not attn.use_rope:
+        if not getattr(attn, 'use_rope', True):
             self.rotary = None
         if config.model_type == 'mobilemoe' and attn.attn_temperature_tuning and not attn.use_rope:
             raise ValueError('MobileMoE attention temperature tuning is not supported')
@@ -1096,7 +1096,7 @@ class Rotary(torch.nn.Module):
                     scaling_config=scaling_config,
                     max_position_embeddings=config.max_position_embeddings
                 )
-            elif rope_type == 'llama3' and self.model_type == 'mobilemoe':
+            elif rope_type == 'llama3':
                 factor = scaling_config['factor']
                 low = scaling_config['low_freq_factor']
                 high = scaling_config['high_freq_factor']
