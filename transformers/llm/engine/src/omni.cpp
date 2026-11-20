@@ -3284,6 +3284,12 @@ void Omni::response(const std::vector<int>& input_ids, std::ostream* os, const c
         end_with = "\n";
     }
     generate_init(os, end_with);
+    CHECK_LLM_RUNNING(mContext);
+    if (input_ids.empty()) {
+        MNN_ERROR("[Error]: empty input_ids in Omni::response\n");
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return;
+    }
     if (mLfm3Speech &&
         (mConfig->config_.value("audio_output", false) ||
          (!input_ids.empty() && (input_ids.back() == mLfm3Speech->settings["audio_start_token_id"].get<int>() ||
