@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import androidx.preference.PreferenceManager
 import com.alibaba.mls.api.download.DownloadPersistentData
+import com.alibaba.mls.api.source.ModelSources
 import com.alibaba.mnnllm.android.mainsettings.MainSettings
 import com.alibaba.mnnllm.android.utils.AppUtils
 import com.google.gson.Gson
@@ -63,10 +64,13 @@ object ModelRepository {
     private const val NETWORK_URL_PROD = "https://meta.alicdn.com/data/mnn/apis/model_market.json"
     private const val NETWORK_URL_DEV = "https://meta.alicdn.com/data/mnn/apis/model_market_dev.json"
     private const val CACHE_FILE_NAME = "model_market_cache.json"
+    private const val SNAPSHOT_FILE_NAME = "model_market_snapshot.json"
     private const val CACHE_TIMESTAMP_KEY = "model_market_cache_timestamp"
     private const val CACHE_VALID_DURATION = 1 * 60 * 60 * 1000L 
     private const val KEY_ALLOW_NETWORK_MARKET_DATA = "debug_allow_network_market_data"
     private const val KEY_MARKET_ENV = "debug_market_data_environment"
+    // API-discovered catalogs always outrank the curated CDN index (version "22" etc.).
+    private const val API_CATALOG_VERSION = "99999"
     
     private fun isAllowNetwork(context: Context): Boolean {
         return com.alibaba.mnnllm.android.utils.PreferenceUtils.getBoolean(context, KEY_ALLOW_NETWORK_MARKET_DATA, true)
@@ -125,6 +129,16 @@ object ModelRepository {
             
             // Try to get data from network first (only once per app lifecycle)
             if (!isNetworkRequestAttempted) {
+                // API-discovered catalog first; the CDN index below is the fallback.
+                val composedData = composeFromApis(assetsData)
+                if (composedData != null) {
+                    val config = convertToConfig(composedData)
+                    cachedModelMarketData = config
+                    saveCacheToFile(composedData)
+                    isNetworkRequestAttempted = true
+                    Log.i(TAG, "getModelMarketData loaded from hub APIs: models=${composedData.models.size}")
+                    return@withContext config
+                }
                 val networkData = fetchFromNetwork()
                 if (networkData != null) {
                     // Compare versions
@@ -192,6 +206,74 @@ object ModelRepository {
         }
     }
 
+    /**
+     * Enumerate the ModelScope/HuggingFace APIs and compose a market payload.
+     * The CDN index (assets or network) only supplies curated labels; voice models
+     * and libs cannot be discovered through the hub APIs and are carried over as-is.
+     * [emitPartial] streams the already-verified subset to the UI while the rest of
+     * the repos are still being format-checked.
+     * Returns null when both hubs are unreachable so callers fall back to the CDN.
+     */
+    private suspend fun composeFromApis(
+        labelsSource: ModelMarketData?,
+        emitPartial: (suspend (ModelMarketData) -> Unit)? = null
+    ): ModelMarketData? {
+        if (!isAllowNetwork(context)) {
+            return null
+        }
+        val cdnData = labelsSource ?: fetchFromNetwork() ?: loadFromCache()
+        val labels = cdnData?.let { (it.models) + (it.ttsModels ?: emptyList()) + (it.asrModels ?: emptyList()) + (it.libs ?: emptyList()) }
+
+        fun composePayload(discovered: List<ModelMarketItem>): ModelMarketData {
+            val discoveredNames = discovered.map { it.modelName }.toSet()
+            val cdnOnly = (cdnData?.models ?: emptyList()).filter { it.modelName !in discoveredNames }
+            return ModelMarketData(
+                version = API_CATALOG_VERSION,
+                tagTranslations = cdnData?.tagTranslations ?: emptyMap(),
+                quickFilterTags = cdnData?.quickFilterTags ?: emptyList(),
+                vendorOrder = cdnData?.vendorOrder,
+                models = discovered + cdnOnly,
+                ttsModels = cdnData?.ttsModels,
+                asrModels = cdnData?.asrModels,
+                libs = cdnData?.libs
+            )
+        }
+
+        val discovered = RemoteModelCatalog.fetchCatalog(
+            httpClient,
+            labels,
+            onPartial = emitPartial?.let { emit ->
+                { partial ->
+                    // Best-effort streaming of the verified subset; never fail the crawl.
+                    try {
+                        val payload = composePayload(partial)
+                        saveCacheToFile(payload)
+                        emit(payload)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "composeFromApis partial emit failed", e)
+                    }
+                }
+            }
+        ) ?: return null
+
+        // CDN-only entries survive as fallback when their hub listing failed but the
+        // curated index still ships a source for the selected provider.
+        val discoveredNames = discovered.map { it.modelName }.toSet()
+        val cdnOnly = (cdnData?.models ?: emptyList()).filter { it.modelName !in discoveredNames }
+        Log.i(TAG, "composeFromApis: discovered=${discovered.size}, cdnOnly=${cdnOnly.size}")
+
+        return ModelMarketData(
+            version = API_CATALOG_VERSION,
+            tagTranslations = cdnData?.tagTranslations ?: emptyMap(),
+            quickFilterTags = cdnData?.quickFilterTags ?: emptyList(),
+            vendorOrder = cdnData?.vendorOrder,
+            models = discovered + cdnOnly,
+            ttsModels = cdnData?.ttsModels,
+            asrModels = cdnData?.asrModels,
+            libs = cdnData?.libs
+        )
+    }
+
     private suspend fun fetchFromNetwork(): ModelMarketData? = withContext(Dispatchers.IO) {
         // If not allowed to use network, skip network and use assets
         if (!isAllowNetwork(context)) {
@@ -228,11 +310,33 @@ object ModelRepository {
 
     /**
      * Force refresh market data from network and update cache.
+     * Prefers the live ModelScope/HuggingFace catalog (CDN index as labels);
+     * falls back to the CDN index alone when both hubs are unreachable.
      * Will still prefer assets if network version is older than assets.
+     * [emitPartial] streams verified-subset catalogs to the UI while crawling.
      */
-    suspend fun refreshFromNetwork(): ModelMarketConfig? = withContext(Dispatchers.IO) {
+    suspend fun refreshFromNetwork(emitPartial: (suspend (ModelMarketConfig) -> Unit)? = null): ModelMarketConfig? = withContext(Dispatchers.IO) {
         try {
             val assetsData = loadFromAssets()
+            val composed = composeFromApis(
+                assetsData,
+                emitPartial = emitPartial?.let { emit ->
+                    { payload ->
+                        emit(convertToConfig(payload))
+                    }
+                }
+            )
+            if (composed != null) {
+                val config = convertToConfig(composed)
+                cachedModelMarketData = config
+                saveCacheToFile(composed)
+                isNetworkRequestAttempted = true
+                Log.i(
+                    TAG,
+                    "refreshFromNetwork applied API catalog: version=${composed.version}, models=${composed.models.size}"
+                )
+                return@withContext config
+            }
             val networkData = fetchFromNetwork()
             if (networkData != null) {
                 if (assetsData != null) {
@@ -348,15 +452,38 @@ object ModelRepository {
             val cacheFile = File(context.filesDir, CACHE_FILE_NAME)
             val jsonString = gson.toJson(data)
             cacheFile.writeText(jsonString)
-            
+
+            // Persist the verification snapshot so the next cold start can skip
+            // per-repo file checks for unchanged repos.
+            try {
+                File(context.filesDir, SNAPSHOT_FILE_NAME)
+                    .writeText(gson.toJson(RemoteModelCatalog.snapshot()))
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to persist catalog snapshot", e)
+            }
+
             // Save timestamp
             val sharedPrefs = PreferenceManager.getDefaultSharedPreferences(context)
             sharedPrefs.edit()
                 .putLong(CACHE_TIMESTAMP_KEY, System.currentTimeMillis())
                 .apply()
-            
+
         } catch (e: Exception) {
             Log.e(TAG, "Failed to save cache", e)
+        }
+    }
+
+    /** Restore the hub verification snapshot from disk (call before the first crawl). */
+    private fun restoreSnapshotFromDisk() {
+        try {
+            val file = File(context.filesDir, SNAPSHOT_FILE_NAME)
+            if (!file.exists()) return
+            val type = object : com.google.gson.reflect.TypeToken<Map<String, RemoteModelCatalog.SnapshotEntry>>() {}.type
+            val entries: Map<String, RemoteModelCatalog.SnapshotEntry> = gson.fromJson(file.readText(), type) ?: return
+            RemoteModelCatalog.restoreSnapshot(entries)
+            Log.i(TAG, "Restored catalog snapshot: ${entries.size} repos")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to restore catalog snapshot", e)
         }
     }
 
@@ -367,7 +494,7 @@ object ModelRepository {
         
         
         return@withContext models.filter { 
-            if (!it.sources.containsKey(selectedSource)) {
+            if (it.sources.isEmpty()) {
                 return@filter false
             }
             if (!isAppVersionSupported(currentAppVersion, it.minAppVersion)) {
@@ -379,9 +506,17 @@ object ModelRepository {
             }
             true
         }.onEach { item ->
-            item.currentSource = selectedSource
-            item.currentRepoPath = item.sources[selectedSource]!!
-            item.modelId = "$selectedSource/${item.sources[selectedSource]!!}"
+            // Mirrors iOS ModelInfo.downloadSource: the selected hub decides
+            // membership, but a repo missing from it falls back instead of
+            // disappearing (e.g. Modelers-only selections on discovered models).
+            val repoPath = item.sources[selectedSource]
+                ?: item.sources[ModelSources.sourceModelScope]
+                ?: item.sources[ModelSources.sourceHuffingFace]
+                ?: item.sources.values.first()
+            val source = item.sources.entries.first { it.value == repoPath }.key
+            item.currentSource = source
+            item.currentRepoPath = repoPath
+            item.modelId = "$source/$repoPath"
             
             // Save file_size to DownloadPersistentData if available
             if (item.fileSize > 0) {
@@ -541,8 +676,18 @@ object ModelRepository {
             try {
                 _loadingStateFlow.value = LoadingState.LOADING_NETWORK
                 Log.i(TAG, "background refresh started: env=${getMarketEnvironment(context)}, url=${getMarketNetworkUrl(context)}")
-                
-                val networkConfig = refreshFromNetwork()
+
+                // Warm the verification snapshot so unchanged repos skip file checks.
+                restoreSnapshotFromDisk()
+
+                val networkConfig = refreshFromNetwork(emitPartial = { partialConfig ->
+                    // Stream the verified subset immediately; the final emission below
+                    // replaces it with the complete catalog.
+                    _marketDataFlow.value = partialConfig
+                    TagMapper.initializeFromConfig(partialConfig)
+                    buildCacheFromData(partialConfig)
+                    Log.i(TAG, "background refresh partial: models=${partialConfig.llmModels.size}")
+                })
                 
                 if (networkConfig != null) {
                     _marketDataFlow.value = networkConfig

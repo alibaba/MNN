@@ -1,5 +1,6 @@
 package com.alibaba.mnnllm.android.widgets
 
+import android.graphics.Bitmap
 import android.net.Uri
 import android.widget.ImageView
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -12,12 +13,14 @@ import org.junit.runner.RunWith
 import org.mockito.Mockito
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.annotation.Config
 
 /**
  * Unit tests for FullScreenImageAdapter
  * Tests ViewPager2 adapter functionality for full-screen image viewing
  */
 @RunWith(RobolectricTestRunner::class)
+@Config(sdk = [28])
 class FullScreenImageAdapterTest {
 
     private lateinit var mockOnClick: () -> Unit
@@ -217,6 +220,19 @@ class FullScreenImageAdapterTest {
         // Then - should not crash, ImageView should exist
         val imageView = viewHolder.itemView.findViewById<ImageView>(R.id.preview_image)
         assertNotNull(imageView)
+    }
+
+    @Test
+    fun `recycling fullscreen image clears drawable without recycling published bitmap`() {
+        val adapter = FullScreenImageAdapter(listOf(testUri1), mockOnClick)
+        val holder = adapter.onCreateViewHolder(createParentRecyclerView(), 0)
+        adapter.onBindViewHolder(holder, 0)
+        val image = holder.itemView.findViewById<ImageView>(R.id.preview_image)
+        val bitmap = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888)
+        image.setImageBitmap(bitmap)
+        adapter.onViewRecycled(holder)
+        assertNull(image.drawable)
+        assertFalse(bitmap.isRecycled)
     }
 
     @Test

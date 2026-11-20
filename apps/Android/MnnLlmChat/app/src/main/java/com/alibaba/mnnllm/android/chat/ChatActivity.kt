@@ -13,12 +13,15 @@ import android.view.MenuItem
 import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import com.google.android.material.color.MaterialColors
+import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
-import com.alibaba.mls.api.ApplicationProvider
 import com.alibaba.mnnllm.android.llm.ChatSession
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.BuildConfig
@@ -50,7 +53,6 @@ import com.alibaba.mnnllm.android.chat.voice.VoiceModelMarketBottomSheet
 import com.alibaba.mnnllm.android.modelist.ModelItemWrapper
 import com.alibaba.mnnllm.android.utils.CrashReportContext
 import com.alibaba.mnnllm.android.utils.ConfigInfoDialog
-import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
@@ -131,6 +133,7 @@ class ChatActivity : AppCompatActivity() {
             }
         }
         setupView(this.modelId!!, this.modelName)
+        observeContextUsage()
         if (shouldStartMockStream()) {
             isMockStreamSession = true
             chatListComponent.setup(modelName, emptyList())
@@ -191,7 +194,7 @@ class ChatActivity : AppCompatActivity() {
         this.chatInputModule!!.apply {
             setOnThinkingModeChanged {isThinking ->
                 Log.d(TAG, "isThinking: $isThinking")
-                (chatSession as LlmSession).updateThinking(isThinking)
+                (chatSession as? LlmSession)?.updateThinking(isThinking)
             }
             setOnAudioOutputModeChanged {
                 chatPresenter.setEnableAudioOutput(it)
@@ -208,12 +211,24 @@ class ChatActivity : AppCompatActivity() {
     }
 
     private fun setupSession() {
-        chatSession = chatPresenter.createSession()
-        sessionId = chatSession!!.sessionId
-        CrashReportContext.setCurrentModel(modelId, sessionId)
-        onSessionCreated()
-        Log.d(TAG, "current SessionId: $sessionId")
-        chatPresenter.load()
+        onLoadingChanged(true)
+        lifecycleScope.launch {
+            try {
+                chatSession = withContext(Dispatchers.IO) { chatPresenter.createSession() }
+                sessionId = chatSession!!.sessionId
+                CrashReportContext.setCurrentModel(modelId, sessionId)
+                onSessionCreated()
+                chatPresenter.load()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: OutOfMemoryError) {
+                chatPresenter.destroy()
+                onModelLoadFailed("Not enough memory to create the session")
+            } catch (e: Exception) {
+                chatPresenter.destroy()
+                onModelLoadFailed(e.message ?: "Model load failed")
+            }
+        }
     }
 
     private fun shouldStartMockStream(): Boolean {
@@ -470,7 +485,7 @@ class ChatActivity : AppCompatActivity() {
         }
     }
 
-    fun onLoadingChanged(loading: Boolean) {
+    fun onLoadingChanged(loading: Boolean, loaded: Boolean = !loading) {
         isLoading = loading
         this.chatInputModule!!.onLoadingStatesChanged(loading)
         layoutModelLoading!!.visibility =
@@ -479,7 +494,7 @@ class ChatActivity : AppCompatActivity() {
             supportActionBar!!.setDisplayHomeAsUpEnabled(true)
             binding.modelSwitcher.text = modelName
         }
-        if (!loading) {
+        if (!loading && loaded && chatSession != null && !isFinishing && !isDestroyed) {
             if (chatSession!!.supportOmni) {
                 setupOmni()
             }
@@ -494,6 +509,7 @@ class ChatActivity : AppCompatActivity() {
      * Called when model load fails (e.g. native init returned null). Shows error and finishes.
      */
     fun onModelLoadFailed(errorMessage: String) {
+        onLoadingChanged(false, loaded = false)
         Log.e(TAG, "Model load failed: $errorMessage")
         Toast.makeText(this, getString(R.string.model_load_failed, errorMessage), Toast.LENGTH_LONG).show()
         finish()
@@ -540,9 +556,12 @@ class ChatActivity : AppCompatActivity() {
                     setModelId(modelId!!)
                     setConfigPath(intent.getStringExtra("configFilePath"))
                     setSession(session)
+                    setModelMaxContext(chatPresenter.contextUsage.value.modelMax)
                     addOnSettingsDoneListener{needRecreate->
                         if (needRecreate) {
                             recreate()
+                        } else {
+                            chatPresenter.refreshContextUsage()
                         }
                     }
                 }.show(supportFragmentManager, SettingsBottomSheetFragment.TAG)
@@ -642,6 +661,51 @@ class ChatActivity : AppCompatActivity() {
         return chatPresenter.sendMessage(userData)
     }
 
+    private fun observeContextUsage() {
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                launch { chatPresenter.contextUsage.collect(::renderContextUsage) }
+                launch {
+                    chatPresenter.contextNotices.collect { notice ->
+                        val message = when (notice) {
+                            ContextNotice.TRUNCATED -> R.string.context_truncated_notice
+                            ContextNotice.COMPRESSED -> R.string.context_compressed_notice
+                        }
+                        Snackbar.make(binding.root, message, Snackbar.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun renderContextUsage(state: ContextUsageState) {
+        val view = binding.tvContextUsage
+        view.visibility = if (state.visible || state.compressing) View.VISIBLE else View.GONE
+        if (state.compressing) {
+            view.text = getString(R.string.context_compressing)
+        } else if (state.visible) {
+            view.text = getString(
+                R.string.context_usage_format,
+                ContextUsageFormat.tokens(state.tokens),
+                ContextUsageFormat.tokens(state.limit)
+            )
+            view.contentDescription = getString(R.string.context_usage_description, state.tokens, state.limit)
+        }
+        val colorAttr = if (state.nearlyFull && !state.compressing) {
+            androidx.appcompat.R.attr.colorError
+        } else {
+            com.google.android.material.R.attr.colorOnSurfaceVariant
+        }
+        // The overload with a fallback never throws when a theme lacks the attribute.
+        view.setTextColor(MaterialColors.getColor(view, colorAttr, view.currentTextColor))
+    }
+
+    /** The message alone exceeds the context budget: keep the draft and explain why. */
+    fun onContextRejected(userData: ChatDataItem) {
+        Toast.makeText(this, R.string.context_too_long, Toast.LENGTH_LONG).show()
+        chatInputModule?.restoreDraft(userData)
+    }
+
     override fun onDestroy() {
         saveInterruptedResponseIfNeeded()
         super.onDestroy()
@@ -658,9 +722,7 @@ class ChatActivity : AppCompatActivity() {
         if (::chatPresenter.isInitialized) {
             chatPresenter.destroy()
         }
-        MainScope().launch {
-            ApiServiceManager.stopApiService(ApplicationProvider.get())
-        }
+        if (::chatPresenter.isInitialized && getChatPresenter() === chatPresenter) setChatPresenter(null)
     }
 
     private fun saveInterruptedResponseIfNeeded() {
@@ -685,7 +747,7 @@ class ChatActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
-        AudioPlayService.instance!!.destroy()
+        AudioPlayService.instance?.destroy()
     }
     fun onGenerateStart(userData: ChatDataItem) {
         chatListComponent.onStartSendMessage(userData)
@@ -726,7 +788,7 @@ class ChatActivity : AppCompatActivity() {
     fun isRealTimeAudioPlayback(): Boolean = isRealTimePlayback
 
     fun onLlmGenerateProgress(progress: String?, generateResultProcessor:GenerateResultProcessor) {
-        val chatDataItem = chatListComponent.recentItem!!
+        val chatDataItem = chatListComponent.recentItem ?: return
         chatDataItem.thinkingText = generateResultProcessor.getThinkingContent()
         chatDataItem.displayText = generateResultProcessor.getNormalOutput()
         chatDataItem.text = generateResultProcessor.getRawResult()
@@ -783,7 +845,7 @@ class ChatActivity : AppCompatActivity() {
 
     fun onGenerateFinished(benchMarkResult: HashMap<String, Any>) {
         setIsGenerating(false)
-        val recentItem = chatListComponent.recentItem!!
+        val recentItem = chatListComponent.recentItem ?: return
         recentItem.loading = false
         recentItem.forceShowLoadingWithText = false
         useDiffusionWaitHint = false
@@ -791,8 +853,13 @@ class ChatActivity : AppCompatActivity() {
         showDiffusionPercentWhenZero = false
         
         // Handle error cases
-        if (benchMarkResult.containsKey("error") && benchMarkResult["error"] as Boolean) {
-            val errorMessage = benchMarkResult["message"] as? String ?: "generation_failed"
+        val contextTooLong = benchMarkResult["message"] == ChatPresenter.CONTEXT_TOO_LONG
+        if (benchMarkResult["error"] == true) {
+            val errorMessage = if (contextTooLong) {
+                getString(R.string.context_too_long)
+            } else {
+                benchMarkResult["message"] as? String ?: "generation_failed"
+            }
             recentItem.text = errorMessage
             recentItem.displayText = errorMessage
             Log.e(TAG, "Generation failed: $errorMessage")
@@ -805,13 +872,20 @@ class ChatActivity : AppCompatActivity() {
             }
         }
         
-        recentItem.benchmarkInfo = ModelUtils.generateBenchMarkString(benchMarkResult)
+        // A turn stopped before generating (e.g. while summarizing) carries no metrics.
+        recentItem.benchmarkInfo = if (benchMarkResult.containsKey("prompt_len") ||
+            benchMarkResult.containsKey("total_timeus")) {
+            ModelUtils.generateBenchMarkString(benchMarkResult)
+        } else {
+            null
+        }
         chatListComponent.updateAssistantResponse(recentItem)
 
-        if (isMockStreamSession) {
+        // Native undid this turn; storing the explanation would turn it into a reply.
+        if (isMockStreamSession || contextTooLong) {
             return
         }
-        
+
         // Always save to database, even for errors, to maintain conversation history
         try {
             chatPresenter.saveResponseToDatabase(recentItem)
@@ -830,16 +904,7 @@ class ChatActivity : AppCompatActivity() {
             // Trigger the same stop logic as the UI stop button
             chatPresenter.stopGenerate()
             
-            // Update UI state immediately
-            setIsGenerating(false)
-            val recentItem = chatListComponent.recentItem
-            recentItem?.loading = false
-            recentItem?.forceShowLoadingWithText = false
-            useDiffusionWaitHint = false
-            hasMeaningfulDiffusionProgress = false
-            showDiffusionPercentWhenZero = false
-            
-            Log.d(TAG, "Generation stopped by external request")
+            Log.d(TAG, "Generation stop requested; waiting for the active call to finish")
         } else {
             Log.d(TAG, "No active generation to stop")
         }

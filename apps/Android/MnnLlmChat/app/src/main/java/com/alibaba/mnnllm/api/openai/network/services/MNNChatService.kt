@@ -13,7 +13,10 @@ import com.alibaba.mnnllm.api.openai.network.validators.ChatRequestValidator
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.response.respond
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CancellationException
+import io.ktor.http.ContentType
+import io.ktor.server.response.respondText
+import com.alibaba.mnnllm.api.openai.network.utils.LlmResultBoundary
 import java.util.UUID
 
 /** * chat service * responsible for coordinatingvarious components,processchatrequestcorebusinesslogic * nowallrequests throughqueuemanagerperformqueueprocess,ensuresame timeonlyoneLLM generationtaskrunning*/
@@ -73,6 +76,8 @@ class MNNChatService {
                     logger.logError(traceId, exception, "队列任务失败，requestId=$requestId")
                 }
             )
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             logger.logError(traceId, e, "队列处理失败，requestId=$requestId")
             call.respond(
@@ -120,16 +125,14 @@ class MNNChatService {
 
                 logger.logInferenceComplete(traceId)
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             logger.logError(traceId, e, "LLM生成失败")
-            call.respond(
-                HttpStatusCode.InternalServerError,
-                mapOf(
-                    "error" to mapOf(
-                        "message" to "Internal server error",
-                        "trace_id" to traceId
-                    )
-                )
+            call.respondText(
+                LlmResultBoundary.errorJson(e),
+                ContentType.Application.Json,
+                HttpStatusCode.InternalServerError
             )
         }
     }

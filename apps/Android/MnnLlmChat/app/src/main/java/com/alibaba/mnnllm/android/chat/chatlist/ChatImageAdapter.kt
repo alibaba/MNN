@@ -1,7 +1,6 @@
 package com.alibaba.mnnllm.android.chat.chatlist
 
 import android.net.Uri
-import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -12,10 +11,6 @@ import com.alibaba.mnnllm.android.utils.ImageUtils
 import com.alibaba.mnnllm.android.widgets.FullScreenImageViewer
 
 class ChatImageAdapter(private val images: List<Uri>) : RecyclerView.Adapter<ChatImageAdapter.ViewHolder>() {
-    companion object {
-        private const val TAG = "ChatImageAdapter"
-    }
-
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
         val view = LayoutInflater.from(parent.context)
             .inflate(R.layout.item_chat_image, parent, false)
@@ -28,18 +23,19 @@ class ChatImageAdapter(private val images: List<Uri>) : RecyclerView.Adapter<Cha
 
     override fun getItemCount(): Int = images.size
 
+    override fun onViewRecycled(holder: ViewHolder) {
+        holder.imageRequest.clear()
+        super.onViewRecycled(holder)
+    }
+
     inner class ViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         private val imageView: ImageView = itemView.findViewById(R.id.chat_image_item)
+        internal val imageRequest = ImageUtils.ImageRequest(imageView, ImageUtils.PREVIEW_MAX_DIMENSION)
         private var boundPosition: Int = RecyclerView.NO_POSITION
 
         fun bind(uri: Uri, position: Int) {
             boundPosition = position
-            try {
-                imageView.setImageURI(uri)
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to decode preview image: $uri", e)
-                imageView.setImageDrawable(null)
-            }
+            imageRequest.bind(uri)
             imageView.setOnClickListener {
                 FullScreenImageViewer.showImagePopup(itemView.context, images, boundPosition, false)
             }
