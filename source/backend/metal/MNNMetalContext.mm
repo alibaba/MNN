@@ -234,6 +234,11 @@ bool getCloseThreadgroup(const std::map<std::string, std::vector<std::pair<std::
 
         MTLSize _groupNum = {(NSUInteger)groupNum[0], (NSUInteger)groupNum[1], (NSUInteger)groupNum[2]};
         MTLSize _groupSize = {(NSUInteger)groupSize[0], (NSUInteger)groupSize[1], (NSUInteger)groupSize[2]};
+        if (closeRes) {
+            // The cached group count was sized for the grid it was tuned on, not this one.
+            _groupNum = MTLSizeMake(UP_DIV(gid_x, _groupSize.width), UP_DIV(gid_y, _groupSize.height),
+                                    UP_DIV(gid_z, _groupSize.depth));
+        }
 
         std::tuple<MTLSize, MTLSize, NSUInteger> result(_groupNum, _groupSize, (NSUInteger)timeCost);
         return result;
