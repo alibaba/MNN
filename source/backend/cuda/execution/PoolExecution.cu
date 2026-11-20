@@ -184,8 +184,9 @@ ErrorCode PoolExecution::onResize(const std::vector<Tensor *> &inputs, const std
     // edit const if global
     auto input       = inputs[0];
     auto output      = outputs[0];
-    int kernelWidth  = std::min(layer->kernelX(), input->width());
-    int kernelHeight = std::min(layer->kernelY(), input->height());
+    const bool samePadding = layer->padType() == PoolPadType_SAME || layer->padType() == PoolPadType_SAME_LOWER;
+    int kernelWidth  = samePadding ? layer->kernelX() : std::min(layer->kernelX(), input->width());
+    int kernelHeight = samePadding ? layer->kernelY() : std::min(layer->kernelY(), input->height());
     if (layer->isGlobal()) {
         kernelWidth  = input->width();
         kernelHeight = input->height();
@@ -194,11 +195,13 @@ ErrorCode PoolExecution::onResize(const std::vector<Tensor *> &inputs, const std
         padWidth     = 0;
         padHeight    = 0;
     }
-    if (layer->padType() == PoolPadType_SAME) {
+    if (layer->padType() == PoolPadType_SAME || layer->padType() == PoolPadType_SAME_LOWER) {
         int padNeededWidth  = (output->width() - 1) * strideWidth + kernelWidth - input->width();
         int padNeededHeight = (output->height() - 1) * strideHeight + kernelHeight - input->height();
-        padWidth            = padNeededWidth > 0 ? padNeededWidth / 2 : 0;
-        padHeight           = padNeededHeight > 0 ? padNeededHeight / 2 : 0;
+        padWidth            = layer->padType() == PoolPadType_SAME_LOWER ? std::max(0, padNeededWidth) - std::max(0, padNeededWidth) / 2
+                                                                          : std::max(0, padNeededWidth) / 2;
+        padHeight           = layer->padType() == PoolPadType_SAME_LOWER ? std::max(0, padNeededHeight) - std::max(0, padNeededHeight) / 2
+                                                                         : std::max(0, padNeededHeight) / 2;
     } else if (layer->padType() == PoolPadType_VALID) {
         padWidth = padHeight = 0;
     }
@@ -358,6 +361,13 @@ class PoolCreator : public CUDABackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override {
+        auto pool = op->main_as_Pool();
+        // The CUDA average-pool kernels currently exclude padded lanes.
+        // Fall back rather than silently changing an ONNX include-pad divisor.
+        if (pool->padType() == PoolPadType_SAME_LOWER && pool->type() == PoolType_AVEPOOL &&
+            pool->countType() == AvgPoolCountType_INCLUDE_PADDING) {
+            return nullptr;
+        }
         return new PoolExecution(op->main_as_Pool(), backend);
     }
 };

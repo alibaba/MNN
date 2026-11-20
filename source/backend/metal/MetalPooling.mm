@@ -24,6 +24,7 @@ MetalPooling::MetalPooling(Backend *backend, const Pool *pooling)
       mStrideY(pooling->strideY()),
       mPadX(pooling->padX()),
       mPadY(pooling->padY()),
+      mPadType(pooling->padType()),
       mCountIncludePadding(false) {
     auto padType = pooling->padType();
     if (!pooling->isGlobal() && pooling->pads() != nullptr && padType == PoolPadType_CAFFE &&
@@ -48,8 +49,9 @@ ErrorCode MetalPooling::onResize(const std::vector<Tensor *> &inputs, const std:
     int strideHeight = mStrideY;
     int padWidth     = mPadX;
     int padHeight    = mPadY;
-    int kernelWidth  = (int)MIN(mKernelX, input->width());
-    int kernelHeight = (int)MIN(mKernelY, input->height());
+    const bool samePadding = mPadType == PoolPadType_SAME || mPadType == PoolPadType_SAME_LOWER;
+    int kernelWidth  = samePadding ? mKernelX : (int)MIN(mKernelX, input->width());
+    int kernelHeight = samePadding ? mKernelY : (int)MIN(mKernelY, input->height());
     if (mGlobal) {
         kernelWidth  = (int)input->width();
         kernelHeight = (int)input->height();
@@ -57,9 +59,18 @@ ErrorCode MetalPooling::onResize(const std::vector<Tensor *> &inputs, const std:
         strideHeight = (int)input->height();
         padWidth     = 0;
         padHeight    = 0;
+    } else if (mPadType == PoolPadType_SAME || mPadType == PoolPadType_SAME_LOWER) {
+        // Padding is determined by the inferred output shape, since SAME_LOWER
+        // can put an odd extra cell before the input.
+        int padNeededWidth = (output->width() - 1) * strideWidth + kernelWidth - input->width();
+        int padNeededHeight = (output->height() - 1) * strideHeight + kernelHeight - input->height();
+        padNeededWidth = std::max(0, padNeededWidth);
+        padNeededHeight = std::max(0, padNeededHeight);
+        padWidth = mPadType == PoolPadType_SAME_LOWER ? padNeededWidth - padNeededWidth / 2 : padNeededWidth / 2;
+        padHeight = mPadType == PoolPadType_SAME_LOWER ? padNeededHeight - padNeededHeight / 2 : padNeededHeight / 2;
     }
 
-    mConstBuffer                       = [context newDeviceBuffer:12 * sizeof(int) access:CPUWriteOnly];
+    mConstBuffer                       = [context newDeviceBuffer:13 * sizeof(int) access:CPUWriteOnly];
     ((int *)mConstBuffer.contents)[0]  = input->width();
     ((int *)mConstBuffer.contents)[1]  = input->height();
     ((int *)mConstBuffer.contents)[2]  = output->width();
@@ -72,6 +83,7 @@ ErrorCode MetalPooling::onResize(const std::vector<Tensor *> &inputs, const std:
     ((int *)mConstBuffer.contents)[9]  = padWidth;
     ((int *)mConstBuffer.contents)[10] = padHeight;
     ((int *)mConstBuffer.contents)[11] = mCountIncludePadding ? 1 : 0;
+    ((int *)mConstBuffer.contents)[12] = (mPadType == PoolPadType_SAME || mPadType == PoolPadType_SAME_LOWER) ? 1 : 0;
     auto ow = output->width(), oh = output->height(), slice = UP_DIV(output->channel(), 4) * output->batch();
     mPipeline = [context pipelineWithName:(mPoolType == PoolType_MAXPOOL) ? @"pooling_max" : @"pooling_avg" fp16:backend->useFp16InsteadFp32()];
     auto size = [context computeBestGroupAndLocal:mPipeline threads:MTLSizeMake(ow, oh, slice)];

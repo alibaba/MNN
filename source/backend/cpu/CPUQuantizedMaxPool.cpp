@@ -50,11 +50,18 @@ ErrorCode CPUQuantizedMaxPool::onExecute(const std::vector<Tensor *> &inputs, co
         case PoolPadType_VALID:
             padRows = padCols = 0;
             break;
-        case PoolPadType_SAME: {
+        case PoolPadType_SAME:
+        case PoolPadType_SAME_LOWER: {
             auto widthNeeded  = (outWidth - 1) * colStride + windowCols - inCols;
             auto heightNeeded = (outHeight - 1) * rowStride + windowRows - inRows;
-            mPadWidth         = widthNeeded > 0 ? widthNeeded / 2 : 0;
-            mPadHeight        = heightNeeded > 0 ? heightNeeded / 2 : 0;
+            padCols = mPadWidth = widthNeeded > 0
+                                      ? (mPadMode == PoolPadType_SAME_LOWER ? widthNeeded - widthNeeded / 2
+                                                                           : widthNeeded / 2)
+                                      : 0;
+            padRows = mPadHeight = heightNeeded > 0
+                                       ? (mPadMode == PoolPadType_SAME_LOWER ? heightNeeded - heightNeeded / 2
+                                                                            : heightNeeded / 2)
+                                       : 0;
             break;
         }
         default:

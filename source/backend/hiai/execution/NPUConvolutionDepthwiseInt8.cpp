@@ -72,6 +72,13 @@ ErrorCode NPUConvolutionDepthwiseInt8::onResize(const std::vector<Tensor *> &inp
         padMode = "SAME";
         pad = {0,0,0,0};
     }
+    if (conv2DCommon->padMode() == PadMode_SAME_LOWER) {
+        const int padY = std::max(0, (outputs[0]->height() - 1) * conv2DCommon->strideY() +
+                                      (conv2DCommon->kernelY() - 1) * conv2DCommon->dilateY() + 1 - inputs[0]->height());
+        const int padX = std::max(0, (outputs[0]->width() - 1) * conv2DCommon->strideX() +
+                                      (conv2DCommon->kernelX() - 1) * conv2DCommon->dilateX() + 1 - inputs[0]->width());
+        pad = {padY - padY / 2, padY / 2, padX - padX / 2, padX / 2};
+    }
 
     (*conv)
         .set_input_x(*xOp.get())

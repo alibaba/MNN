@@ -45,11 +45,13 @@ ErrorCode HexagonPooling::onBuildCmd(const std::vector<Tensor*>& inputs, const s
     }
 
     auto originPadType = layer->padType();
-    if (originPadType == PoolPadType_SAME) {
+    if (originPadType == PoolPadType_SAME || originPadType == PoolPadType_SAME_LOWER) {
         int padNeededWidth = (output->width() - 1) * mStrideX + mKernelX - input->width();
         int padNeededHeight = (output->height() - 1) * mStrideY + mKernelY - input->height();
-        mPadX = padNeededWidth > 0 ? padNeededWidth / 2 : 0;
-        mPadY = padNeededHeight > 0 ? padNeededHeight / 2 : 0;
+        mPadX = originPadType == PoolPadType_SAME_LOWER ? std::max(0, padNeededWidth) - std::max(0, padNeededWidth) / 2
+                                                         : std::max(0, padNeededWidth) / 2;
+        mPadY = originPadType == PoolPadType_SAME_LOWER ? std::max(0, padNeededHeight) - std::max(0, padNeededHeight) / 2
+                                                         : std::max(0, padNeededHeight) / 2;
     } else if (originPadType == PoolPadType_VALID) {
         mPadX = 0;
         mPadY = 0;

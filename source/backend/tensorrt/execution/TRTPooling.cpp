@@ -55,8 +55,14 @@ std::vector<ITensor *> TRTPooling::onEncode(const std::vector<ITensor *> &xOp) {
     pool_layer->setStride(nvStrides);
     if (poolParam->padType() == PoolPadType_SAME) {
         pool_layer->setPaddingMode(nvinfer1::PaddingMode::kSAME_UPPER);
+    } else if (poolParam->padType() == PoolPadType_SAME_LOWER) {
+        pool_layer->setPaddingMode(nvinfer1::PaddingMode::kSAME_LOWER);
     } else if (poolParam->padType() == PoolPadType_CAFFE) {
         pool_layer->setPaddingMode(nvinfer1::PaddingMode::kCAFFE_ROUND_DOWN);
+    }
+    if (poolParam->type() == PoolType_AVEPOOL &&
+        (poolParam->padType() == PoolPadType_SAME || poolParam->padType() == PoolPadType_SAME_LOWER)) {
+        pool_layer->setAverageCountExcludesPadding(poolParam->countType() != AvgPoolCountType_INCLUDE_PADDING);
     }
     pool_layer->setPadding(nvPad);
     return {pool_layer->getOutput(0)};

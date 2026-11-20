@@ -61,6 +61,8 @@ std::vector<ITensor *> TRTDepthwiseConvolution::onEncode(const std::vector<ITens
     conv_layer->setPadding(nvinfer1::DimsHW{pads.second, pads.first});
     if (conv2DCommon->padMode() == PadMode_SAME) {
         conv_layer->setPaddingMode(nvinfer1::PaddingMode::kSAME_UPPER);
+    } else if (conv2DCommon->padMode() == PadMode_SAME_LOWER) {
+        conv_layer->setPaddingMode(nvinfer1::PaddingMode::kSAME_LOWER);
     }
     conv_layer->setName(mOp->name()->str().c_str());
     auto relu  = conv2DCommon->relu();

@@ -20,7 +20,7 @@ MultiInputDWConvExecution::MultiInputDWConvExecution(const MNN::Op *op, Backend 
     mPadMode = common->padMode();
     mStrides = {common->strideY(), common->strideX()};
     mDilations = {common->dilateY(), common->dilateX()};
-    if (mPadMode != PadMode_SAME) {
+    if (mPadMode != PadMode_SAME && mPadMode != PadMode_SAME_LOWER) {
         mPaddings = {common->padY() * 2, common->padX() * 2};
     }
     isRelu = common->relu();
@@ -48,11 +48,11 @@ ErrorCode MultiInputDWConvExecution::onEncode(const std::vector<Tensor *> &input
     const int kernelY = inputs[1]->length(2), kernelX = inputs[1]->length(3);
     int kernelShape[2] = {kernelY, kernelX};
 
-    if (mPadMode == PadMode_SAME) {
-        int padNeededHeight = (height - 1) * mStrides[0] + (kernelY - 1) * mDilations[0] + 1 - inputHeight;
-        int padNeededWidth = (width - 1) * mStrides[1] + (kernelX - 1) * mDilations[1] + 1 - inputWidth;
-        mPaddings[0] = padNeededHeight;
-        mPaddings[1] = padNeededWidth;
+    if (mPadMode == PadMode_SAME || mPadMode == PadMode_SAME_LOWER) {
+        int padNeededHeight = std::max(0, (height - 1) * mStrides[0] + (kernelY - 1) * mDilations[0] + 1 - inputHeight);
+        int padNeededWidth = std::max(0, (width - 1) * mStrides[1] + (kernelX - 1) * mDilations[1] + 1 - inputWidth);
+        mPaddings[0] = 2 * (mPadMode == PadMode_SAME_LOWER ? padNeededHeight - padNeededHeight / 2 : padNeededHeight / 2);
+        mPaddings[1] = 2 * (mPadMode == PadMode_SAME_LOWER ? padNeededWidth - padNeededWidth / 2 : padNeededWidth / 2);
     }
 
     const int weightSize = inputs[1]->elementSize();

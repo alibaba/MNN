@@ -44,6 +44,13 @@ static EXPRP _transformConv3D(EXPRP expr) {
     auto extraParam = expr->get()->main_as_Extra();
     std::string originalOpType(extraParam->type()->c_str());
     bool isDeconv = originalOpType == "ConvTranspose";
+    for (int i = 0; i < extraParam->attr()->size(); ++i) {
+        auto attr = extraParam->attr()->GetAs<Attribute>(i);
+        if (attr->key()->str() == "auto_pad" && attr->s()->str() == "SAME_LOWER") {
+            MNN_ERROR("%s 3D auto_pad SAME_LOWER is not supported\n", originalOpType.c_str());
+            return nullptr;
+        }
+    }
     int co    = weightShape[0];
     int ci    = weightShape[1];
     int depth = weightShape[2];
@@ -216,8 +223,10 @@ public:
             } else if (key == "auto_pad") {
                 if (attr->s()->str() == "NOTSET") {
                     modePadding = PadMode_CAFFE;
-                } else if (attr->s()->str() == "SAME_UPPER" || attr->s()->str() == "SAME_LOWER") {
+                } else if (attr->s()->str() == "SAME_UPPER") {
                     modePadding = PadMode_SAME;
+                } else if (attr->s()->str() == "SAME_LOWER") {
+                    modePadding = PadMode_SAME_LOWER;
                 } else if (attr->s()->str() == "VALID") {
                     modePadding = PadMode_VALID;
                 } else {
@@ -256,6 +265,14 @@ public:
         if (group < 1 || stride_h < 1 || stride_w < 1 || dilation_h < 1 || dilation_w < 1) {
             MNN_ERROR("%s has invalid parameters, group:%d, strides:[%d,%d], dilations:[%d,%d], all must be positive\n",
                       originalOpType.c_str(), group, stride_h, stride_w, dilation_h, dilation_w);
+            return nullptr;
+        }
+        if (isDeconv && modePadding == PadMode_SAME_LOWER) {
+            MNN_ERROR("ConvTranspose auto_pad SAME_LOWER is not supported\n");
+            return nullptr;
+        }
+        if (weightShape.size() > 4 && modePadding == PadMode_SAME_LOWER) {
+            MNN_ERROR("Convolution with more than two spatial dimensions does not support SAME_LOWER\n");
             return nullptr;
         }
 

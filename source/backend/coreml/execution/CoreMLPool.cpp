@@ -30,16 +30,19 @@ ErrorCode CoreMLPool::onResize(const std::vector<Tensor*>& inputs, const std::ve
         }
         builder.array("axes", axes).scalar("keep_dims", true);
     } else {
-        int kh = std::min(pool->kernelY(), input->height());
-        int kw = std::min(pool->kernelX(), input->width());
+        const bool samePadding = pool->padType() == PoolPadType_SAME || pool->padType() == PoolPadType_SAME_LOWER;
+        int kh = samePadding ? pool->kernelY() : std::min(pool->kernelY(), input->height());
+        int kw = samePadding ? pool->kernelX() : std::min(pool->kernelX(), input->width());
         int sh = pool->strideY(), sw = pool->strideX();
         int top = pool->padY(), left = pool->padX();
         if (pool->padType() == PoolPadType_VALID) {
             top = left = 0;
         }
-        if (pool->padType() == PoolPadType_SAME) {
-            top = std::max(0, (output->height() - 1) * sh + kh - input->height()) / 2;
-            left = std::max(0, (output->width() - 1) * sw + kw - input->width()) / 2;
+        if (pool->padType() == PoolPadType_SAME || pool->padType() == PoolPadType_SAME_LOWER) {
+            int padHeight = std::max(0, (output->height() - 1) * sh + kh - input->height());
+            int padWidth = std::max(0, (output->width() - 1) * sw + kw - input->width());
+            top = pool->padType() == PoolPadType_SAME_LOWER ? padHeight - padHeight / 2 : padHeight / 2;
+            left = pool->padType() == PoolPadType_SAME_LOWER ? padWidth - padWidth / 2 : padWidth / 2;
         } else if (pool->pads() && pool->pads()->size() == 4) {
             top = pool->pads()->Get(0);
             left = pool->pads()->Get(1);
@@ -63,11 +66,15 @@ ErrorCode CoreMLPool::onResize(const std::vector<Tensor*>& inputs, const std::ve
                 for (int y = 0; y < output->height(); ++y) {
                     int iy = y * sh - top;
                     int validH = std::max(0, std::min(iy + kh, input->height()) - std::max(iy, 0));
-                    int countH = std::min(iy + kh, input->height() + top) - iy;
+                    int countH = (pool->padType() == PoolPadType_SAME || pool->padType() == PoolPadType_SAME_LOWER)
+                                     ? kh
+                                     : std::min(iy + kh, input->height() + top) - iy;
                     for (int x = 0; x < output->width(); ++x) {
                         int ix = x * sw - left;
                         int validW = std::max(0, std::min(ix + kw, input->width()) - std::max(ix, 0));
-                        int countW = std::min(ix + kw, input->width() + left) - ix;
+                        int countW = (pool->padType() == PoolPadType_SAME || pool->padType() == PoolPadType_SAME_LOWER)
+                                         ? kw
+                                         : std::min(ix + kw, input->width() + left) - ix;
                         factors.push_back(countH * countW > 0 ? float(validH * validW) / (countH * countW) : 0.0f);
                     }
                 }
