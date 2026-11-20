@@ -54,6 +54,10 @@ inline const char* getDSPOpName(int type) {
             return "LINEAR_ATTN";
         case DSP_OP_GATED_RMS_NORM:
             return "GATED_RMS_NORM";
+        case DSP_OP_QUANTIZE_I8: return "QUANTIZE_I8";
+        case DSP_OP_DEQUANTIZE_I8: return "DEQUANTIZE_I8";
+        case DSP_OP_REQUANTIZE_I8: return "REQUANTIZE_I8";
+        case DSP_OP_CONV2D_W8A8: return "CONV2D_W8A8";
         case DSP_OP_VISION_ATTENTION_FP16: return "VISION_ATTENTION_FP16";
         case DSP_OP_VISION_FLASH_ATTENTION_FP16: return "VISION_FLASH_ATTENTION_FP16";
         case DSP_OP_COMMAND_GROUP: return "COMMAND_GROUP";

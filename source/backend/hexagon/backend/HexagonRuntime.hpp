@@ -3,6 +3,7 @@
 #define HexagonRuntime_hpp
 
 #include "core/Backend.hpp"
+#include "HexagonCommandStatus.hpp"
 #include "HexagonFunctions.hpp"
 #include "core/OpCommonUtils.hpp"
 #include "backend/hexagon/htp-ops-lib/include/htp_command.h"
@@ -75,7 +76,9 @@ public:
     MemChunk allocCommandSlot(int size) const;
     void freeCommandSlot(const MemChunk& chunk) const;
     bool pushCommand(const MemChunk& cmdChunk, int cmdSize, bool needCopy, bool dirty) const;
-    void flushCommand() const;
+    int flushCommand() const;
+    void latchCommandStatus(int status) const;
+    int consumeCommandStatus() const;
     void markHostInput(int fd, int offset, int size) const;
     void markHostOutput(int fd, int offset, int size) const;
     void markHexagonOutput(int fd, int offset, int size) const;
@@ -122,6 +125,7 @@ private:
     mutable std::vector<SyncTensorRecord> mPendingHexagonOutputs;
     mutable std::vector<HexagonBuffer*> mCommandWeightBuffers;
     mutable size_t mCommandWeightBytes = 0;
+    mutable HexagonCommandStatus mCommandStatus;
 #ifdef MNN_GPU_TIME_PROFILE
     mutable MemChunk mProfileChunk;
     mutable int mProfileFlushCount = 0;
@@ -141,6 +145,9 @@ class HexagonRuntimeCreator : public RuntimeCreator {
 public:
     virtual Runtime* onCreate(const Backend::Info& info) const override;
     virtual bool onValid(Backend::Info& info) const override;
+    virtual bool onSetQuantInfo(
+        const Op* op, const std::vector<Tensor*>& inputs,
+        const std::vector<Tensor*>& outputs) const override;
 };
 
 } // namespace MNN
