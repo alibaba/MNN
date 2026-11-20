@@ -3,6 +3,10 @@
 #include "AllShader.h"
 namespace MNN {
 void VulkanShaderMap::init() {
+mMaps.insert(std::make_pair("glsl_nx_conv1x1_quant_comp", std::make_pair(glsl_nx_conv1x1_quant_comp, glsl_nx_conv1x1_quant_comp_len)));
+mMaps.insert(std::make_pair("glsl_nx_conv1x1_quant_FP16_comp", std::make_pair(glsl_nx_conv1x1_quant_FP16_comp, glsl_nx_conv1x1_quant_FP16_comp_len)));
+mMaps.insert(std::make_pair("glsl_nx_conv1x1_epilogue_comp", std::make_pair(glsl_nx_conv1x1_epilogue_comp, glsl_nx_conv1x1_epilogue_comp_len)));
+mMaps.insert(std::make_pair("glsl_nx_conv1x1_epilogue_FP16_comp", std::make_pair(glsl_nx_conv1x1_epilogue_FP16_comp, glsl_nx_conv1x1_epilogue_FP16_comp_len)));
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 mMaps.insert(std::make_pair("glsl_indexed_linear_route_comp", std::make_pair(glsl_indexed_linear_route_comp,glsl_indexed_linear_route_comp_len)));
 #endif

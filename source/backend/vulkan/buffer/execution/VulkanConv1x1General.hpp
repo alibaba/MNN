@@ -16,6 +16,7 @@ public:
     virtual ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                const VulkanCommandPool::Buffer* cmdBuffer) override;
     virtual bool onClone(Backend* bn, const Op* op, VulkanBasicExecution** dst) override;
+    bool initialized() const { return mInitialized; }
 
 private:
     VulkanConv1x1General(VulkanBackend* backend, const Convolution2DCommon* convOption, int ci, int co,
@@ -35,6 +36,7 @@ private:
     uint32_t mDecodeWeightStrideWords = 0;
     uint32_t mDecodeSubgroupSize = 1;
     bool mUseSubgroup = true;
+    bool mInitialized = false;
 
     std::shared_ptr<ConvolutionCommon::Int8Common> mQuantCommon;
 

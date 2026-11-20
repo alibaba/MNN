@@ -55,6 +55,150 @@ static VulkanDevice::SubgroupInfo _querySubgroupInfo(VkPhysicalDevice physicalDe
     return info;
 }
 
+static bool _queryDataGraphInfo(VkInstance instance, VkPhysicalDevice physicalDevice,
+                                const std::vector<VkExtensionProperties>& extensions,
+                                const std::vector<VkQueueFamilyProperties>& queues, VulkanDevice::DataGraphInfo& info,
+                                uint32_t& queueFamilyIndex) {
+    // Explicit KHR dependencies keep feature negotiation independent of core promotion.
+    const char* requiredExtensions[] = {
+        VK_ARM_DATA_GRAPH_EXTENSION_NAME,
+        VK_ARM_TENSORS_EXTENSION_NAME,
+        VK_ARM_DATA_GRAPH_INSTRUCTION_SET_TOSA_EXTENSION_NAME,
+        VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME,
+        VK_KHR_MAINTENANCE_5_EXTENSION_NAME,
+        VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
+    };
+    for (const char* extension : requiredExtensions) {
+        if (!_hasExtension(extensions, extension)) {
+            return false;
+        }
+    }
+
+    auto getFeatures2 = reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2>(
+        vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures2"));
+    auto getProperties2 = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties2>(
+        vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceProperties2"));
+    info.getFormatProperties2 = reinterpret_cast<PFN_vkGetPhysicalDeviceFormatProperties2>(
+        vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFormatProperties2"));
+    info.getQueueFamilyProperties = reinterpret_cast<PFN_vkGetPhysicalDeviceQueueFamilyDataGraphPropertiesARM>(
+        vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceQueueFamilyDataGraphPropertiesARM"));
+    info.getEngineOperationProperties =
+        reinterpret_cast<PFN_vkGetPhysicalDeviceQueueFamilyDataGraphEngineOperationPropertiesARM>(
+            vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceQueueFamilyDataGraphEngineOperationPropertiesARM"));
+    if (!getFeatures2 || !getProperties2 || !info.getFormatProperties2 || !info.getQueueFamilyProperties ||
+        !info.getEngineOperationProperties) {
+        return false;
+    }
+    VkPhysicalDeviceProperties2 properties2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+    getProperties2(physicalDevice, &properties2);
+    if (properties2.properties.apiVersion < VK_API_VERSION_1_3) {
+        return false;
+    }
+
+    VkPhysicalDeviceDataGraphFeaturesARM graph{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DATA_GRAPH_FEATURES_ARM};
+    VkPhysicalDeviceTensorFeaturesARM tensors{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TENSOR_FEATURES_ARM};
+    VkPhysicalDeviceSynchronization2Features sync2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES};
+    VkPhysicalDeviceMaintenance5FeaturesKHR maintenance5{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_5_FEATURES_KHR};
+    VkPhysicalDeviceDataGraphNeuralAcceleratorStatisticsFeaturesARM statistics{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DATA_GRAPH_NEURAL_ACCELERATOR_STATISTICS_FEATURES_ARM};
+    VkPhysicalDeviceFeatures2 features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+    features.pNext = &graph;
+    graph.pNext = &tensors;
+    tensors.pNext = &sync2;
+    sync2.pNext = &maintenance5;
+    const bool hasStatistics =
+        _hasExtension(extensions, VK_ARM_DATA_GRAPH_NEURAL_ACCELERATOR_STATISTICS_EXTENSION_NAME);
+    if (hasStatistics) {
+        maintenance5.pNext = &statistics;
+    }
+    getFeatures2(physicalDevice, &features);
+    if (!graph.dataGraph || !graph.dataGraphShaderModule || !tensors.tensors || !sync2.synchronization2 ||
+        !maintenance5.maintenance5) {
+        return false;
+    }
+
+    // Foreign engines require external memory and semaphore interop.
+    for (uint32_t family = 0; family < queues.size(); ++family) {
+        const VkQueueFlags requiredFlags = VK_QUEUE_COMPUTE_BIT | VK_QUEUE_DATA_GRAPH_BIT_ARM;
+        if (queues[family].queueCount == 0 || (queues[family].queueFlags & requiredFlags) != requiredFlags) {
+            continue;
+        }
+        uint32_t count = 0;
+        if (info.getQueueFamilyProperties(physicalDevice, family, &count, nullptr) != VK_SUCCESS || count == 0) {
+            continue;
+        }
+        std::vector<VkQueueFamilyDataGraphPropertiesARM> graphProperties(count);
+        for (auto& property : graphProperties) {
+            property.sType = VK_STRUCTURE_TYPE_QUEUE_FAMILY_DATA_GRAPH_PROPERTIES_ARM;
+        }
+        if (info.getQueueFamilyProperties(physicalDevice, family, &count, graphProperties.data()) != VK_SUCCESS) {
+            continue;
+        }
+        for (uint32_t i = 0; i < count; ++i) {
+            const auto& property = graphProperties[i];
+            if (property.engine.isForeign ||
+                property.engine.type != VK_PHYSICAL_DEVICE_DATA_GRAPH_PROCESSING_ENGINE_TYPE_DEFAULT_ARM ||
+                property.operation.operationType !=
+                    VK_PHYSICAL_DEVICE_DATA_GRAPH_OPERATION_TYPE_SPIRV_EXTENDED_INSTRUCTION_SET_ARM ||
+                std::strncmp(property.operation.name, "TOSA.", 5) != 0) {
+                continue;
+            }
+            VkQueueFamilyDataGraphTOSAPropertiesARM tosa{VK_STRUCTURE_TYPE_QUEUE_FAMILY_DATA_GRAPH_TOSA_PROPERTIES_ARM};
+            if (info.getEngineOperationProperties(physicalDevice, family, &property,
+                                                  reinterpret_cast<VkBaseOutStructure*>(&tosa)) != VK_SUCCESS ||
+                tosa.profileCount == 0) {
+                continue;
+            }
+            info.tensorProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TENSOR_PROPERTIES_ARM;
+            properties2.pNext = &info.tensorProperties;
+            getProperties2(physicalDevice, &properties2);
+            // Format and shape suitability remain per-graph checks; this is not execution attribution.
+            if (std::strcmp(property.operation.name, "TOSA.001000.1") == 0 &&
+                std::strstr(properties2.properties.deviceName, "Mali-G2-Ultra-NX") != nullptr) {
+                for (uint32_t profile = 0; profile < tosa.profileCount; ++profile) {
+                    if (std::strcmp(tosa.pProfiles[profile].name, "PRO-INT") == 0 &&
+                        (tosa.pProfiles[profile].qualityFlags & VK_DATA_GRAPH_TOSA_QUALITY_ACCELERATED_ARM)) {
+                        info.nxInt8Candidate = true;
+                    }
+                }
+            }
+            queueFamilyIndex = family;
+            // Arm's statistics layer documents drivers that expose this extension but misreport its feature.
+            info.neuralStatistics = hasStatistics && statistics.dataGraphNeuralAcceleratorStatistics;
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool _loadDataGraphFunctions(VkDevice device, VulkanDevice::DataGraphInfo& info) {
+    bool loaded = true;
+#define MNN_LOAD_DATA_GRAPH(field, function)                                               \
+    info.field = reinterpret_cast<PFN_##function>(vkGetDeviceProcAddr(device, #function)); \
+    loaded = loaded && info.field != nullptr;
+    MNN_LOAD_DATA_GRAPH(createTensor, vkCreateTensorARM)
+    MNN_LOAD_DATA_GRAPH(destroyTensor, vkDestroyTensorARM)
+    MNN_LOAD_DATA_GRAPH(getTensorMemoryRequirements, vkGetTensorMemoryRequirementsARM)
+    MNN_LOAD_DATA_GRAPH(bindTensorMemory, vkBindTensorMemoryARM)
+    MNN_LOAD_DATA_GRAPH(createTensorView, vkCreateTensorViewARM)
+    MNN_LOAD_DATA_GRAPH(destroyTensorView, vkDestroyTensorViewARM)
+    MNN_LOAD_DATA_GRAPH(createPipelines, vkCreateDataGraphPipelinesARM)
+    MNN_LOAD_DATA_GRAPH(createSession, vkCreateDataGraphPipelineSessionARM)
+    MNN_LOAD_DATA_GRAPH(destroySession, vkDestroyDataGraphPipelineSessionARM)
+    MNN_LOAD_DATA_GRAPH(getSessionBindPointRequirements, vkGetDataGraphPipelineSessionBindPointRequirementsARM)
+    MNN_LOAD_DATA_GRAPH(getSessionMemoryRequirements, vkGetDataGraphPipelineSessionMemoryRequirementsARM)
+    MNN_LOAD_DATA_GRAPH(bindSessionMemory, vkBindDataGraphPipelineSessionMemoryARM)
+    MNN_LOAD_DATA_GRAPH(cmdDispatch, vkCmdDispatchDataGraphARM)
+#undef MNN_LOAD_DATA_GRAPH
+    info.cmdPipelineBarrier2 =
+        reinterpret_cast<PFN_vkCmdPipelineBarrier2>(vkGetDeviceProcAddr(device, "vkCmdPipelineBarrier2"));
+    if (!info.cmdPipelineBarrier2) {
+        info.cmdPipelineBarrier2 =
+            reinterpret_cast<PFN_vkCmdPipelineBarrier2>(vkGetDeviceProcAddr(device, "vkCmdPipelineBarrier2KHR"));
+    }
+    return loaded && info.cmdPipelineBarrier2 != nullptr;
+}
+
 VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance)
     : mOwner(true),
       mInstance(instance),
@@ -193,6 +337,45 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance)
         }
     }
 
+    // Separate enable structs avoid accidentally enabling unrelated queried features.
+    VkPhysicalDeviceDataGraphFeaturesARM graphFeatures{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DATA_GRAPH_FEATURES_ARM};
+    VkPhysicalDeviceTensorFeaturesARM tensorFeatures{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TENSOR_FEATURES_ARM};
+    VkPhysicalDeviceSynchronization2Features sync2Features{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES};
+    VkPhysicalDeviceMaintenance5FeaturesKHR maintenance5Features{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_5_FEATURES_KHR};
+    VkPhysicalDeviceDataGraphNeuralAcceleratorStatisticsFeaturesARM statisticsFeatures{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DATA_GRAPH_NEURAL_ACCELERATOR_STATISTICS_FEATURES_ARM};
+    const bool enableDataGraph = _queryDataGraphInfo(mInstance->get(), mPhysicalDevice, availableDeviceExtensions,
+                                                     queueFamilyProperties, mDataGraphInfo, mQueueFamilyIndex);
+    if (enableDataGraph) {
+        queueCreateInfo.queueFamilyIndex = mQueueFamilyIndex;
+        deviceExtensions.push_back(VK_ARM_DATA_GRAPH_EXTENSION_NAME);
+        deviceExtensions.push_back(VK_ARM_TENSORS_EXTENSION_NAME);
+        deviceExtensions.push_back(VK_ARM_DATA_GRAPH_INSTRUCTION_SET_TOSA_EXTENSION_NAME);
+        deviceExtensions.push_back(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
+        deviceExtensions.push_back(VK_KHR_MAINTENANCE_5_EXTENSION_NAME);
+        deviceExtensions.push_back(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+        if (mDataGraphInfo.neuralStatistics) {
+            deviceExtensions.push_back(VK_ARM_DATA_GRAPH_NEURAL_ACCELERATOR_STATISTICS_EXTENSION_NAME);
+            statisticsFeatures.dataGraphNeuralAcceleratorStatistics = VK_TRUE;
+            statisticsFeatures.pNext = pNextChain;
+            pNextChain = &statisticsFeatures;
+        }
+        maintenance5Features.maintenance5 = VK_TRUE;
+        maintenance5Features.pNext = pNextChain;
+        sync2Features.synchronization2 = VK_TRUE;
+        sync2Features.pNext = &maintenance5Features;
+        tensorFeatures.tensors = VK_TRUE;
+        tensorFeatures.pNext = &sync2Features;
+        graphFeatures.dataGraph = VK_TRUE;
+        graphFeatures.dataGraphShaderModule = VK_TRUE;
+        graphFeatures.pNext = &tensorFeatures;
+        pNextChain = &graphFeatures;
+    } else {
+        mDataGraphInfo = {};
+    }
+
     deviceFeatures2.pNext = pNextChain;
 
     // Create Device. Get Queue.
@@ -212,8 +395,13 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance)
     mDevice = VK_NULL_HANDLE;
     CALL_VK(vkCreateDevice(mPhysicalDevice, &deviceCreateInfo, nullptr, &mDevice));
     if (VK_NULL_HANDLE == mDevice) {
+        mDataGraphInfo = {};
         MNN_ERROR("Can't create vk device\n");
         return;
+    }
+    if (enableDataGraph) {
+        mDataGraphInfo.supported = _loadDataGraphFunctions(mDevice, mDataGraphInfo);
+        mDataGraphInfo.neuralStatistics = mDataGraphInfo.supported && mDataGraphInfo.neuralStatistics;
     }
     getDeviceQueue(mQueueFamilyIndex, 0, mQueue);
 
@@ -244,7 +432,6 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance)
     std::vector<VkExtensionProperties> extensions(extensionCount);
     vkEnumerateDeviceExtensionProperties(mPhysicalDevice, nullptr, &extensionCount, extensions.data());
 }
-
 }
 
 VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance, VkPhysicalDevice physicalDevice, VkDevice device,
@@ -510,16 +697,26 @@ const void VulkanDevice::destroySampler(const VkSampler& sampler, const VkAlloca
     vkDestroySampler(mDevice, sampler, allocator);
 }
 
-const VkResult VulkanDevice::createPipelineCache(VkPipelineCache& pipelineCache,
-                                                 const VkAllocationCallbacks* allocator) const {
+const VkResult VulkanDevice::createPipelineCache(VkPipelineCache& pipelineCache, const VkAllocationCallbacks* allocator,
+                                                 const void* initialData, size_t initialDataSize) const {
     VkPipelineCacheCreateInfo pipelineCacheInfo{
         /* .sType           = */ VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO,
         /* .pNext           = */ nullptr,
         /* .flags           = */ 0, // reserved, must be 0
-        /* .initialDataSize = */ 0,
-        /* .pInitialData    = */ nullptr,
+        /* .initialDataSize = */ initialData ? initialDataSize : 0,
+        /* .pInitialData    = */ initialData,
     };
     return vkCreatePipelineCache(mDevice, &pipelineCacheInfo, allocator, &pipelineCache);
+}
+
+const VkResult VulkanDevice::getPipelineCacheData(const VkPipelineCache& pipelineCache, size_t& dataSize,
+                                                  void* data) const {
+    return vkGetPipelineCacheData(mDevice, pipelineCache, &dataSize, data);
+}
+
+const VkResult VulkanDevice::mergePipelineCaches(const VkPipelineCache& dstCache,
+                                                 const VkPipelineCache& srcCache) const {
+    return vkMergePipelineCaches(mDevice, dstCache, 1, &srcCache);
 }
 
 const void VulkanDevice::destroyPipelineCache(const VkPipelineCache& pipelineCache,

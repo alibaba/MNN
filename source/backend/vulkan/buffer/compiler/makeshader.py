@@ -507,12 +507,16 @@ def genMapFile(objs):
     with open(mapFile, 'w') as f:
         f.write(cpp)
 
-def genCppFile(objs, inc, dst):
+def genCppFile(objs, inc, dst, only=None):
+    existing = readExistingBlocks(dst) if only else {}
     cpp = "#include \"" + inc + "\"\n"
     genRefCompFiles(objs)
     for obj in objs:
         s = obj.getShaderFile()
         name = obj.getFileName()
+        if only and name in existing and name not in only:
+            cpp += existing[name]
+            continue
         #print name
         out = 'tempspv'
         rm = True
@@ -595,35 +599,102 @@ def genHppFile(objs, fileName):
         f.write(h)
 
 
-def generateFile(headfile, sourcefile, shaders, macros, cache):
+def readExistingBlocks(path):
+    """--only splices freshly compiled arrays into the committed file verbatim-block by block, so
+    every untouched shader keeps its exact bytes instead of being re-emitted by whatever local
+    glslang/spirv-opt version happens to be installed."""
+    try:
+        with open(path, 'r') as f:
+            lines = f.read().splitlines(True)
+    except IOError:
+        return {}
+    prefix = 'const unsigned char '
+    blocks = {}
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        if not line.startswith(prefix) or '[] = {' not in line:
+            index += 1
+            continue
+        name = line[len(prefix):].split('[')[0]
+        start = index
+        if start > 0 and lines[start - 1].startswith('#ifdef'):
+            start -= 1
+        end = index + 1
+        while end < len(lines) and not lines[end].startswith('unsigned int ' + name + '_len'):
+            end += 1
+        if end >= len(lines):
+            index += 1
+            continue
+        end += 1
+        if end < len(lines) and lines[end].strip() == '':
+            end += 1
+        if end < len(lines) and lines[end].startswith('#endif'):
+            end += 1
+        blocks[name] = ''.join(lines[start:end])
+        index = end
+    return blocks
+
+
+def sortByDeclaredOrder(objs, generatedFile):
+    """Every output is rewritten wholesale, but os.walk order is filesystem-dependent and the two
+    committed outputs historically disagree, so each keeps its own existing order and shaders that
+    are not declared yet go to the front. Without this a one-shader edit reorders the whole file."""
+    prefix = 'const unsigned char '
+    try:
+        with open(generatedFile, 'r') as f:
+            lines = f.read().splitlines()
+    except IOError:
+        return objs
+    position = {}
+    for line in lines:
+        if line.endswith('[];') or line.endswith('[] = {'):
+            position.setdefault(line.split(prefix)[-1].split('[')[0], len(position))
+    if not position:
+        return objs
+    return sorted(objs, key=lambda obj: (position.get(obj.getFileName(), -1), obj.getFileName()))
+
+
+def generateFile(headfile, sourcefile, shaders, macros, cache, only=None):
     #genJsonHeadFile()
     print(macros)
     fileObjs = genShaderFileObjs(shaders, macros)
     cache.setupShaderCache(fileObjs)
-    genHppFile(fileObjs, headfile)
-    genCppFile(fileObjs, headfile, sourcefile)
+    headerObjs = sortByDeclaredOrder(fileObjs, headfile)
+    sourceObjs = sortByDeclaredOrder(fileObjs, sourcefile)
+    # --only recompiles a subset of shaders, so no declaration can appear or disappear and the
+    # name-only outputs must stay untouched rather than pick up generator formatting drift.
+    if only is None:
+        genHppFile(headerObjs, headfile)
+    genCppFile(sourceObjs, headfile, sourcefile, only)
     cache.updateShaderCache(fileObjs)
-    genMapFile(fileObjs)
+    if only is None:
+        genMapFile(headerObjs)
 
 
 
 def parseArgs(argv):
     try:
-        opts, args = getopt.getopt(argv, "hf", ["force="])
+        opts, args = getopt.getopt(argv, "hf", ["force=", "only="])
     except getopt.GetoptError:
-        print('makeshader.py [-h,-f]')
+        print('makeshader.py [-h,-f,--only a,b]')
         sys.exit(2)
+    only = None
+    use_cache = True
     for opt, arg in opts:
         if opt == '-h':
-            print('makeshader.py [-h,-f,--force] <-h> help <-f,--force> disable cache')
+            print('makeshader.py [-h,-f,--force,--only] <-h> help <-f,--force> disable cache '
+                  '<--only name1,name2> recompile only these shaders, keep every other array verbatim')
             sys.exit()
         elif opt in ("-f", "--force"):
-            return False
-    return True
+            use_cache = False
+        elif opt == "--only":
+            only = set(n.strip() for n in arg.split(',') if n.strip())
+    return use_cache, only
 
 
 if __name__ == '__main__':
-    use_cache = parseArgs(sys.argv[1:])
+    use_cache, onlyShaders = parseArgs(sys.argv[1:])
 
     spirv_opt_tag = _spirv_opt_tag()
     if gEnableSpirvOpt and os.environ.get("MNN_VULKAN_DISABLE_SPIRV_OPT", "") != "1" and not _spirv_opt_available():
@@ -638,5 +709,5 @@ if __name__ == '__main__':
     print(gDefaultPath)
     macros = json.loads(jsonFile.read())
     jsonFile.close()
-    generateFile(gOutputHeadFile, gOutputSourceFile, shaders, macros, shaderCache)
+    generateFile(gOutputHeadFile, gOutputSourceFile, shaders, macros, shaderCache, onlyShaders)
     # generateFileAsm("AllShader_asm.h", "AllShader_asm.cpp", "spirv");

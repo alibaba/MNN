@@ -125,6 +125,11 @@ VulkanRuntime::VulkanRuntime(const Backend::Info& info, std::shared_ptr<VulkanDe
 }
 
 VulkanRuntime::~VulkanRuntime() {
+    // Resident GPU resources reference the memory pool and device released below.
+    {
+        std::lock_guard<std::mutex> guard(mResidentMutex);
+        mResident.clear();
+    }
     mBufferPool = nullptr;
     while (!mUniformCache.empty()) {
         mUniformCache.pop();
@@ -224,22 +229,52 @@ bool VulkanRuntime::onSetCache(const void* buffer, size_t size) {
 
     auto tuneInfoCache = VKCache::GetTuneInfoCache(buffer);
     auto tuneInfos = tuneInfoCache->TuneInfos();
-    if (!tuneInfos) {
-        return false;
-    }
-    // read from buffer, write to mTuneMap
-    for (const auto & tuneInfo : * tuneInfos) {
-        VKTuneKey k;
-        k.shaderName = tuneInfo->shaderName()->str();
-        k.gws = {tuneInfo->gws()->x(), tuneInfo->gws()->y(), tuneInfo->gws()->z()};
+    if (tuneInfos) {
+        // read from buffer, write to mTuneMap
+        for (const auto& tuneInfo : *tuneInfos) {
+            VKTuneKey k;
+            k.shaderName = tuneInfo->shaderName()->str();
+            k.gws = {tuneInfo->gws()->x(), tuneInfo->gws()->y(), tuneInfo->gws()->z()};
 
-        VKTuneValue v;
-        v.optimalLws = {tuneInfo->optimalLws()->x(), tuneInfo->optimalLws()->y(), tuneInfo->optimalLws()->z()};
-        v.optimalCost = tuneInfo->optimalCost();
-        mTuneMap[k] = v;
+            VKTuneValue v;
+            v.optimalLws = {tuneInfo->optimalLws()->x(), tuneInfo->optimalLws()->y(), tuneInfo->optimalLws()->z()};
+            v.optimalCost = tuneInfo->optimalCost();
+            mTuneMap[k] = v;
+        }
+    }
+    auto pipelineBlob = tuneInfoCache->PipelineCache();
+    if (pipelineBlob && pipelineBlob->size() > 0 && mPipelineFactory) {
+        mPipelineFactory->restoreCache(pipelineBlob->data(), pipelineBlob->size());
+        MNN_PRINT("Vulkan pipeline cache restored, size = %zu\n", pipelineBlob->size());
     }
 
     return true;
+}
+
+std::shared_ptr<void> VulkanRuntime::acquireResident(const std::string& key,
+                                                     const std::function<std::shared_ptr<void>()>& create) const {
+    if (key.empty()) {
+        return nullptr;
+    }
+    std::lock_guard<std::mutex> guard(mResidentMutex);
+    auto entry = mResident.find(key);
+    if (entry != mResident.end()) {
+        return entry->second;
+    }
+    auto value = create();
+    if (value) {
+        mResident.insert(std::make_pair(key, value));
+    }
+    return value;
+}
+
+std::shared_ptr<void> VulkanRuntime::findResident(const std::string& key) const {
+    if (key.empty()) {
+        return nullptr;
+    }
+    std::lock_guard<std::mutex> guard(mResidentMutex);
+    auto entry = mResident.find(key);
+    return entry == mResident.end() ? nullptr : entry->second;
 }
 
 std::pair<const void*, size_t> VulkanRuntime::onGetCache() {
@@ -263,6 +298,15 @@ std::pair<const void*, size_t> VulkanRuntime::onGetCache() {
         tuneInfo->optimalCost = v.optimalCost;
 
         tuneInfoCache->TuneInfos.push_back(std::move(tuneInfo));
+    }
+
+    if (mPipelineFactory) {
+        auto cache = mPipelineFactory->pipelineCache();
+        std::vector<char> blob;
+        if (cache && cache->serialize(blob) && !blob.empty()) {
+            tuneInfoCache->PipelineCache.resize(blob.size());
+            ::memcpy(tuneInfoCache->PipelineCache.data(), blob.data(), blob.size());
+        }
     }
 
     auto tuneInfoCacheOffset = VKCache::TuneInfoCache::Pack(*(builder.get()), tuneInfoCache.get());
