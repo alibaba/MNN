@@ -6,18 +6,26 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
-#include "FmhaV2Execution.hpp"
 #include "../FmhaCommon/FmhaCommonExecution.hpp"
+#ifdef MNN_CUDA_FMHA_HAS_CUBIN
+#include "FmhaV2Execution.hpp"
+#endif
 #include "core/TensorUtils.hpp"
 
 namespace MNN {
 namespace CUDA {
 
+#ifdef MNN_CUDA_FMHA_HAS_CUBIN
 bool FmhaV2Execution::isValid(const MNN::Op* op, Backend *backend, const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto fmha_v2_param = op->main_as_FmhaV2Param();
     int head_num = fmha_v2_param->heads();
     int head_size = outputs[0]->length(2)/head_num;
     if(head_size != 16 && head_size != 32 && head_size != 40 && head_size != 64 && head_size != 80 && head_size != 128) {
+        return false;
+    }
+    // The running GPU may have no cubin, e.g. a multi-arch build on sm_90 / sm_120.
+    int sm = static_cast<CUDABackend*>(backend)->getCUDARuntime()->compute_capability();
+    if (!getFMHAFlashCubinKernels(DATA_TYPE_FP16, sm)->hasKernels()) {
         return false;
     }
     // If need acc with fp32, do not use
@@ -74,7 +82,9 @@ int32_t FmhaV2Execution::runFMHFAKernel(void const* devQKV, void* cuSeqlens, voi
             /* use_int8_scale_max  */ false);
     //MNN_PRINT("%p %p %p, %d %d, %p, %d %d %d %d %p\n", devQKV, cuSeqlens, devOutput, total, sm, kernels, b, h, d, s, stream);
 
-    kernels->run(params, stream);
+    if (!kernels->run(params, stream)) {
+        return -1;
+    }
     checkKernelErrors;
     return 0;
 }
@@ -94,14 +104,17 @@ ErrorCode FmhaV2Execution::onExecute(const std::vector<Tensor*>& inputs, const s
 
     size_t const total = mBatchSize * mSeqLen;
     // printf("fmha shape  b:%d s:%d h_num:%d h_size:%d, %d\n", mBatchSize, mSeqLen, head_num, size_per_head, inputs[0]->dimensions());
-    runFMHFAKernel((const void *)inputs[0]->deviceId(), mSeqLenDevPtr, (void *)outputs[0]->deviceId(), total, mSM, mKernels,
-        mBatchSize, head_num, size_per_head, mSeqLen);
+    if (0 != runFMHFAKernel((const void *)inputs[0]->deviceId(), mSeqLenDevPtr, (void *)outputs[0]->deviceId(), total,
+                            mSM, mKernels, mBatchSize, head_num, size_per_head, mSeqLen)) {
+        return NOT_SUPPORT;
+    }
     checkKernelErrors;
 #ifdef LOG_VERBOSE
     MNN_PRINT("end FmhaV2Execution onExecute...");
 #endif
     return NO_ERROR;
 }
+#endif // MNN_CUDA_FMHA_HAS_CUBIN
 
 
 class FmhaV2Creator : public CUDABackend::Creator {
@@ -112,9 +125,11 @@ public:
             MNN_PRINT("CUDA FmhaV2 only support fp16 now!\n");
             return nullptr;
         }
+#ifdef MNN_CUDA_FMHA_HAS_CUBIN
         if(FmhaV2Execution::isValid(op, backend, inputs, outputs)) {
             return new FmhaV2Execution(op, backend);
         }
+#endif
         return new FmhaCommonExecution(op, backend);
     }
 };
