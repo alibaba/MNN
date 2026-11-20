@@ -1,0 +1,44 @@
+{
+  "app": {
+    "products": [
+      {
+        "name": "default",
+        "signingConfig": "default",
+        "compatibleSdkVersion": "6.1.1(24)",
+        "runtimeOS": "HarmonyOS",
+        "targetSdkVersion": "26.0.0",
+        "buildOption": {
+          "strictMode": {
+            "useNormalizedOHMUrl": true
+          }
+        }
+      }
+    ],
+    "buildModeSet": [
+      {
+        "name": "debug"
+      },
+      {
+        "name": "release"
+      }
+    ]
+  },
+  "modules": [
+    {
+      "name": "entry",
+      "srcPath": "./entry",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "mnn",
+      "srcPath": "./mnn"
+    }
+  ]
+}

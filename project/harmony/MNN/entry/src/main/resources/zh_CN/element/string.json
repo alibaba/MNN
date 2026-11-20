@@ -1,0 +1,20 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "本机运行的大模型聊天应用"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "MNN Chat 本地大模型对话"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "MNN Chat"
+    },
+    {
+      "name": "microphone_reason",
+      "value": "MNN Chat 需要麦克风用于语音输入与免提语音对话。"
+    }
+  ]
+}

@@ -1,0 +1,1703 @@
+import { tr } from '../../services/I18n';
+import { common, Want } from '@kit.AbilityKit';
+import { promptAction } from '@kit.ArkUI';
+import { systemShare } from '@kit.ShareKit';
+import { uniformTypeDescriptor } from '@kit.ArkData';
+import bundleManager from '@ohos.bundle.bundleManager';
+import deviceInfo from '@ohos.deviceInfo';
+import pasteboard from '@ohos.pasteboard';
+import { AttachmentRepository } from '../../data/AttachmentRepository';
+import { ChatRepository } from '../../data/ChatRepository';
+import { ModelRepository } from '../../data/ModelRepository';
+import {
+  AttachmentRecord,
+  ChatMessageRecord,
+  ChatSessionRecord,
+  GenerationState,
+  MessageRole,
+  ModelCapabilities,
+  ModelRecord,
+  ModelRuntimeSettings,
+  ModelState
+} from '../../domain/AppTypes';
+import { AppInitializer } from '../../services/AppInitializer';
+import { DiffusionService } from '../../services/DiffusionService';
+import { DownloadManager } from '../../services/DownloadManager';
+import {
+  GenerationCoordinator,
+  NativeChatMessage,
+  NativeGenerateRequest,
+  NativeGenerateResult,
+  NativeLoadResult,
+  NativeTarget,
+  mnnVersion,
+  nativeLlmConfig
+} from '../../services/GenerationCoordinator';
+import { MediaService } from '../../services/MediaService';
+import { AudioPlaybackService } from '../../services/AudioPlaybackService';
+import { ReasoningParser } from '../../services/ReasoningParser';
+import { SplitFileMerger } from '../../services/SplitFileMerger';
+import { VideoFrameExtractor } from '../../services/VideoFrameExtractor';
+import { VoiceRecorderService } from '../../services/VoiceRecorderService';
+import { VoiceInputCallbacks, VoiceInputService } from '../../services/VoiceInputService';
+import { VoiceChatCallbacks, VoiceChatService } from '../../services/VoiceChatService';
+import { TtsService } from '../../services/TtsService';
+import {
+  ACTIVE_MODEL_ID_KEY,
+  APP_AUDIO_REPLY_KEY,
+  APP_LIVE_AUDIO_KEY,
+  APP_SHOW_METRICS_KEY,
+  APP_STOP_DOWNLOAD_ON_CHAT_KEY,
+  APP_VIDEO_FRAMES_KEY,
+  APP_VIDEO_FRAME_SIZE_KEY,
+  SettingsStore
+} from '../../services/SettingsStore';
+import { AttachmentSheet } from '../../components/AttachmentSheet';
+import { InfoSheet } from '../../components/InfoSheet';
+import { ModelPickerSheet } from '../../components/ModelPickerSheet';
+import { ChatMessageView, MessageBubble } from '../../components/MessageBubble';
+
+const CURRENT_SESSION_KEY: string = 'current_session_id';
+const LEGACY_MODEL_ID: string = 'legacy-model';
+const DEFAULT_SANA_PROMPT: string =
+  'Convert to a Ghibli-style illustration: soft contrast, warm tones, slight linework, keep the scene consistent.';
+
+@Component
+export struct ChatPage {
+  @Watch('onRequestedSessionChanged') @Link requestedSessionId: string;
+  @Watch('onActiveModelChanged') @Link activeModelId: string;
+  @Watch('onSettingsRevisionChanged') @Link settingsRevision: number;
+  onExit: () => void = () => {};
+  onOpenBenchmark: () => void = () => {};
+  onOpenSettings: () => void = () => {};
+  onOpenApi: () => void = () => {};
+  @State private prompt: string = '';
+  @State private messages: ChatMessageView[] = [];
+  @State private error: string = '';
+  @State private modelStatus: string = tr('正在初始化');
+  @State private metrics: string = '';
+  @State private isModelReady: boolean = false;
+  @State private isGenerating: boolean = false;
+  @State private currentSessionId: string = '';
+  @State private followsLatest: boolean = true;
+  @State private activeModelName: string = '';
+  @State private pendingAttachments: AttachmentRecord[] = [];
+  @State private modelCapabilities: ModelCapabilities = new ModelCapabilities();
+  @State private recording: boolean = false;
+  @State private recordingSeconds: number = 0;
+  @State private diffusionProgress: number = -1;
+  @State private diffusionSeconds: number = 0;
+  @State private voiceListening: boolean = false;
+  @State private voicePartial: string = '';
+  @State private voiceStatus: string = '';
+  @State private voiceRecognizing: boolean = false;
+  @StorageLink('showMetrics') private showMetrics: boolean = true;
+  @StorageLink('audioReply') private audioReply: boolean = false;
+  @StorageLink('liveAudio') private liveAudio: boolean = true;
+  @State private voiceChatOn: boolean = false;
+  @State private voiceChatState: string = '';
+  @State private voiceChatPartial: string = '';
+  private messageScroller: Scroller = new Scroller();
+  private nextMessageId: number = 1;
+  private activeRequestId: string = '';
+  private stopRequested: boolean = false;
+  private streamingAnswer: string = '';
+  @State private initialized: boolean = false;
+  private loadMs: number = 0;
+  private loadedModelId: string = '';
+  private loadedSettingsRevision: number = -1;
+  private pendingSessionId: string = '';
+  private restoreSequence: number = 0;
+  private modelSwitchPending: boolean = false;
+  private settingsReloadPending: boolean = false;
+  private modelLoading: boolean = false;
+  private runtimeSettings: ModelRuntimeSettings = new ModelRuntimeSettings();
+  private nativeTarget?: NativeTarget;
+  private recordingTimerId: number = -1;
+  private diffusionTimerId: number = -1;
+
+  aboutToAppear(): void {
+    this.initialize();
+  }
+
+  aboutToDisappear(): void {
+    this.cancelRecording();
+    this.cancelVoiceInput();
+    if (this.voiceChatOn) {
+      this.stopVoiceChat();
+    }
+    if (this.isGenerating && this.activeRequestId) {
+      // Chunks must not keep flowing into a destroyed component; mark the record canceled.
+      GenerationCoordinator.getInstance().cancel(this.activeRequestId);
+    }
+    AudioPlaybackService.getInstance().stopStream().catch(() => {
+    });
+    if (this.diffusionTimerId >= 0) {
+      clearInterval(this.diffusionTimerId);
+      this.diffusionTimerId = -1;
+    }
+  }
+
+  private onRequestedSessionChanged(): void {
+    if (!this.initialized || !this.requestedSessionId || this.requestedSessionId === this.currentSessionId) {
+      return;
+    }
+    if (this.isGenerating) {
+      this.pendingSessionId = this.requestedSessionId;
+      this.stopGeneration();
+      return;
+    }
+    this.restoreRequestedSession(this.requestedSessionId);
+  }
+
+  private restoreRequestedSession(sessionId: string): void {
+    const restoreSequence = ++this.restoreSequence;
+    this.restoreSession(sessionId, restoreSequence).then(() => this.loadModel()).catch((error: Error) => {
+      if (restoreSequence === this.restoreSequence) {
+        this.error = error.message;
+      }
+    });
+  }
+
+  private onActiveModelChanged(): void {
+    if (!this.initialized || !this.activeModelId || this.activeModelId === this.loadedModelId) {
+      return;
+    }
+    if (this.isGenerating) {
+      this.modelSwitchPending = true;
+      this.stopGeneration();
+      return;
+    }
+    if (this.modelLoading) {
+      this.modelSwitchPending = true;
+      return;
+    }
+    this.applyActiveModel().catch((error: Error) => {
+      this.error = error.message;
+      this.modelStatus = tr('模型加载失败');
+    });
+  }
+
+  private onSettingsRevisionChanged(): void {
+    if (!this.initialized || this.settingsRevision === this.loadedSettingsRevision) {
+      return;
+    }
+    if (this.isGenerating || this.modelLoading) {
+      this.settingsReloadPending = true;
+      return;
+    }
+    this.isModelReady = false;
+    this.loadModel().catch((error: Error) => {
+      this.error = error.message;
+      this.modelStatus = tr('模型加载失败');
+    });
+  }
+
+  private async applyActiveModel(): Promise<void> {
+    this.isModelReady = false;
+    await SettingsStore.getInstance().putString(ACTIVE_MODEL_ID_KEY, this.activeModelId);
+    await this.loadModel();
+    if (this.currentSessionId) {
+      await ChatRepository.getInstance().updateSessionModel(this.currentSessionId, this.activeModelId);
+    }
+  }
+
+  private initialize(): void {
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    AppInitializer.initialize(context).then(async () => {
+      this.showMetrics = await SettingsStore.getInstance().getBoolean(APP_SHOW_METRICS_KEY, true);
+      this.audioReply = await SettingsStore.getInstance().getBoolean(APP_AUDIO_REPLY_KEY, false);
+      this.liveAudio = await SettingsStore.getInstance().getBoolean(APP_LIVE_AUDIO_KEY, true);
+      this.initialized = true;
+      await this.restoreInitialSession();
+    }).then(() => {
+      return this.loadModel();
+    }).catch((error: Error) => {
+      this.error = error.message;
+      this.modelStatus = tr('初始化失败');
+    });
+  }
+
+  private async restoreInitialSession(): Promise<void> {
+    const savedSessionId = await SettingsStore.getInstance().getString(CURRENT_SESSION_KEY);
+    const targetSessionId = this.requestedSessionId || savedSessionId;
+    const sessions = await ChatRepository.getInstance().listSessions();
+    const target = sessions.find((session: ChatSessionRecord) => session.id === targetSessionId);
+    // When entering chat by picking a model (no explicitly requested session), only resume the
+    // saved session if it belongs to the same model; otherwise start a fresh one so the tapped
+    // model is actually used (restoreSession would switch back to the old session's model).
+    const modelMatches = !this.requestedSessionId && target &&
+      (target.modelId || LEGACY_MODEL_ID) === this.activeModelId;
+    if (target && (this.requestedSessionId || modelMatches)) {
+      await this.restoreSession(targetSessionId, ++this.restoreSequence);
+    } else {
+      await this.createNewSession();
+    }
+  }
+
+  private async restoreSession(sessionId: string, restoreSequence: number): Promise<void> {
+    const session = await ChatRepository.getInstance().getSession(sessionId);
+    if (!session) {
+      throw new Error(tr('会话不存在'));
+    }
+    const records = await ChatRepository.getInstance().getMessages(sessionId);
+    const restored: ChatMessageView[] = [];
+    for (let index = 0; index < records.length; index++) {
+      const record = records[index];
+      if (record.state === GenerationState.GENERATING) {
+        record.state = GenerationState.CANCELED;
+        if (!record.displayContent) {
+          record.displayContent = tr('上次生成意外中断');
+          record.rawContent = record.displayContent;
+        }
+        await ChatRepository.getInstance().updateMessage(record);
+      }
+      const message = new ChatMessageView(
+        this.nextMessageId++, record.id, record.role, record.displayContent, record.state
+      );
+      message.timeLabel = ChatMessageView.formatTime(record.createdAt || Date.now());
+      message.rawContent = record.rawContent;
+      message.reasoning = record.reasoningContent;
+      message.metrics = record.metrics;
+      message.attachments = await AttachmentRepository.getInstance().getForMessage(record.id);
+      for (let ai = 0; ai < message.attachments.length; ai++) {
+        const attachment = message.attachments[ai];
+        if (attachment.mediaType === 'image') {
+          // Migrate pre-downscale attachments (e.g. 12 MP camera originals): the vision
+          // encoder would otherwise re-encode them for minutes on every generate.
+          await MediaService.getInstance().downscaleImage(attachment.localPath);
+        }
+      }
+      restored.push(message);
+    }
+    if (restoreSequence !== this.restoreSequence) {
+      return;
+    }
+    this.currentSessionId = sessionId;
+    this.requestedSessionId = sessionId;
+    this.messages = restored;
+    this.metrics = '';
+    this.error = '';
+    this.clearPendingAttachments();
+    this.activeModelId = session.modelId || LEGACY_MODEL_ID;
+    await SettingsStore.getInstance().putString(ACTIVE_MODEL_ID_KEY, this.activeModelId);
+    await SettingsStore.getInstance().putString(CURRENT_SESSION_KEY, sessionId);
+  }
+
+  private clearPendingAttachments(): void {
+    this.cancelRecording();
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    this.pendingAttachments.forEach((attachment: AttachmentRecord) => {
+      MediaService.getInstance().deleteAttachment(context, attachment);
+    });
+    this.pendingAttachments = [];
+  }
+
+  private supportsAttachments(): boolean {
+    return this.modelCapabilities.vision || this.modelCapabilities.audioInput ||
+      this.modelCapabilities.videoInput;
+  }
+
+  private openAttachmentSheet(): void {
+    let controller: CustomDialogController | null = null;
+    controller = new CustomDialogController({
+      builder: AttachmentSheet({
+        capabilities: this.modelCapabilities,
+        sessionReady: !!this.currentSessionId,
+        onPickImages: () => this.pickImages(),
+        onCapturePhoto: () => this.capturePhoto(),
+        onPickAudio: () => this.pickAudio(),
+        recording: this.recording,
+        onToggleRecording: () => this.toggleRecording(),
+        onPickVideo: () => this.pickVideo()
+      }),
+      autoCancel: true,
+      alignment: DialogAlignment.Bottom,
+      customStyle: true
+    });
+    controller.open();
+  }
+
+  private pickImages(): void {
+    if (!this.modelCapabilities.vision) {
+      return;
+    }
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    MediaService.getInstance().pickImages(context, this.currentSessionId).then((items: AttachmentRecord[]) => {
+      this.pendingAttachments = this.pendingAttachments.concat(items);
+    }).catch((error: Error) => {
+      this.error = error.message;
+    });
+  }
+
+  private capturePhoto(): void {
+    if (!this.modelCapabilities.vision) {
+      return;
+    }
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    MediaService.getInstance().capturePhoto(context, this.currentSessionId).then((items: AttachmentRecord[]) => {
+      this.pendingAttachments = this.pendingAttachments.concat(items);
+    }).catch((error: Error) => {
+      console.error(`[Chat] capturePhoto failed: ${error.message} | stack: ${error.stack}`);
+      this.error = error.message;
+    });
+  }
+
+  private pickAudio(): void {
+    if (!this.modelCapabilities.audioInput) {
+      return;
+    }
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    MediaService.getInstance().pickAudio(context, this.currentSessionId).then((items: AttachmentRecord[]) => {
+      this.pendingAttachments = this.pendingAttachments
+        .filter((item: AttachmentRecord) => item.mediaType !== 'audio').concat(items);
+    }).catch((error: Error) => {
+      this.error = error.message;
+    });
+  }
+
+  private toggleRecording(): void {
+    if (!this.modelCapabilities.audioInput || !this.currentSessionId) {
+      return;
+    }
+    if (this.recording) {
+      this.stopRecording();
+      return;
+    }
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    VoiceRecorderService.getInstance().start(context, this.currentSessionId).then(() => {
+      this.recording = true;
+      this.recordingSeconds = 0;
+      this.recordingTimerId = setInterval(() => {
+        this.recordingSeconds++;
+      }, 1000);
+    }).catch((error: Error) => {
+      this.error = error.message;
+    });
+  }
+
+  private stopRecording(): void {
+    this.clearRecordingTimer();
+    this.recording = false;
+    VoiceRecorderService.getInstance().stop().then((attachment: AttachmentRecord) => {
+      this.pendingAttachments = this.pendingAttachments
+        .filter((item: AttachmentRecord) => item.mediaType !== 'audio').concat([attachment]);
+    }).catch((error: Error) => {
+      this.error = error.message;
+    });
+  }
+
+  private cancelRecording(): void {
+    this.clearRecordingTimer();
+    if (!this.recording) {
+      return;
+    }
+    this.recording = false;
+    VoiceRecorderService.getInstance().cancel().catch(() => {});
+  }
+
+  private clearRecordingTimer(): void {
+    if (this.recordingTimerId >= 0) {
+      clearInterval(this.recordingTimerId);
+      this.recordingTimerId = -1;
+    }
+  }
+
+  private toggleVoiceInput(): void {
+    if (this.voiceListening) {
+      VoiceInputService.getInstance().stop().catch((error: Error) => {
+        this.error = error.message;
+        this.voiceListening = false;
+        this.voiceStatus = '';
+      });
+      return;
+    }
+    if (!this.isModelReady || this.isGenerating || this.recording) {
+      return;
+    }
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    const callbacks = new VoiceInputCallbacks();
+    callbacks.onPartial = (text: string) => {
+      this.voicePartial = text;
+    };
+    callbacks.onFinal = (text: string) => {
+      const trimmed = text.trim();
+      if (trimmed) {
+        this.prompt = this.prompt.trim() ? `${this.prompt.trim()} ${trimmed}` : trimmed;
+      }
+      this.voicePartial = '';
+    };
+    callbacks.onRecognizing = (recognizing: boolean) => {
+      this.voiceRecognizing = recognizing;
+    };
+    callbacks.onState = (listening: boolean, message: string) => {
+      this.voiceListening = listening;
+      this.voiceStatus = message;
+      if (!listening && message && message.indexOf(tr('失败')) >= 0) {
+        this.error = message;
+      }
+    };
+    this.error = '';
+    this.voicePartial = '';
+    this.voiceStatus = tr('正在启动语音识别…');
+    VoiceInputService.getInstance().start(context, callbacks).then(() => {
+      this.voiceListening = true;
+      this.voiceStatus = tr('正在听…');
+    }).catch((error: Error) => {
+      this.error = error.message;
+      this.voiceListening = false;
+      this.voiceStatus = '';
+    });
+  }
+
+  private cancelVoiceInput(): void {
+    this.voiceListening = false;
+    this.voicePartial = '';
+    this.voiceStatus = '';
+    this.voiceRecognizing = false;
+    VoiceInputService.getInstance().cancel().catch(() => {
+    });
+  }
+
+  private pickVideo(): void {
+    if (!this.modelCapabilities.videoInput) {
+      return;
+    }
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    MediaService.getInstance().pickVideo(context, this.currentSessionId).then((items: AttachmentRecord[]) => {
+      this.pendingAttachments = this.pendingAttachments
+        .filter((item: AttachmentRecord) => item.mediaType !== 'video').concat(items);
+    }).catch((error: Error) => {
+      this.error = error.message;
+    });
+  }
+
+  private removePendingAttachment(index: number): void {
+    const attachment = this.pendingAttachments[index];
+    if (attachment) {
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      MediaService.getInstance().deleteAttachment(context, attachment);
+    }
+    this.pendingAttachments = this.pendingAttachments.filter(
+      (_item: AttachmentRecord, itemIndex: number) => itemIndex !== index);
+  }
+
+  private async createNewSession(): Promise<void> {
+    // Invalidate any in-flight session restore so it cannot overwrite the new conversation.
+    ++this.restoreSequence;
+    this.pendingSessionId = '';
+    const session = await ChatRepository.getInstance().createSession(this.activeModelId || LEGACY_MODEL_ID);
+    const greeting = await ChatRepository.getInstance().addMessage(
+      session.id, MessageRole.ASSISTANT, tr('你好，我是运行在本机设备上的 MNN 助手。')
+    );
+    this.currentSessionId = session.id;
+    this.requestedSessionId = session.id;
+    this.messages = [new ChatMessageView(
+      this.nextMessageId++, greeting.id, greeting.role, greeting.displayContent, greeting.state
+    )];
+    this.metrics = '';
+    this.error = '';
+    this.clearPendingAttachments();
+    await SettingsStore.getInstance().putString(CURRENT_SESSION_KEY, session.id);
+  }
+
+  private async loadModel(): Promise<void> {
+    if (this.modelLoading) {
+      if (this.activeModelId !== this.loadedModelId) {
+        this.modelSwitchPending = true;
+      } else {
+        this.settingsReloadPending = true;
+      }
+      return;
+    }
+    const targetModelId = this.activeModelId || LEGACY_MODEL_ID;
+    const targetSettingsRevision = this.settingsRevision;
+    if (this.loadedModelId === targetModelId && this.loadedSettingsRevision === targetSettingsRevision &&
+      this.isModelReady) {
+      return;
+    }
+
+    this.modelLoading = true;
+    this.error = '';
+    this.isModelReady = false;
+    this.modelCapabilities = new ModelCapabilities();
+    this.modelStatus = tr('正在加载模型');
+    try {
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      if (await SettingsStore.getInstance().getBoolean(APP_STOP_DOWNLOAD_ON_CHAT_KEY, true)) {
+        await DownloadManager.getInstance().pauseAll();
+      }
+      const model = await ModelRepository.getInstance().getModel(targetModelId);
+      if (!model || model.state !== ModelState.READY) {
+        throw new Error(`${tr('模型不可用：')}${targetModelId}`);
+      }
+      if (SplitFileMerger.hasSplits(model.rootPath)) {
+        this.modelStatus = tr('正在合并模型分片');
+        await SplitFileMerger.mergeIfNeeded(model.rootPath);
+      }
+      const settings = await SettingsStore.getInstance().getModelRuntimeSettings(model.id);
+      const capabilities = await ModelRepository.getInstance().getCapabilities(model.id);
+      this.runtimeSettings = settings;
+      this.loadedModelId = model.id;
+      this.loadedSettingsRevision = targetSettingsRevision;
+      this.activeModelName = model.name;
+      this.modelCapabilities = capabilities;
+      if (capabilities.diffusion) {
+        // Diffusion models own their text encoder; free the chat LLM so both never coexist.
+        await GenerationCoordinator.getInstance().shutdown();
+        this.nativeTarget = undefined;
+        this.isModelReady = true;
+        this.modelStatus = tr('图像生成模型已就绪');
+        await ModelRepository.getInstance().markUsed(model.id);
+        return;
+      }
+      const safeModelId = model.id.replace(/[^a-zA-Z0-9._-]/g, '-');
+      const tmpPath = `${context.cacheDir}/llm-${safeModelId}`;
+      const runtimeConfigJson = SettingsStore.getInstance().createRuntimeConfigJson(settings, tmpPath);
+      const target: NativeTarget = {
+        modelId: model.id,
+        configPath: model.configPath,
+        runtimeConfigJson: runtimeConfigJson
+      };
+      const result = await GenerationCoordinator.getInstance().prepare(target) as NativeLoadResult;
+      this.loadMs = result.loadMs;
+      this.nativeTarget = target;
+      this.isModelReady = true;
+      this.modelStatus = result.reused ? tr('模型已就绪') : `${tr('模型已就绪 · ')}${(result.loadMs / 1000).toFixed(2)}s`;
+      await ModelRepository.getInstance().markUsed(model.id);
+    } finally {
+      this.modelLoading = false;
+      if (!this.isGenerating && this.modelSwitchPending) {
+        this.modelSwitchPending = false;
+        this.applyActiveModel().catch((error: Error) => {
+          this.error = error.message;
+          this.modelStatus = tr('模型加载失败');
+        });
+      } else if (!this.isGenerating && this.settingsReloadPending) {
+        this.settingsReloadPending = false;
+        this.isModelReady = false;
+        this.loadModel().catch((error: Error) => {
+          this.error = error.message;
+          this.modelStatus = tr('模型加载失败');
+        });
+      }
+    }
+  }
+
+  /**
+   * Message history stores media as <img>/<audio>/<video> path tags. Only a model that can consume
+   * that modality should see them; otherwise the raw tags would leak into the text prompt after the
+   * user switches to a text-only model.
+   */
+  private sanitizeNativeContent(content: string): string {
+    let result = content;
+    if (!this.modelCapabilities.vision) {
+      result = result.replace(/<img>[^<]*<\/img>/g, '');
+    }
+    if (!this.modelCapabilities.audioInput) {
+      result = result.replace(/<audio>[^<]*<\/audio>/g, '');
+    }
+    if (!this.modelCapabilities.videoInput) {
+      result = result.replace(/<video>[^<]*<\/video>/g, '');
+    }
+    return result;
+  }
+
+  private buildNativeHistory(records: ChatMessageRecord[]): NativeChatMessage[] {
+    const history: NativeChatMessage[] = [{
+      role: MessageRole.SYSTEM,
+      content: this.runtimeSettings.systemPrompt
+    }];
+    let hasUserMessage = false;
+    records.forEach((record: ChatMessageRecord) => {
+      if (record.state === GenerationState.GENERATING || record.state === GenerationState.FAILED) {
+        return;
+      }
+      if (record.role === MessageRole.SYSTEM) {
+        const systemPrompt = record.rawContent || record.displayContent;
+        if (systemPrompt) {
+          history[0].content = systemPrompt;
+        }
+        return;
+      }
+      if (record.role === MessageRole.USER) {
+        const userContent = this.sanitizeNativeContent(record.rawContent || record.displayContent);
+        if (userContent) {
+          history.push({ role: MessageRole.USER, content: userContent });
+          hasUserMessage = true;
+        }
+        return;
+      }
+      if (hasUserMessage) {
+        const assistantContent = record.displayContent;
+        if (assistantContent) {
+          history.push({ role: MessageRole.ASSISTANT, content: assistantContent });
+        }
+      }
+    });
+    return history;
+  }
+
+  private async runDiffusion(prompt: string): Promise<void> {
+    const sessionId = this.currentSessionId;
+    const attachments = this.pendingAttachments.slice();
+    if (!sessionId || this.isGenerating) {
+      return;
+    }
+    let input = prompt;
+    if (!input) {
+      if (attachments.length === 0) {
+        return;
+      }
+      // Editing models need a prompt; fall back to the same hint the Android client shows.
+      input = DEFAULT_SANA_PROMPT;
+    }
+    let imageInput = '';
+    for (let index = 0; index < attachments.length; index++) {
+      if (attachments[index].mediaType === 'image' && attachments[index].localPath) {
+        imageInput = attachments[index].localPath;
+        break;
+      }
+    }
+    if (this.activeModelName.toLowerCase().indexOf('sana') >= 0 && !imageInput) {
+      this.error = tr('该模型是图像编辑模型，请先通过「+」选择一张图片');
+      return;
+    }
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    this.error = '';
+    this.metrics = '';
+    this.isGenerating = true;
+    this.diffusionProgress = 0;
+    this.diffusionSeconds = 0;
+    this.diffusionTimerId = setInterval(() => {
+      this.diffusionSeconds++;
+    }, 1000);
+    this.modelStatus = tr('正在生成图片');
+    try {
+      const model = await ModelRepository.getInstance().getModel(this.loadedModelId || this.activeModelId);
+      if (!model) {
+        throw new Error(tr('图像生成模型不可用'));
+      }
+      const userRecord = await ChatRepository.getInstance().addMessage(
+        sessionId, MessageRole.USER, input
+      );
+      await AttachmentRepository.getInstance().save(userRecord.id, attachments);
+      const userMessage = new ChatMessageView(
+        this.nextMessageId++, userRecord.id, userRecord.role, input, userRecord.state
+      );
+      userMessage.attachments = attachments;
+      this.messages.push(userMessage);
+      this.pendingAttachments = [];
+      this.prompt = '';
+      this.followsLatest = true;
+      setTimeout(() => this.scrollToBottom(), 50);
+
+      const result = await DiffusionService.getInstance().generate(context, model, sessionId, input, imageInput,
+        (progress: number) => {
+          this.diffusionProgress = progress;
+        });
+      const attachment = new AttachmentRecord();
+      attachment.mediaType = 'image';
+      attachment.localPath = result.outputPath;
+      attachment.displayName = result.outputPath.substring(result.outputPath.lastIndexOf('/') + 1);
+      attachment.createdAt = Date.now();
+      const content = `${tr('已生成图片：')}${input}`;
+      const assistantRecord = await ChatRepository.getInstance().addMessage(
+        sessionId, MessageRole.ASSISTANT, content
+      );
+      await AttachmentRepository.getInstance().save(assistantRecord.id, [attachment]);
+      const assistantMessage = new ChatMessageView(
+        this.nextMessageId++, assistantRecord.id, assistantRecord.role, content, assistantRecord.state
+      );
+      assistantMessage.attachments = [attachment];
+      this.messages.push(assistantMessage);
+      this.metrics = `${tr('图片生成完成 · 耗时 ')}${(result.totalMs / 1000).toFixed(1)}s`;
+      this.modelStatus = tr('图像生成模型已就绪');
+      setTimeout(() => this.scrollToBottom(), 50);
+    } catch (error) {
+      this.error = (error as Error).message;
+      this.modelStatus = tr('图片生成失败');
+    } finally {
+      this.isGenerating = false;
+      this.diffusionProgress = -1;
+      if (this.diffusionTimerId >= 0) {
+        clearInterval(this.diffusionTimerId);
+        this.diffusionTimerId = -1;
+      }
+    }
+  }
+
+  private async runInference(onDone?: (answer: string) => void): Promise<void> {
+    const input = this.prompt.trim();
+    const attachments = this.pendingAttachments.slice();
+    if ((!input && attachments.length === 0) || !this.isModelReady || this.isGenerating || !this.currentSessionId) {
+      return;
+    }
+    if (this.modelCapabilities.diffusion) {
+      await this.runDiffusion(input);
+      return;
+    }
+    // Set before the (slow) video frame extraction so the send button cannot double-fire.
+    this.isGenerating = true;
+    const displayInput = input || tr('已发送附件');
+    let nativeInput = '';
+    const videoAttachment = attachments.find((item: AttachmentRecord) => item.mediaType === 'video');
+    if (videoAttachment && this.modelCapabilities.videoInput) {
+      const previousStatus = this.modelStatus;
+      this.modelStatus = tr('正在提取视频帧');
+      let frames: string[] = [];
+      try {
+        const frameContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
+        const frameDirectory = MediaService.getInstance().ensureHistoryDirectory(frameContext, this.currentSessionId);
+        const frameCount = await SettingsStore.getInstance().getNumber(APP_VIDEO_FRAMES_KEY, 4);
+        const frameSize = await SettingsStore.getInstance().getNumber(APP_VIDEO_FRAME_SIZE_KEY, 320);
+        frames = await VideoFrameExtractor.getInstance()
+          .extract(videoAttachment.localPath, frameDirectory, frameCount, frameSize);
+      } catch (error) {
+        // isGenerating is already true here; without this reset the composer would lock up.
+        this.modelStatus = previousStatus;
+        this.isGenerating = false;
+        this.error = (error as Error).message;
+        if (onDone) {
+          onDone('');
+        }
+        return;
+      }
+      this.modelStatus = previousStatus;
+      if (frames.length === 0) {
+        this.error = tr('无法从视频中提取画面');
+        this.isGenerating = false;
+        return;
+      }
+      const nonVideo = attachments.filter((item: AttachmentRecord) => item.mediaType !== 'video');
+      // The engine samples video through still frames; reference them as images.
+      nativeInput = frames.map((path: string) => `<img>${path}</img>`).join('') +
+        MediaService.getInstance().buildPrompt(nonVideo, input);
+    } else {
+      nativeInput = MediaService.getInstance().buildPrompt(attachments, input);
+    }
+
+    this.error = '';
+    this.metrics = '';
+    this.stopRequested = false;
+    this.streamingAnswer = '';
+    const requestId = GenerationCoordinator.getInstance().createRequestId('chat');
+    this.activeRequestId = requestId;
+    let generationFinished = false;
+    let assistantRecord = new ChatMessageRecord();
+    let failedMessage: ChatMessageView | undefined;
+    try {
+      const userRecord = await ChatRepository.getInstance().addMessage(
+        this.currentSessionId, MessageRole.USER, displayInput
+      );
+      userRecord.rawContent = nativeInput;
+      userRecord.displayContent = displayInput;
+      await ChatRepository.getInstance().updateMessage(userRecord);
+      await AttachmentRepository.getInstance().save(userRecord.id, attachments);
+      const userMessage = new ChatMessageView(
+        this.nextMessageId++, userRecord.id, userRecord.role, userRecord.displayContent, userRecord.state
+      );
+      userMessage.rawContent = nativeInput;
+      userMessage.attachments = attachments;
+      this.messages.push(userMessage);
+      const historyRecords = await ChatRepository.getInstance().getMessages(this.currentSessionId);
+      let replyAudioPath = '';
+      if (this.modelCapabilities.audioOutput && this.audioReply) {
+        const audioContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
+        const directory = MediaService.getInstance().ensureHistoryDirectory(audioContext, this.currentSessionId);
+        replyAudioPath = `${directory}/reply-${Date.now()}.wav`;
+      }
+      const request: NativeGenerateRequest = {
+        requestId: requestId,
+        messages: this.buildNativeHistory(historyRecords),
+        maxTokens: this.runtimeSettings.maxTokens,
+        audioOutputPath: replyAudioPath,
+        streamAudio: this.modelCapabilities.audioOutput && this.liveAudio
+      };
+      assistantRecord = await ChatRepository.getInstance().addMessage(
+        this.currentSessionId, MessageRole.ASSISTANT, '', GenerationState.GENERATING
+      );
+      failedMessage = new ChatMessageView(
+        this.nextMessageId++, assistantRecord.id, assistantRecord.role, '', assistantRecord.state
+      );
+      const assistantMessage = failedMessage;
+      this.messages.push(assistantMessage);
+      this.messages = this.messages.slice();
+      this.prompt = '';
+      this.pendingAttachments = [];
+      this.scrollToBottom();
+
+      if (!this.nativeTarget) {
+        throw new Error(tr('模型尚未准备完成'));
+      }
+      let liveStreamStarted = false;
+      const onLiveAudio = (pcm: Int16Array): void => {
+        if (!this.liveAudio || generationFinished) {
+          return;
+        }
+        const service = AudioPlaybackService.getInstance();
+        if (!liveStreamStarted) {
+          liveStreamStarted = true;
+          service.startStream().catch(() => {
+            liveStreamStarted = false;
+          });
+        }
+        service.writeStream(pcm).catch(() => {
+        });
+      };
+      const generationPromise: Promise<NativeGenerateResult> = GenerationCoordinator.getInstance().generate(
+        this.nativeTarget, request, (chunk: string) => {
+        if (generationFinished || requestId !== this.activeRequestId) {
+          return;
+        }
+        this.streamingAnswer += chunk;
+        const parsed = ReasoningParser.parse(this.streamingAnswer);
+        assistantMessage.rawContent = this.streamingAnswer;
+        assistantMessage.reasoning = parsed.reasoning;
+        assistantMessage.content = parsed.answer;
+        assistantMessage.isThinking = parsed.isThinking;
+        this.messages = this.messages.slice();
+        if (this.followsLatest) {
+          this.scrollToBottom();
+        }
+      }, onLiveAudio);
+      if (this.stopRequested) {
+        GenerationCoordinator.getInstance().cancel(requestId);
+      }
+      const result = await generationPromise;
+      generationFinished = true;
+      if (liveStreamStarted) {
+        AudioPlaybackService.getInstance().stopStream().catch(() => {
+        });
+      }
+      if (requestId !== this.activeRequestId || result.requestId !== requestId) {
+        // Still release the voice-chat loop (mic pause / tts wait) on this bail-out path.
+        if (onDone) {
+          onDone('');
+        }
+        return;
+      }
+      const rawResult = result.text || this.streamingAnswer;
+      const parsedResult = ReasoningParser.parse(rawResult);
+      // Display placeholder must never be persisted into the conversation history.
+      const persistedAnswer = parsedResult.answer;
+      assistantMessage.rawContent = rawResult;
+      assistantMessage.reasoning = parsedResult.reasoning;
+      assistantMessage.content = parsedResult.answer ||
+        (result.canceled ? tr('已停止生成') : tr('模型未生成文本'));
+      assistantMessage.isThinking = false;
+      assistantMessage.state = result.canceled ? GenerationState.CANCELED : GenerationState.COMPLETE;
+      assistantMessage.metrics.loadMs = this.loadMs;
+      assistantMessage.metrics.firstTokenMs = result.firstTokenMs;
+      assistantMessage.metrics.promptTokens = result.promptTokens;
+      assistantMessage.metrics.generatedTokens = result.generatedTokens;
+      assistantMessage.metrics.prefillMs = result.prefillMs;
+      assistantMessage.metrics.decodeMs = result.decodeMs;
+      assistantMessage.metrics.totalMs = result.totalMs;
+      assistantRecord.rawContent = assistantMessage.rawContent;
+      assistantRecord.displayContent = persistedAnswer;
+      assistantRecord.reasoningContent = assistantMessage.reasoning;
+      assistantRecord.state = assistantMessage.state;
+      assistantRecord.metrics = assistantMessage.metrics;
+      await ChatRepository.getInstance().updateMessage(assistantRecord);
+      if (replyAudioPath && !result.canceled &&
+        MediaService.getInstance().fileSize(replyAudioPath) > 0) {
+        const audioAttachment = new AttachmentRecord();
+        audioAttachment.mediaType = 'audio';
+        audioAttachment.localPath = replyAudioPath;
+        audioAttachment.displayName = tr('回复语音.wav');
+        audioAttachment.sizeBytes = MediaService.getInstance().fileSize(replyAudioPath);
+        audioAttachment.createdAt = Date.now();
+        await AttachmentRepository.getInstance().save(assistantRecord.id, [audioAttachment]);
+        assistantMessage.attachments = [audioAttachment];
+      }
+      const prefillSpeed = result.prefillMs > 0 ? result.promptTokens * 1000 / result.prefillMs : 0;
+      const decodeSpeed = result.decodeMs > 0 ? result.generatedTokens * 1000 / result.decodeMs : 0;
+      const state = result.canceled ? tr('已停止') : tr('完成');
+      this.metrics = `${state}${tr(' · 首字 ')}${(result.firstTokenMs / 1000).toFixed(2)}s · ` +
+        `${tr('预填充 ')}${prefillSpeed.toFixed(1)}${tr(' tok/s · 解码 ')}${decodeSpeed.toFixed(1)} tok/s`;
+      this.messages = this.messages.slice();
+      // The final content is usually taller than the last streamed snapshot, so scroll again
+      // after layout instead of only relying on the per-chunk scroll.
+      setTimeout(() => {
+        if (this.followsLatest) {
+          this.scrollToBottom();
+        }
+      }, 0);
+      if (onDone) {
+        onDone(persistedAnswer);
+      }
+    } catch (error) {
+      generationFinished = true;
+      // No-op when no live stream was started; keeps the renderer from outliving a failed run.
+      AudioPlaybackService.getInstance().stopStream().catch(() => {
+      });
+      if (onDone) {
+        onDone('');
+      }
+      if (requestId !== this.activeRequestId) {
+        return;
+      }
+      const generationError = error as Error;
+      this.error = generationError.message;
+      if (assistantRecord.id) {
+        const parsed = ReasoningParser.parse(this.streamingAnswer);
+        assistantRecord.rawContent = this.streamingAnswer;
+        assistantRecord.displayContent = parsed.answer || (parsed.reasoning ? tr('生成中断') : tr('生成失败'));
+        assistantRecord.reasoningContent = parsed.reasoning;
+        assistantRecord.state = GenerationState.FAILED;
+        if (failedMessage) {
+          failedMessage.rawContent = assistantRecord.rawContent;
+          failedMessage.reasoning = assistantRecord.reasoningContent;
+          failedMessage.content = assistantRecord.displayContent;
+          failedMessage.isThinking = false;
+          failedMessage.state = GenerationState.FAILED;
+          this.messages = this.messages.slice();
+        }
+        await ChatRepository.getInstance().updateMessage(assistantRecord);
+      }
+    } finally {
+      this.isGenerating = false;
+      if (this.activeRequestId === requestId) {
+        this.activeRequestId = '';
+        this.stopRequested = false;
+      }
+      if (this.pendingSessionId) {
+        const pendingSessionId = this.pendingSessionId;
+        this.pendingSessionId = '';
+        this.isModelReady = false;
+        this.restoreRequestedSession(pendingSessionId);
+      } else if (this.modelSwitchPending) {
+        this.modelSwitchPending = false;
+        this.isModelReady = false;
+        this.applyActiveModel().catch((error: Error) => {
+          this.error = error.message;
+          this.modelStatus = tr('模型加载失败');
+        });
+      } else if (this.settingsReloadPending) {
+        this.settingsReloadPending = false;
+        this.isModelReady = false;
+        this.loadModel().catch((error: Error) => {
+          this.error = error.message;
+          this.modelStatus = tr('模型加载失败');
+        });
+      } else if (this.isModelReady) {
+        this.modelStatus = tr('模型已就绪');
+      }
+    }
+  }
+
+  private scrollToBottom(): void {
+    this.messageScroller.scrollEdge(Edge.Bottom);
+    this.followsLatest = true;
+  }
+
+  private stopGeneration(): void {
+    this.stopRequested = true;
+    if (this.activeRequestId) {
+      GenerationCoordinator.getInstance().cancel(this.activeRequestId);
+    }
+    this.modelStatus = tr('正在停止生成');
+  }
+
+  private startNewConversation(): void {
+    if (this.isGenerating) {
+      return;
+    }
+    this.createNewSession().catch((error: Error) => {
+      this.error = error.message;
+    });
+  }
+
+  private cloneRuntimeSettings(): ModelRuntimeSettings {
+    const copy = new ModelRuntimeSettings();
+    copy.backendType = this.runtimeSettings.backendType;
+    copy.threadNum = this.runtimeSettings.threadNum;
+    copy.precision = this.runtimeSettings.precision;
+    copy.memory = this.runtimeSettings.memory;
+    copy.useMmap = this.runtimeSettings.useMmap;
+    copy.promptCache = this.runtimeSettings.promptCache;
+    copy.maxTokens = this.runtimeSettings.maxTokens;
+    copy.systemPrompt = this.runtimeSettings.systemPrompt;
+    copy.thinking = this.runtimeSettings.thinking;
+    copy.samplerType = this.runtimeSettings.samplerType;
+    copy.temperature = this.runtimeSettings.temperature;
+    copy.topP = this.runtimeSettings.topP;
+    copy.topK = this.runtimeSettings.topK;
+    copy.minP = this.runtimeSettings.minP;
+    copy.tfsZ = this.runtimeSettings.tfsZ;
+    copy.typical = this.runtimeSettings.typical;
+    copy.penalty = this.runtimeSettings.penalty;
+    copy.presencePenalty = this.runtimeSettings.presencePenalty;
+    copy.frequencyPenalty = this.runtimeSettings.frequencyPenalty;
+    copy.penaltyWindow = this.runtimeSettings.penaltyWindow;
+    copy.nGram = this.runtimeSettings.nGram;
+    copy.nGramFactor = this.runtimeSettings.nGramFactor;
+    return copy;
+  }
+
+  private openModelPicker(): void {
+    if (this.isGenerating || this.modelLoading) {
+      return;
+    }
+    ModelRepository.getInstance().listModels().then((models: ModelRecord[]) => {
+      const ready: ModelRecord[] = models.filter((model: ModelRecord) => model.state === ModelState.READY);
+      if (ready.length === 0) {
+        this.error = tr('没有可用的模型，请先在模型页导入或下载');
+        return;
+      }
+      let controller: CustomDialogController | null = null;
+      controller = new CustomDialogController({
+        builder: ModelPickerSheet({
+          models: ready,
+          activeModelId: this.activeModelId,
+          onPick: (model: ModelRecord) => {
+            this.switchModel(model);
+          }
+        }),
+        autoCancel: true,
+        alignment: DialogAlignment.Bottom,
+        customStyle: true
+      });
+      controller.open();
+    }).catch((error: Error) => {
+      this.error = error.message;
+    });
+  }
+
+  private switchModel(model: ModelRecord): void {
+    SettingsStore.getInstance().putString(ACTIVE_MODEL_ID_KEY, model.id).then(() => {
+      if (this.activeModelId === model.id) {
+        return;
+      }
+      this.modelStatus = tr('正在加载模型');
+      this.activeModelId = model.id;
+    }).catch((error: Error) => {
+      this.error = error.message;
+    });
+  }
+
+  private copyToClipboard(text: string): void {
+    try {
+      const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
+      pasteboard.getSystemPasteboard().setData(data).then(() => {
+        this.modelStatus = tr('配置已复制到剪贴板');
+      }).catch((error: Error) => {
+        this.error = `${tr('复制失败：')}${error.message}`;
+      });
+    } catch (error) {
+      this.error = `${tr('复制失败：')}${(error as Error).message}`;
+    }
+  }
+
+  private showConfigInfo(): void {
+    const settings = this.runtimeSettings;
+    const engineConfig = nativeLlmConfig();
+    const info: string = (engineConfig ? `${tr('# 引擎运行时配置\n')}${engineConfig}${tr('\n\n# 客户端设置\n')}` : '') + [
+      `model_id: ${this.loadedModelId || this.activeModelId}`,
+      `config_path: ${this.nativeTarget?.configPath || ''}`,
+      `backend_type: ${settings.backendType}`,
+      `thread_num: ${settings.threadNum}`,
+      `precision: ${settings.precision}`,
+      `memory: ${settings.memory}`,
+      `use_mmap: ${settings.useMmap}`,
+      `prompt_cache: ${settings.promptCache}`,
+      `sampler_type: ${settings.samplerType}`,
+      `temperature: ${settings.temperature}`,
+      `top_p: ${settings.topP}`,
+      `top_k: ${settings.topK}`,
+      `min_p: ${settings.minP}`,
+      `tfs_z: ${settings.tfsZ}`,
+      `typical: ${settings.typical}`,
+      `repetition_penalty: ${settings.penalty}`,
+      `presence_penalty: ${settings.presencePenalty}`,
+      `frequency_penalty: ${settings.frequencyPenalty}`,
+      `penalty_window: ${settings.penaltyWindow}`,
+      `n_gram: ${settings.nGram}`,
+      `ngram_factor: ${settings.nGramFactor}`,
+      `max_new_tokens: ${settings.maxTokens}`,
+      `enable_thinking: ${settings.thinking}`
+    ].join('\n');
+    let controller: CustomDialogController | null = null;
+    controller = new CustomDialogController({
+      builder: InfoSheet({
+        title: tr('配置信息'),
+        message: info,
+        onCopy: () => this.copyToClipboard(info)
+      }),
+      autoCancel: true,
+      alignment: DialogAlignment.Bottom,
+      customStyle: true
+    });
+    controller.open();
+  }
+
+  private toggleThinking(): void {
+    if (!this.isModelReady || this.isGenerating) {
+      return;
+    }
+    const next = this.cloneRuntimeSettings();
+    next.thinking = !next.thinking;
+    SettingsStore.getInstance().putModelRuntimeSettings(this.loadedModelId || this.activeModelId, next)
+      .then((revision: number) => {
+        this.settingsRevision = revision;
+      })
+      .catch((error: Error) => {
+        this.error = error.message;
+      });
+  }
+
+  private toggleShowMetrics(): void {
+    this.showMetrics = !this.showMetrics;
+    SettingsStore.getInstance().putBoolean(APP_SHOW_METRICS_KEY, this.showMetrics).catch((error: Error) => {
+      this.error = error.message;
+    });
+  }
+
+  private toggleAudioReply(): void {
+    this.audioReply = !this.audioReply;
+    SettingsStore.getInstance().putBoolean(APP_AUDIO_REPLY_KEY, this.audioReply).catch((error: Error) => {
+      this.error = error.message;
+    });
+  }
+
+  private toggleLiveAudio(): void {
+    this.liveAudio = !this.liveAudio;
+    SettingsStore.getInstance().putBoolean(APP_LIVE_AUDIO_KEY, this.liveAudio).catch((error: Error) => {
+      this.error = error.message;
+    });
+  }
+
+  private voiceChatLabel(): string {
+    if (this.voiceChatState === 'speech') {
+      return this.voiceChatPartial ? this.voiceChatPartial : tr('正在听…');
+    }
+    if (this.voiceChatState === 'recognizing') {
+      return tr('正在识别…');
+    }
+    if (this.voiceChatState === 'paused') {
+      return tr('模型回复中…');
+    }
+    return tr('等待语音输入');
+  }
+
+  private async startVoiceChat(): Promise<void> {
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    const callbacks = new VoiceChatCallbacks();
+    callbacks.onState = (state: string, partial: string) => {
+      this.voiceChatState = state;
+      this.voiceChatPartial = partial;
+    };
+    callbacks.onUtterance = (text: string) => this.handleVoiceUtterance(text);
+    callbacks.onError = (message: string) => {
+      this.error = message;
+    };
+    this.voiceChatOn = true;
+    try {
+      await VoiceChatService.getInstance().start(context, callbacks);
+    } catch (error) {
+      this.voiceChatOn = false;
+      this.error = (error as Error).message;
+    }
+  }
+
+  private stopVoiceChat(): void {
+    this.voiceChatOn = false;
+    this.voiceChatState = '';
+    this.voiceChatPartial = '';
+    VoiceChatService.getInstance().stop().catch(() => {
+    });
+    TtsService.getInstance().stop();
+  }
+
+  /** Hands-free loop: transcript in, answer spoken out, then the mic re-opens. */
+  private handleVoiceUtterance(text: string): void {
+    if (!this.voiceChatOn || this.isGenerating || !this.isModelReady) {
+      return;
+    }
+    VoiceChatService.getInstance().setPaused(true);
+    this.prompt = text;
+    this.runInference((answer: string) => {
+      if (!this.voiceChatOn) {
+        return;
+      }
+      if (this.modelCapabilities.audioOutput) {
+        // Talker audio was streamed (or saved) during generation; leave a tail before re-listening.
+        setTimeout(() => {
+          if (this.voiceChatOn) {
+            VoiceChatService.getInstance().setPaused(false);
+          }
+        }, 1200);
+      } else if (answer) {
+        TtsService.getInstance().speak(answer, () => {
+          if (this.voiceChatOn) {
+            VoiceChatService.getInstance().setPaused(false);
+          }
+        }).catch(() => {
+          VoiceChatService.getInstance().setPaused(false);
+        });
+      } else {
+        VoiceChatService.getInstance().setPaused(false);
+      }
+    }).catch((error: Error) => {
+      this.error = error.message;
+      this.isGenerating = false;
+      VoiceChatService.getInstance().setPaused(false);
+    });
+  }
+
+  private buildDiagnosticInfo(): string {
+    const settings = this.runtimeSettings;
+    let appVersion = '';
+    try {
+      appVersion = bundleManager.getBundleInfoForSelfSync(bundleManager.BundleFlag.GET_BUNDLE_INFO_DEFAULT).versionName;
+    } catch (error) {
+      appVersion = '';
+    }
+    return [
+      `app_version: ${appVersion}`,
+      `mnn_version: ${mnnVersion()}`,
+      `device: ${deviceInfo.brand} ${deviceInfo.productModel}`,
+      `os: ${deviceInfo.osFullName}`,
+      `model_id: ${this.loadedModelId || this.activeModelId}`,
+      `config_path: ${this.nativeTarget?.configPath || ''}`,
+      `backend_type: ${settings.backendType}`,
+      `thread_num: ${settings.threadNum}`,
+      `precision: ${settings.precision}`,
+      `memory: ${settings.memory}`,
+      `use_mmap: ${settings.useMmap}`,
+      `prompt_cache: ${settings.promptCache}`,
+      `sampler: ${settings.samplerType}`,
+      `max_new_tokens: ${settings.maxTokens}`,
+      `enable_thinking: ${settings.thinking}`,
+      `load_ms: ${this.loadMs}`,
+      `messages: ${this.messages.length}`
+    ].join('\n');
+  }
+
+  private shareText(text: string): void {
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    const record: systemShare.SharedRecord = {
+      utd: uniformTypeDescriptor.UniformDataType.PLAIN_TEXT,
+      content: text
+    };
+    const controller = new systemShare.ShareController(new systemShare.SharedData(record));
+    controller.show(context, {
+      selectionMode: systemShare.SelectionMode.SINGLE
+    }).catch((error: Error) => {
+      this.error = `${tr('分享失败：')}${error.message}`;
+    });
+  }
+
+  private starProject(): void {
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    const want: Want = {
+      action: 'ohos.want.action.viewData',
+      entities: ['entity.system.browsable'],
+      uri: 'https://github.com/alibaba/MNN'
+    };
+    context.startAbility(want).catch((error: Error) => {
+      this.error = `${tr('无法打开浏览器：')}${error.message}`;
+    });
+  }
+
+  private reportIssue(): void {
+    const info = this.buildDiagnosticInfo();
+    try {
+      const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, info);
+      pasteboard.getSystemPasteboard().setData(data).then(() => {
+        promptAction.showToast({ message: tr('调试信息已复制，正在打开问题页面') });
+      }).catch(() => {
+        promptAction.showToast({ message: tr('调试信息复制失败') });
+      });
+    } catch (error) {
+      promptAction.showToast({ message: tr('调试信息复制失败') });
+    }
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    const want: Want = {
+      action: 'ohos.want.action.viewData',
+      entities: ['entity.system.browsable'],
+      uri: 'https://github.com/alibaba/MNN/issues'
+    };
+    context.startAbility(want).catch((error: Error) => {
+      this.error = `${tr('无法打开浏览器：')}${error.message}`;
+    });
+  }
+
+  build() {
+    Column() {
+      // Android-style app bar: back arrow, centered model name, overflow menu.
+      Row() {
+        Button() {
+          Text('←')
+            .fontSize(20)
+            .fontColor($r('app.color.text_primary'))
+        }
+        .width(44)
+        .height(44)
+        .backgroundColor(Color.Transparent)
+        .onClick(() => this.onExit())
+
+        Text(this.activeModelName || this.activeModelId)
+          .fontSize(18)
+          .fontWeight(FontWeight.Medium)
+          .fontColor($r('app.color.text_primary'))
+          .textAlign(TextAlign.Center)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .layoutWeight(1)
+          .onClick(() => this.openModelPicker())
+
+        Button() {
+          Text('⋮')
+            .fontSize(20)
+            .fontColor($r('app.color.text_primary'))
+        }
+        .width(44)
+        .height(44)
+        .backgroundColor(Color.Transparent)
+        .bindMenu([
+          {
+            value: tr('新对话'),
+            action: () => this.startNewConversation()
+          },
+          {
+            value: tr('切换模型'),
+            action: () => this.openModelPicker()
+          },
+          {
+            value: tr('配置信息'),
+            action: () => this.showConfigInfo()
+          },
+          {
+            value: this.runtimeSettings.thinking ? tr('关闭思考模式') : tr('开启思考模式'),
+            action: () => this.toggleThinking()
+          },
+          {
+            value: this.liveAudio ? tr('关闭实时音频') : tr('开启实时音频'),
+            action: () => this.toggleLiveAudio()
+          },
+          {
+            value: this.voiceChatOn ? tr('结束语音对话') : tr('语音对话'),
+            action: () => {
+              if (this.voiceChatOn) {
+                this.stopVoiceChat();
+              } else {
+                this.startVoiceChat();
+              }
+            }
+          },
+          {
+            value: this.showMetrics ? tr('隐藏性能指标') : tr('显示性能指标'),
+            action: () => this.toggleShowMetrics()
+          },
+          {
+            value: tr('基准测试'),
+            action: () => this.onOpenBenchmark()
+          },
+          {
+            value: tr('模型设置'),
+            action: () => this.onOpenSettings()
+          },
+          {
+            value: tr('API 控制台'),
+            action: () => this.onOpenApi()
+          },
+          {
+            value: tr('给 MNN 点个 Star'),
+            action: () => this.starProject()
+          },
+          {
+            value: tr('上报问题'),
+            action: () => this.reportIssue()
+          }
+        ])
+      }
+      .width('100%')
+      .padding({ left: 6, right: 6, top: 8, bottom: 8 })
+      .backgroundColor($r('app.color.background'))
+
+      if (!this.isModelReady) {
+        Text(`${this.activeModelName || this.activeModelId} · ${this.modelStatus}`)
+          .fontSize(12)
+          .fontColor($r('app.color.text_secondary'))
+          .width('100%')
+          .textAlign(TextAlign.Center)
+          .padding({ bottom: 6 })
+          .backgroundColor($r('app.color.background'))
+      }
+
+      List({ space: 16, scroller: this.messageScroller }) {
+        ForEach(this.messages, (message: ChatMessageView, index: number) => {
+          ListItem() {
+            MessageBubble({
+              message: message,
+              showMetrics: this.showMetrics,
+              showTimestamp: index === 0 || this.messages[index - 1].role !== message.role,
+              onReportIssue: () => this.reportIssue(),
+              onToggleMetrics: () => this.toggleShowMetrics(),
+              onShare: (text: string) => this.shareText(text),
+              onPlayAudio: (attachment: AttachmentRecord) => {
+                promptAction.showToast({ message: tr('开始播放音频') });
+                AudioPlaybackService.getInstance().play(attachment.localPath).catch((error: Error) => {
+                  this.error = `${tr('语音播放失败：')}${error.message}`;
+                  promptAction.showToast({ message: `${tr('语音播放失败：')}${error.message}` });
+                });
+              }
+            })
+          }
+        }, (message: ChatMessageView) => message.id.toString())
+      }
+      .layoutWeight(1)
+      .width('100%')
+      .padding({ left: 16, right: 16, top: 18, bottom: 12 })
+      .backgroundColor($r('app.color.background'))
+      .onScrollIndex((start: number, end: number) => {
+        this.followsLatest = end >= this.messages.length - 1;
+      })
+
+      if (!this.followsLatest && this.messages.length > 0) {
+        Button(tr('回到底部'))
+          .height(32)
+          .fontSize(12)
+          .fontColor($r('app.color.brand'))
+          .backgroundColor($r('app.color.brand_tint'))
+          .onClick(() => this.scrollToBottom())
+      }
+
+      if (this.metrics) {
+        Text(this.metrics)
+          .fontSize(12)
+          .fontColor($r('app.color.text_secondary'))
+          .width('100%')
+          .padding({ left: 18, right: 18, top: 8 })
+      }
+
+      if (this.error) {
+        Text(`${tr('错误：')}${this.error}`)
+          .fontSize(13)
+          .fontColor($r('app.color.danger'))
+          .width('100%')
+          .padding({ left: 18, right: 18, top: 8 })
+      }
+
+      Column({ space: 10 }) {
+        if (this.diffusionProgress >= 0) {
+          Row({ space: 10 }) {
+            LoadingProgress()
+              .width(18)
+              .height(18)
+              .color($r('app.color.brand'))
+            Text(`${tr('正在生成图片 · 已等待 ')}${this.diffusionSeconds}s`)
+              .fontSize(13)
+              .fontColor($r('app.color.brand'))
+              .layoutWeight(1)
+          }
+          .width('100%')
+        }
+
+        if (this.recording) {
+          Row({ space: 8 }) {
+            Row()
+              .width(8)
+              .height(8)
+              .borderRadius(4)
+              .backgroundColor($r('app.color.danger'))
+            Text(`${tr('录音中 ')}${this.recordingSeconds}${tr('s · 点击停止')}`)
+              .fontSize(13)
+              .fontColor($r('app.color.danger'))
+              .layoutWeight(1)
+            Text(tr('停止'))
+              .fontSize(13)
+              .fontColor($r('app.color.brand'))
+          }
+          .width('100%')
+          .padding({ left: 12, right: 12, top: 8, bottom: 8 })
+          .borderRadius(10)
+          .backgroundColor($r('app.color.danger_tint'))
+          .onClick(() => this.stopRecording())
+        }
+
+        if (this.pendingAttachments.length > 0) {
+          Scroll() {
+            Row({ space: 8 }) {
+              ForEach(this.pendingAttachments, (attachment: AttachmentRecord, index: number) => {
+                Stack({ alignContent: Alignment.TopEnd }) {
+                  if (attachment.mediaType === 'image') {
+                    Image(`file://${attachment.localPath}`)
+                      .width(64)
+                      .height(64)
+                      .objectFit(ImageFit.Cover)
+                      .borderRadius(8)
+                  } else {
+                    Text(attachment.mediaType === 'audio' ? tr('音频') : tr('视频'))
+                      .fontSize(12)
+                      .textAlign(TextAlign.Center)
+                      .width(64)
+                      .height(64)
+                      .backgroundColor($r('app.color.brand_tint'))
+                      .borderRadius(8)
+                  }
+                  Button('×')
+                    .width(24)
+                    .height(24)
+                    .fontSize(14)
+                    .padding(0)
+                    .backgroundColor($r('app.color.overlay_close'))
+                    .fontColor(Color.White)
+                    .onClick(() => this.removePendingAttachment(index))
+                }
+              }, (attachment: AttachmentRecord) => attachment.localPath)
+            }
+          }
+          .scrollable(ScrollDirection.Horizontal)
+          .scrollBar(BarState.Off)
+          .width('100%')
+        }
+
+        // Android-style composer: rounded surface card holding the input, with the thinking
+        // pill toggle and a circular send/stop button on its bottom row.
+        Column({ space: 4 }) {
+          if (this.voiceChatOn) {
+            Row({ space: 8 }) {
+              Row()
+                .width(8)
+                .height(8)
+                .borderRadius(4)
+                .backgroundColor(this.voiceChatState === 'speech' ? $r('app.color.danger') : $r('app.color.brand'))
+              Text(this.voiceChatLabel())
+                .fontSize(12)
+                .fontColor($r('app.color.text_secondary'))
+                .layoutWeight(1)
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+              Button(tr('结束'))
+                .height(28)
+                .fontSize(12)
+                .backgroundColor($r('app.color.danger_tint'))
+                .fontColor($r('app.color.danger'))
+                .onClick(() => this.stopVoiceChat())
+            }
+            .width('100%')
+            .padding({ left: 12, right: 12, top: 8 })
+          }
+          TextArea({ placeholder: this.isModelReady ? tr('输入消息') : tr('模型加载完成后即可对话'), text: this.prompt })
+            .width('100%')
+            .fontSize(15)
+            .backgroundColor(Color.Transparent)
+            .padding({ left: 12, right: 12, top: 10, bottom: 4 })
+            .constraintSize({ minHeight: 44, maxHeight: 132 })
+            .enabled(this.isModelReady && !this.isGenerating)
+            .onChange((value: string) => {
+              this.prompt = value;
+            })
+          Row({ space: 8 }) {
+            if (this.supportsAttachments()) {
+              Button('+')
+                .width(36)
+                .height(36)
+                .fontSize(20)
+                .padding(0)
+                .fontColor($r('app.color.text_primary'))
+                .backgroundColor(Color.Transparent)
+                .enabled(this.isModelReady && !this.isGenerating)
+                .onClick(() => this.openAttachmentSheet())
+            }
+            Button(this.voiceListening ? tr('结束') : tr('语音'))
+              .height(36)
+              .fontSize(13)
+              .padding({ left: 10, right: 10 })
+              .fontColor(this.voiceListening ? Color.White : $r('app.color.text_primary'))
+              .backgroundColor(this.voiceListening ? $r('app.color.danger') : Color.Transparent)
+              .enabled(this.isModelReady && !this.isGenerating && !this.recording &&
+                !this.voiceRecognizing)
+              .onClick(() => this.toggleVoiceInput())
+            Blank()
+            if (this.modelCapabilities.audioOutput) {
+              // Audio-output quick toggle, mirroring Android's speaker switch in the input bar.
+              Row({ space: 6 }) {
+                Text('🔊')
+                  .fontSize(13)
+                Text(tr('语音回复'))
+                  .fontSize(13)
+                  .fontColor(this.audioReply ? $r('app.color.chip_text') : $r('app.color.text_secondary'))
+              }
+              .height(36)
+              .padding({ left: 12, right: 12 })
+              .borderRadius(18)
+              .backgroundColor(this.audioReply ? $r('app.color.brand_tint') : Color.Transparent)
+              .border({
+                width: 1,
+                color: this.audioReply ? $r('app.color.brand') : $r('app.color.divider')
+              })
+              .enabled(this.isModelReady && !this.isGenerating)
+              .onClick(() => this.toggleAudioReply())
+            }
+            if (!this.modelCapabilities.diffusion) {
+              // Thinking-mode quick toggle, mirroring Android's btn_toggle_thinking pill.
+              Row({ space: 6 }) {
+                Text('💡')
+                  .fontSize(13)
+                Text(tr('思考'))
+                  .fontSize(13)
+                  .fontColor(this.runtimeSettings.thinking ? $r('app.color.chip_text') : $r('app.color.text_secondary'))
+              }
+              .height(36)
+              .padding({ left: 14, right: 14 })
+              .borderRadius(18)
+              .backgroundColor(this.runtimeSettings.thinking ? $r('app.color.brand_tint') : Color.Transparent)
+              .border({
+                width: 1,
+                color: this.runtimeSettings.thinking ? $r('app.color.brand') : $r('app.color.divider')
+              })
+              .enabled(this.isModelReady && !this.isGenerating)
+              .onClick(() => this.toggleThinking())
+            }
+            Button() {
+              Text(this.isGenerating ? '■' : '➤')
+                .fontSize(16)
+                .fontColor($r('app.color.text_primary'))
+            }
+            .width(44)
+            .height(44)
+            .borderRadius(22)
+            .backgroundColor($r('app.color.surface'))
+            .border({ width: 2, color: $r('app.color.text_primary') })
+            .enabled(this.isGenerating ||
+              (this.isModelReady && (this.prompt.trim().length > 0 || this.pendingAttachments.length > 0)))
+            .onClick(() => {
+              if (this.isGenerating) {
+                this.stopGeneration();
+              } else {
+                this.runInference().catch((error: Error) => {
+                  this.error = error.message;
+                  this.isGenerating = false;
+                });
+              }
+            })
+          }
+          .width('100%')
+          .padding({ left: 8, right: 8, bottom: 6 })
+        }
+        .width('100%')
+        .borderRadius(20)
+        .backgroundColor($r('app.color.surface'))
+
+        Text(this.voiceListening ? (this.voicePartial ? `${tr('语音：')}${this.voicePartial}` : tr('正在听…')) :
+          (this.voiceStatus === tr('正在识别…') ? tr('正在识别…') : tr('内容仅在设备本地处理')))
+          .fontSize(11)
+          .fontColor(this.voiceListening ? $r('app.color.brand') : $r('app.color.text_tertiary'))
+          .width('100%')
+          .textAlign(TextAlign.Center)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+      }
+      .width('100%')
+      .padding({ left: 16, right: 16, top: 12, bottom: 12 })
+      .backgroundColor($r('app.color.surface'))
+    }
+    .width('100%')
+    .height('100%')
+    .backgroundColor($r('app.color.background'))
+  }
+}

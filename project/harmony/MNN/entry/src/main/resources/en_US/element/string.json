@@ -1,0 +1,20 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "On-device LLM chat"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "MNN Chat on-device LLM chat"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "MNN Chat"
+    },
+    {
+      "name": "microphone_reason",
+      "value": "MNN Chat needs the microphone for voice input and hands-free voice chat."
+    }
+  ]
+}

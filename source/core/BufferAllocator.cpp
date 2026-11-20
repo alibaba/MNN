@@ -220,8 +220,31 @@ std::shared_ptr<BufferAllocator::Allocator> BufferAllocator::Allocator::createRe
 }
 
 EagerBufferAllocator::Node::~Node() {
-    if (nullptr == parent.get()) {
+    if (nullptr == parent.get() && nullptr != outside) {
         outside->onRelease(pointer);
+    }
+    // Split nodes keep their origin alive through `parent`, so tearing down a long-lived
+    // allocator (for example an LLM runtime after thousands of alloc/split cycles) used to
+    // destruct the whole ancestor chain recursively: ~Node -> decRef(parent) -> ~Node -> ...
+    // On threads with small stacks (HarmonyOS FFRT workers) this overflowed the stack and
+    // crashed with SIGSEGV inside RefCount::decRef. Unwind exclusively-owned ancestors
+    // iteratively instead; release each root's outside memory exactly once.
+    while (true) {
+        Node* node = parent.get();
+        if (nullptr == node || node->count() != 1) {
+            break;
+        }
+        if (nullptr == node->parent.get() && nullptr != node->outside) {
+            node->outside->onRelease(node->pointer);
+        }
+        // Prevents the imminent ~Node(node) from releasing again once its parent is detached.
+        node->outside = nullptr;
+        Node* next = node->parent.get();
+        if (nullptr != next) {
+            next->addRef();
+        }
+        node->parent = nullptr; // decRefs `next`, balanced by the addRef above.
+        parent = next;          // decRefs `node` to zero; ~Node(node) now runs without recursion.
     }
 }
 MemChunk EagerBufferAllocator::alloc(size_t size, bool separate, size_t align) {
