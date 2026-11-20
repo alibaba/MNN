@@ -1383,7 +1383,7 @@ python3 npu/generate_llm_qnn.py \
 
 转换完成后，会在模型目录下生成 `qnn/` 子目录和 `config_qnn.json`（其中 `visual_model` 字段指向转换后的 QNN 视觉模型）。
 
-> **注意**: `--reuse_config_qnn_json` 用于llm/visual均使用npu推理场景,该参数对先转换llm或visual没有限制，只需在第二次转换时带上`--resue_config_qnn_json`即可。
+> **注意**: `--reuse_config_qnn_json` 用于llm/visual均使用npu推理场景,该参数对先转换llm或visual没有限制，只需在第二次转换时带上`--reuse_config_qnn_json`即可。
 
 ##### 用法三：使用自定义 input_json 转换任意模型
 
