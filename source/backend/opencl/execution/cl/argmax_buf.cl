@@ -60,9 +60,9 @@ FLOAT maxValue = (FLOAT)FLT_MAX;
     for(int i = ARGMAX_LOCAL_SIZE/2; i > 0; i /= 2){
         if (lid < i){
 #ifdef ARGMAX
-            if(reduce[lid] < reduce[lid + i]){reduce[lid] = reduce[lid + i]; index_reduce[lid] = index_reduce[lid + i];}
+            if(reduce[lid] < reduce[lid + i] || (reduce[lid] == reduce[lid + i] && index_reduce[lid + i] < index_reduce[lid])){reduce[lid] = reduce[lid + i]; index_reduce[lid] = index_reduce[lid + i];}
 #else
-            if(reduce[lid] > reduce[lid + i]){reduce[lid] = reduce[lid + i]; index_reduce[lid] = index_reduce[lid + i];}
+            if(reduce[lid] > reduce[lid + i] || (reduce[lid] == reduce[lid + i] && index_reduce[lid + i] < index_reduce[lid])){reduce[lid] = reduce[lid + i]; index_reduce[lid] = index_reduce[lid + i];}
 #endif
         }
         barrier(CLK_LOCAL_MEM_FENCE);
@@ -121,15 +121,15 @@ __kernel void argmax_v4_buf(GLOBAL_SIZE_3_DIMS
     for(int i = ARGMAX_LOCAL_SIZE/2; i > 0; i /= 2){
         if (lid < i){
 #ifdef ARGMAX
-            if(reduce[lid].x < reduce[lid + i].x){reduce[lid].x = reduce[lid + i].x; index_reduce[lid].x = index_reduce[lid + i].x;}
-            if(reduce[lid].y < reduce[lid + i].y){reduce[lid].y = reduce[lid + i].y; index_reduce[lid].y = index_reduce[lid + i].y;}
-            if(reduce[lid].z < reduce[lid + i].z){reduce[lid].z = reduce[lid + i].z; index_reduce[lid].z = index_reduce[lid + i].z;}
-            if(reduce[lid].w < reduce[lid + i].w){reduce[lid].w = reduce[lid + i].w; index_reduce[lid].w = index_reduce[lid + i].w;}
+            if(reduce[lid].x < reduce[lid + i].x || (reduce[lid].x == reduce[lid + i].x && index_reduce[lid + i].x < index_reduce[lid].x)){reduce[lid].x = reduce[lid + i].x; index_reduce[lid].x = index_reduce[lid + i].x;}
+            if(reduce[lid].y < reduce[lid + i].y || (reduce[lid].y == reduce[lid + i].y && index_reduce[lid + i].y < index_reduce[lid].y)){reduce[lid].y = reduce[lid + i].y; index_reduce[lid].y = index_reduce[lid + i].y;}
+            if(reduce[lid].z < reduce[lid + i].z || (reduce[lid].z == reduce[lid + i].z && index_reduce[lid + i].z < index_reduce[lid].z)){reduce[lid].z = reduce[lid + i].z; index_reduce[lid].z = index_reduce[lid + i].z;}
+            if(reduce[lid].w < reduce[lid + i].w || (reduce[lid].w == reduce[lid + i].w && index_reduce[lid + i].w < index_reduce[lid].w)){reduce[lid].w = reduce[lid + i].w; index_reduce[lid].w = index_reduce[lid + i].w;}
 #else
-            if(reduce[lid].x > reduce[lid + i].x){reduce[lid].x = reduce[lid + i].x; index_reduce[lid].x = index_reduce[lid + i].x;}
-            if(reduce[lid].y > reduce[lid + i].y){reduce[lid].y = reduce[lid + i].y; index_reduce[lid].y = index_reduce[lid + i].y;}
-            if(reduce[lid].z > reduce[lid + i].z){reduce[lid].z = reduce[lid + i].z; index_reduce[lid].z = index_reduce[lid + i].z;}
-            if(reduce[lid].w > reduce[lid + i].w){reduce[lid].w = reduce[lid + i].w; index_reduce[lid].w = index_reduce[lid + i].w;}
+            if(reduce[lid].x > reduce[lid + i].x || (reduce[lid].x == reduce[lid + i].x && index_reduce[lid + i].x < index_reduce[lid].x)){reduce[lid].x = reduce[lid + i].x; index_reduce[lid].x = index_reduce[lid + i].x;}
+            if(reduce[lid].y > reduce[lid + i].y || (reduce[lid].y == reduce[lid + i].y && index_reduce[lid + i].y < index_reduce[lid].y)){reduce[lid].y = reduce[lid + i].y; index_reduce[lid].y = index_reduce[lid + i].y;}
+            if(reduce[lid].z > reduce[lid + i].z || (reduce[lid].z == reduce[lid + i].z && index_reduce[lid + i].z < index_reduce[lid].z)){reduce[lid].z = reduce[lid + i].z; index_reduce[lid].z = index_reduce[lid + i].z;}
+            if(reduce[lid].w > reduce[lid + i].w || (reduce[lid].w == reduce[lid + i].w && index_reduce[lid + i].w < index_reduce[lid].w)){reduce[lid].w = reduce[lid + i].w; index_reduce[lid].w = index_reduce[lid + i].w;}
 #endif
         }
         barrier(CLK_LOCAL_MEM_FENCE);
