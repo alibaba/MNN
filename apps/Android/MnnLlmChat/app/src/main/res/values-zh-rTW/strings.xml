@@ -691,4 +691,11 @@
     <string name="benchmark_energy_whole_device_energy">整機能耗</string>
     <string name="benchmark_energy_whole_device_power">整機功率</string>
     <string name="benchmark_energy_detail_input_tokens">設定輸入 token</string>
+    <string name="delete_model_history_message">刪除模型檔案？取消勾選下方選項，還將永久刪除其聊天記錄和附件。</string>
+    <string name="keep_chat_history">保留聊天記錄和附件</string>
+    <string name="history_read_only">目前為唯讀記錄。原模型可用時，才能繼續聊天。</string>
+    <string name="history_continue_chat">繼續聊天</string>
+    <string name="history_model_unavailable">原模型無法使用，仍可查看記錄。請還原模型後再繼續聊天。</string>
+    <string name="history_attachment_unavailable">[附件無法使用]</string>
+    <string name="history_session_unavailable">此對話已無法使用。</string>
 </resources>

@@ -168,7 +168,11 @@ object ModelDeletionHelper {
      * @param modelId The model ID to delete
      * @return DeletionResult with cleanup status
      */
-    fun deleteModelWithCleanup(context: Context, modelId: String): DeletionResult {
+    fun deleteModelWithCleanup(
+        context: Context,
+        modelId: String,
+        keepHistory: Boolean = false
+    ): DeletionResult {
         val errors = mutableListOf<String>()
 
         // 1. Clear mmap cache first (while model still exists for path calculation)
@@ -179,8 +183,8 @@ object ModelDeletionHelper {
             false
         }
 
-        // 2. Clear chat sessions and their resource directories for this model
-        val chatSessionsCleared = try {
+        // Retained sessions own their attachments independently of the model files.
+        val chatSessionsCleared = if (keepHistory) false else try {
             deleteSessionsByModelId(context, modelId)
             true
         } catch (e: Exception) {

@@ -53,6 +53,10 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".history.HistoryViewerActivity"
+            android:exported="false" />
+
         <service
             android:name="com.alibaba.mls.api.download.DownloadForegroundService"
             android:foregroundServiceType="dataSync" />
