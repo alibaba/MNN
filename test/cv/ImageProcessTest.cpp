@@ -375,6 +375,16 @@ public:
                 return false;
             }
         }
+
+        std::vector<uint8_t> bytes(size * 3, 255);
+        std::shared_ptr<MNN::Tensor> rawTensor(
+            MNN::Tensor::create<uint8_t>(std::vector<int>{1, h, w, 3}, bytes.data(), Tensor::TENSORFLOW));
+        std::shared_ptr<ImageProcess> rawProcess(ImageProcess::create(config));
+        rawProcess->convert(integers.data(), w, h, 0, rawTensor.get());
+        if (bytes != integers) {
+            MNN_ERROR("Error for turn bgr to bgr uint8 identity path\n");
+            return false;
+        }
         return true;
     }
 };
