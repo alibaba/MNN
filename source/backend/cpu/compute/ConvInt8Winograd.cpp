@@ -38,7 +38,8 @@ std::shared_ptr<ConvInt8Winograd::WinoResource> ConvInt8Winograd::makeWinoResour
     offsets.reset(Tensor::createDevice<float>({alpha2, oc4, pack}));
     scales.reset(Tensor::createDevice<float>({1, 2 * oc4 * pack}));
     inputScales.reset(Tensor::createDevice<float>({alpha2, pack}));
-    mergeInfo.reset(Tensor::createDevice<int8_t>({alpha2, weight->stride(0) + scales->size()}));
+    // packWeightAndQuantInfo stores scale and bias for every int8 UNIT block, which can be wider than the float pack.
+    mergeInfo.reset(Tensor::createDevice<int8_t>({alpha2, weight->stride(0) + 2 * ocDivUnit * UNIT * (int)sizeof(float)}));
     
     auto allocTensors = [=](std::vector<std::shared_ptr<Tensor>> tensors) -> bool {
         bool success = true;
