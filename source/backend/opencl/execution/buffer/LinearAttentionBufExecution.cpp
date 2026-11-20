@@ -9,6 +9,7 @@
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 
 #include "LinearAttentionBufExecution.hpp"
+#include "core/MNNFileUtils.h"
 #include "core/TensorUtils.hpp"
 #include "core/OpCommonUtils.hpp"
 
@@ -69,6 +70,7 @@ LinearAttentionBufExecution::LinearAttentionBufExecution(const MNN::Op* op, Back
     : CommonExecution(backend, op) {
     mOpenCLBackend = static_cast<OpenCLBackend*>(backend);
     mMeta = (KVMeta*)(backend->getMetaPtr());
+    mPrefixCacheDir = mOpenCLBackend->getRuntime()->hint().prefixcacheDirPath;
     auto param = op->main_as_LinearAttentionParam();
     mAttentionType = param->attn_type()->str();
     mNumKHeads = param->num_k_heads();
@@ -1060,10 +1062,106 @@ ErrorCode LinearAttentionBufExecution::onExecute(const std::vector<Tensor*>& inp
         mMeta->layer_index = (mMeta->layer_index + 1) % mMeta->layer_nums;
     }
 
-    if (mUseChunkedPrefill) {
-        return onExecuteChunkedPrefill(inputs, outputs);
-    }
+    loadPrefixState();
+    ErrorCode code = mUseChunkedPrefill ? onExecuteChunkedPrefill(inputs, outputs) : onExecuteBody(inputs, outputs);
+    savePrefixState();
+    return code;
+}
 
+static bool _laMapCopy(OpenCLRuntime* runtime, Tensor* t, size_t bytes, void* host, bool toDevice) {
+    cl_int res;
+    void* p = runtime->commandQueue().enqueueMapBuffer(openCLBuffer(t), true, toDevice ? CL_MAP_WRITE : CL_MAP_READ, 0,
+                                                       bytes, nullptr, nullptr, &res);
+    if (p == nullptr || res != CL_SUCCESS) {
+        return false;
+    }
+    if (toDevice) {
+        ::memcpy(p, host, bytes);
+    } else {
+        ::memcpy(host, p, bytes);
+    }
+    runtime->commandQueue().enqueueUnmapMemObject(openCLBuffer(t), p);
+    return true;
+}
+
+// Restore conv (.k) and recurrent (.v) state from the prefix cache, as CPULinearAttention does.
+void LinearAttentionBufExecution::loadPrefixState() {
+    if (mMeta == nullptr || mMeta->file_name.empty() || mMeta->file_flag != KVMeta::PendingRead ||
+        mStateCache->mPrefixLayerIndex < 0 || mPrefixCacheDir.empty()) {
+        return;
+    }
+    auto runtime = mOpenCLBackend->getOpenCLRuntime();
+    const int fp = mOpenCLBackend->fpBytes();
+    std::string base =
+        MNNFilePathConcat(mPrefixCacheDir, mMeta->file_name) + "_" + std::to_string(mStateCache->mPrefixLayerIndex);
+    Tensor* states[2] = {mStateCache->mConvState.get(), mStateCache->mRecurrentState.get()};
+    const char* suffix[2] = {".k", ".v"};
+    for (int i = 0; i < 2; ++i) {
+        if (states[i] == nullptr) {
+            continue;
+        }
+        std::string path = base + suffix[i];
+        size_t bytes = (size_t)states[i]->elementSize() * fp;
+        auto fd = MNNOpenFile(path.c_str(), MNN_FILE_READ);
+        if (fd == INVALID_FILE) {
+            MNN_PRINT("OpenCL LinearAttention: failed to open prefix cache file %s\n", path.c_str());
+            continue;
+        }
+        size_t size = MNNGetFileSize(fd);
+        if (size == bytes) {
+            void* map = MNNMmapFile(fd, size, true);
+            if (map != nullptr) {
+                _laMapCopy(runtime, states[i], bytes, map, true);
+                MNNUnmapFile(map, size);
+            }
+        } else {
+            MNN_PRINT("OpenCL LinearAttention: prefix cache %s has %zu bytes, expected %zu\n", path.c_str(), size,
+                      bytes);
+        }
+        MNNCloseFile(fd);
+    }
+}
+
+// Dump the state after every prefill chunk while writing the prefix cache (cumulative, as on CPU).
+void LinearAttentionBufExecution::savePrefixState() {
+    if (mMeta == nullptr || mMeta->file_name.empty() || mMeta->file_flag != KVMeta::PendingWrite ||
+        mStateCache->mPrefixLayerIndex < 0 || mPrefixCacheDir.empty()) {
+        return;
+    }
+    if (mOpenCLBackend->isUseRecordQueue()) {
+        MNN_ERROR("OpenCL LinearAttention: prefix cache write skipped with record queue\n");
+        return;
+    }
+    MNNCreateDir(mPrefixCacheDir.c_str());
+    auto runtime = mOpenCLBackend->getOpenCLRuntime();
+    const int fp = mOpenCLBackend->fpBytes();
+    std::string base =
+        MNNFilePathConcat(mPrefixCacheDir, mMeta->file_name) + "_" + std::to_string(mStateCache->mPrefixLayerIndex);
+    Tensor* states[2] = {mStateCache->mConvState.get(), mStateCache->mRecurrentState.get()};
+    const char* suffix[2] = {".k", ".v"};
+    for (int i = 0; i < 2; ++i) {
+        if (states[i] == nullptr) {
+            continue;
+        }
+        std::string path = base + suffix[i];
+        size_t bytes = (size_t)states[i]->elementSize() * fp;
+        auto fd = MNNCreateFile(path.c_str());
+        if (fd == INVALID_FILE) {
+            MNN_PRINT("OpenCL LinearAttention: failed to create prefix cache file %s\n", path.c_str());
+            continue;
+        }
+        MNNSetFileSize(fd, bytes);
+        void* map = MNNMmapFile(fd, bytes);
+        if (map != nullptr) {
+            _laMapCopy(runtime, states[i], bytes, map, false);
+            MNNUnmapFile(map, bytes);
+        }
+        MNNCloseFile(fd);
+    }
+}
+
+ErrorCode LinearAttentionBufExecution::onExecuteBody(const std::vector<Tensor*>& inputs,
+                                                     const std::vector<Tensor*>& outputs) {
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
     int convStateSize = inputs[3]->length(2) - 1;
 
