@@ -459,6 +459,8 @@ public:
             ides->regions = {GeometryComputerUtils::makeRawAddressRef(indices, 0, N)};
             res.extras.emplace_back(flattenIndice);
         }
+        auto normalizedIndice = GeometryComputerUtils::normalizeNegativeIndices(
+            op, flattenIndice.get(), data->length(axis), context, res);
         // reindex
         std::shared_ptr<Tensor> newIndice(Tensor::createDevice<int>({N, D}));
         {
@@ -467,7 +469,7 @@ public:
             des->regions.resize(D);
             for (int i = 0; i < D; i++) {
                 if (i == axis) {
-                    des->regions[i].origin = flattenIndice.get();
+                    des->regions[i].origin = normalizedIndice;
                 } else {
                     int inner = 1, outter = 1, middle = indices->shape()[i];
                     for (int j = 0; j < i; j++) outter *= indices->shape()[j];

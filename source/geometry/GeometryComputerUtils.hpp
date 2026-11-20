@@ -18,6 +18,8 @@ public:
     static void addConvert(const CommandBuffer& srcBuffer, CommandBuffer& dstBuffer, GeometryComputer::Context& ctx);
     static std::shared_ptr<Command> makeCommand(flatbuffers::FlatBufferBuilder& builder, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
     static std::shared_ptr<Command> makeBinary(int type, Tensor* input0, Tensor* input1, Tensor* output);
+    static Tensor* normalizeNegativeIndices(const Op* op, Tensor* indices, int axisLen,
+                                            GeometryComputer::Context& context, CommandBuffer& res);
     static std::shared_ptr<Command> makeReduce(ReductionType type, Tensor* input0, Tensor* output, int axis = 1);
     static std::shared_ptr<Command> makeUnary(UnaryOpOperation type, Tensor* input0, Tensor* output);
     static std::shared_ptr<Command> makeLayerNorm(Tensor* input0, Tensor* output, std::vector<int32_t> axis, float epsilon, std::vector<float> gamma, std::vector<float> beta, std::vector<int64_t> external, int group = 1, bool useRMS = false);
