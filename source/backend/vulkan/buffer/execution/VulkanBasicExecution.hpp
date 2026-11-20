@@ -24,6 +24,11 @@ public:
     }
     virtual ~VulkanBasicExecution() = default;
 
+    virtual bool encodeOnExecute() const { return false; }
+    virtual ErrorCode onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+        return NO_ERROR;
+    }
+
     virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                const VulkanCommandPool::Buffer *cmdBuffer) = 0;
 
@@ -77,6 +82,7 @@ public:
     }
 
 private:
+    ErrorCode encode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
     std::shared_ptr<VulkanBasicExecution> mEncoder;
     std::shared_ptr<VulkanCommandPool::Buffer> mCmdBuffer;
 };
