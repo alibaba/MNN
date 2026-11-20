@@ -8,6 +8,7 @@
 
 #ifndef CONFIG_HPP
 #define CONFIG_HPP
+#include <cstdint>
 #include <string>
 #include <MNN/MNNDefine.h>
 #include <fstream>
