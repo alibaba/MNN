@@ -1,5 +1,9 @@
 #include <MNN/MNNDefine.h>
 #include "Json2Flatbuffer.hpp"
+#include <iomanip>
+#include <limits>
+#include <locale>
+#include <sstream>
 
 #define VECTOR_EXTRACT(FLATBUFFER_TYPE, CPP_TYPE, JSON_TYPE)\
 case flatbuffers::ET_##FLATBUFFER_TYPE:\
@@ -20,6 +24,30 @@ break;\
 }
 
 namespace MNN {
+namespace {
+struct FloatJsonVisitor : flatbuffers::ToStringVisitor {
+    FloatJsonVisitor() : flatbuffers::ToStringVisitor(" ", true, "") {}
+
+    void Float(float value) override {
+        std::ostringstream stream;
+        stream.imbue(std::locale::classic());
+        stream << std::setprecision(std::numeric_limits<float>::max_digits10) << value;
+        auto text = stream.str();
+        // Keep negative zero as a JSON floating-point value.
+        if (text.find_first_of(".eE") == std::string::npos) {
+            text += ".0";
+        }
+        s += text;
+    }
+};
+}
+
+std::string Json2Flatbuffer::writeFlatbufferToJson(const uint8_t* buffer, const flatbuffers::TypeTable* table) {
+    FloatJsonVisitor visitor;
+    flatbuffers::IterateFlatBuffer(buffer, table, &visitor);
+    return visitor.s;
+}
+
 flatbuffers::Offset<void> Json2Flatbuffer::writeJsonToFlatbuffer(const flatbuffers::TypeTable * table, flatbuffers::FlatBufferBuilder& builder, const rapidjson::GenericObject<false, rapidjson::GenericValue<rapidjson::UTF8<>>>& object) {
     std::vector<std::pair<int, flatbuffers::Offset<void>>> indexes;
     // Load union type for easy to use
