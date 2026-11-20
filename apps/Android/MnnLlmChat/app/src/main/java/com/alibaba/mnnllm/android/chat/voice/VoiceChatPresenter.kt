@@ -11,6 +11,8 @@ import com.alibaba.mnnllm.android.audio.AudioChunksPlayer
 import com.alibaba.mnnllm.android.chat.ChatPresenter
 import com.alibaba.mnnllm.android.chat.GenerateResultProcessor
 import com.alibaba.mnnllm.android.utils.VoiceModelPathUtils
+import com.alibaba.mnnllm.android.utils.TtsVoiceSelection
+import com.alibaba.mnnllm.android.mainsettings.MainSettings
 import com.taobao.meta.avatar.tts.TtsService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -59,6 +61,9 @@ class VoiceChatPresenter(
 
     private var asrService: AsrService? = null
     private var ttsService: TtsClient? = null
+    private var selectedTtsVoice: String? = null
+    private var ttsVoiceApplied = false
+    private val ttsVoiceLock = Any()
     private var audioPlayer: AudioChunksPlayer? = null
     private var audioManager: AudioManager = activity.getSystemService(Activity.AUDIO_SERVICE) as AudioManager
 
@@ -302,18 +307,25 @@ class VoiceChatPresenter(
                 if (isStopped) return@launch
                 
                 Log.d(TAG, "Initializing TTS Service...")
-                ttsService = ttsClientFactory()
+                val service = ttsClientFactory()
+                ttsService = service
                 val modelDir = VoiceModelPathUtils.getTtsModelPath(activity)
+                val voice = withContext(Dispatchers.IO) {
+                    TtsVoiceSelection.selectedVoice(activity, MainSettings.getDefaultTtsModel(activity), modelDir)
+                }
+                if (isStopped || ttsService !== service) return@launch
+                selectedTtsVoice = voice
+                ttsVoiceApplied = false
                 val sampleRate = VoiceModelPathUtils.getTtsSampleRate(modelDir)
                 val language = VoiceModelPathUtils.getTtsLanguage(activity)
-                ttsService?.setLanguage(language)
+                service.setLanguage(language)
                 initAudio(sampleRate)
                 withContext(Dispatchers.IO) {
-                    if (isStopped) return@withContext
+                    if (isStopped || ttsService !== service) return@withContext
                     
                     Log.i(TAG, "Using TTS model path: $modelDir")
                     Log.i(TAG, "Using TTS language: $language")
-                    val initResult = ttsService?.init(modelDir)
+                    val initResult = service.init(modelDir)
                     if (initResult != true) {
                         Log.e(TAG, "TTS Service initialization failed with path: $modelDir")
                         if (!isStopped) withContext(Dispatchers.Main) { view.showError("TTS init failed") }
@@ -536,6 +548,20 @@ class VoiceChatPresenter(
             Log.w(TAG, "TTS Service not ready, skipping synthesis for text: $text")
             return null
         }
+        if (isStopped || ttsService !== service) return null
+        synchronized(ttsVoiceLock) {
+            if (!ttsVoiceApplied) {
+                // Greeting and streamed synthesis may both resume after initialization.
+                selectedTtsVoice?.let { voice ->
+                    try {
+                        service.setSpeakerId(voice)
+                    } catch (e: IllegalArgumentException) {
+                        Log.w(TAG, "Saved TTS voice is unavailable; retaining model default", e)
+                    }
+                }
+                ttsVoiceApplied = true
+            }
+        }
         return service.process(text, 0)
     }
 
@@ -756,6 +782,7 @@ interface VoiceChatView {
 }
 
 interface TtsClient {
+    fun setSpeakerId(speakerId: String)
     fun setLanguage(language: String)
     suspend fun init(modelDir: String): Boolean
     suspend fun waitForInitComplete(): Boolean
@@ -764,6 +791,8 @@ interface TtsClient {
 }
 
 class RealTtsClient(private val service: TtsService) : TtsClient {
+    override fun setSpeakerId(speakerId: String) = service.setSpeakerId(speakerId)
+
     override fun setLanguage(language: String) = service.setLanguage(language)
 
     override suspend fun init(modelDir: String): Boolean = service.init(modelDir)
