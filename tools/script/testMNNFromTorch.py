@@ -71,7 +71,7 @@ class TestModel():
             np.savetxt(f, inputs[key].flatten())
             f.close()
         self.model.eval()
-        outputs = self.model.forward(inputs[self.inputs[0]]).detach().numpy()
+        outputs = [self.model.forward(inputs[self.inputs[0]]).detach().numpy()]
         print('outputs:')
         for i in range(len(outputs)):
             outputName = self.outputs[i]
