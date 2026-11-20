@@ -5,6 +5,8 @@
 //
 
 #include "llm_manager.hpp"
+#include "json.hpp"
+#include <fstream>
 #include "../../../transformers/llm/engine/include/llm/llm.hpp"
 #define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
@@ -20,11 +22,19 @@ std::unique_ptr<MNN::Transformer::Llm> LLMManager::CreateLLM(
         return nullptr;
     }
 
-    if (use_template) {
-        llm->set_config("{\"tmp_path\":\"tmp\"}");
-    } else {
-        llm->set_config("{\"tmp_path\":\"tmp\",\"use_template\":false}");
+    const auto config = nlohmann::json::parse(llm->dump_config());
+    auto overrides = nlohmann::json::object();
+    // Preserve per-instance cache directories supplied by the runtime config.
+    if (config.value("tmp_path", std::string()).empty()) overrides["tmp_path"] = "tmp";
+    if (!use_template) overrides["use_template"] = false;
+    std::ifstream runtime_file(config_path);
+    const auto runtime_config = nlohmann::json::parse(runtime_file, nullptr, false);
+    // Model metadata is merged last by LlmConfig; an explicitly supplied runtime template takes precedence here.
+    if (runtime_config.contains("jinja") && runtime_config["jinja"].is_object() &&
+        runtime_config["jinja"].contains("chat_template")) {
+        overrides["jinja"] = runtime_config["jinja"];
     }
+    llm->set_config(overrides.dump());
     
     {
         AUTOTIME;

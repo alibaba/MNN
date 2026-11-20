@@ -116,6 +116,7 @@ public:
     void onPushBack(const Tensor * key, const Tensor * value, int add);
     void onDequantValue(Tensor * dequantedValues);
     void onUpdateKV(const Tensor * key, const Tensor * value, int add);
+    bool savePrefixSnapshot(const std::string& name, int layer);
 
     // quant Key/Value
     int8_t * addrOfKeySum(int kv_h) {
