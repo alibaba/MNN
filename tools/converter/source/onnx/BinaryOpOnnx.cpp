@@ -67,15 +67,6 @@ void BinaryOpOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode, OnnxSco
     TO_BINARY_OP("GreaterOrEqual", MNN::BinaryOpOperation_GREATER_EQUAL);
     TO_BINARY_OR_REDUCE_OP("Max", MNN::BinaryOpOperation_MAXIMUM, MNN::ReductionType_MAXIMUM);
     TO_BINARY_OR_REDUCE_OP("Min", MNN::BinaryOpOperation_MINIMUM, MNN::ReductionType_MINIMUM);
-    if (originalType == "Mod") {
-        int fmod = 0;
-        for (const auto& attrProto : onnxNode->attribute()) {
-            if (attrProto.name() == "fmod") {
-                fmod = attrProto.i();
-            }
-        }
-        ((MNN::BinaryOpT*)param)->opType = (fmod == 0 ? MNN::BinaryOpOperation_MOD : MNN::BinaryOpOperation_FLOORMOD);
-    }
     TO_BINARY_OP("Pow", MNN::BinaryOpOperation_POW);
     TO_BINARY_OP("Sub", MNN::BinaryOpOperation_SUB);
     TO_BINARY_OR_REDUCE_OP("Sum", MNN::BinaryOpOperation_ADD, MNN::ReductionType_SUM);
@@ -139,7 +130,6 @@ REGISTER_CONVERTER(BinaryOpOnnx, Greater);
 REGISTER_CONVERTER(BinaryOpOnnx, GreaterOrEqual);
 REGISTER_CONVERTER(BinaryOpOnnx, Max);
 REGISTER_CONVERTER(BinaryOpOnnx, Min);
-REGISTER_CONVERTER(BinaryOpOnnx, Mod);
 REGISTER_CONVERTER(BinaryOpOnnx, Or);
 REGISTER_CONVERTER(BinaryOpOnnx, Xor);
 REGISTER_CONVERTER(BinaryOpOnnx, BitShift);
