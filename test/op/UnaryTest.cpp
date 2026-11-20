@@ -7,6 +7,7 @@
 //
 
 #include <cmath>
+#include <limits>
 #include <MNN/expr/Expr.hpp>
 #include <MNN/expr/ExprCreator.hpp>
 #include "MNN_generated.h"
@@ -834,8 +835,51 @@ public:
     virtual ~RoundTest() = default;
     virtual bool run(int precision) {
         return test<float, float>(_Round, "RoundTest", 0.01,
-                    {-1.2, -0.6, 0.4, 1.6}, {-1., -1., 0., 2.},
-                    {4}, {4});
+                    {-1.2, -0.6, 0.4, 1.6, -2.5, -0.5, 0.5, 2.5},
+                    {-1., -1., 0., 2., -3., -1., 1., 3.}, {8}, {8});
+    }
+};
+class RoundEvenTest : public MNNTestCase {
+public:
+    bool run(int precision) override {
+        const float infinity = std::numeric_limits<float>::infinity();
+        const float nan = std::numeric_limits<float>::quiet_NaN();
+        std::vector<float> values = {
+            -3.5f, -2.5f, -1.5f, -0.5f, -0.0f, 0.0f, 0.5f, 1.5f, 2.5f, 3.5f,
+            -infinity, infinity, nan
+        };
+        std::vector<float> expected = {
+            -4.0f, -2.0f, -2.0f, -0.0f, -0.0f, 0.0f, 0.0f, 2.0f, 2.0f, 4.0f,
+            -infinity, infinity, nan
+        };
+        if (precision == MNN::BackendConfig::Precision_High) {
+            values.insert(values.end(), {
+                std::nextafter(0.5f, 0.0f), std::nextafter(0.5f, 1.0f),
+                std::nextafter(-0.5f, 0.0f), std::nextafter(-0.5f, -1.0f), 8388607.5f
+            });
+            expected.insert(expected.end(), {0.0f, 1.0f, -0.0f, -1.0f, 8388608.0f});
+        }
+        auto input = _Const(values.data(), {static_cast<int>(values.size())}, NCHW);
+        MNN::OpT op;
+        op.type = MNN::OpType_UnaryOp;
+        op.main.type = MNN::OpParameter_UnaryOp;
+        auto param = new MNN::UnaryOpT;
+        param->opType = MNN::UnaryOpOperation_ROUND_EVEN;
+        op.main.value = param;
+        auto output = Variable::create(Expr::create(&op, {input}));
+        const float *actual = output->readMap<float>();
+        if (actual == nullptr) {
+            return false;
+        }
+        for (size_t i = 0; i < expected.size(); ++i) {
+            const float want = expected[i];
+            if (std::isnan(want) ? !std::isnan(actual[i]) : actual[i] != want ||
+                    (want == 0.0f && std::signbit(actual[i]) != std::signbit(want))) {
+                MNN_ERROR("RoundEvenTest failed at index %zu: got %g, expected %g\n", i, actual[i], want);
+                return false;
+            }
+        }
+        return true;
     }
 };
 class SignTest : public UnaryTestCommon {
@@ -1260,6 +1304,7 @@ MNNTestSuiteRegister(AcoshTest, "op/unary/acosh");
 MNNTestSuiteRegister(AsinhTest, "op/unary/asinh");
 MNNTestSuiteRegister(AtanhTest, "op/unary/atanh");
 MNNTestSuiteRegister(RoundTest, "op/unary/round");
+MNNTestSuiteRegister(RoundEvenTest, "op/unary/round_even");
 MNNTestSuiteRegister(SignTest, "op/unary/sign");
 MNNTestSuiteRegister(CoshTest, "op/unary/cosh");
 MNNTestSuiteRegister(ErfTest, "op/unary/erf");

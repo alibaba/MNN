@@ -291,6 +291,8 @@ MNNUnaryExecute Arm82Unary::select(int type, int precision) {
             return _Wrap<_Unary<UnarySign<float>, float>>;
         case UnaryOpOperation_ROUND:
             return _Wrap<_Unary<UnaryRound<float>, float>>;
+        case UnaryOpOperation_ROUND_EVEN:
+            return _Wrap<_Unary<UnaryRoundEven<float>, float>>;
         case UnaryOpOperation_COSH:
             return _Wrap<_Unary<UnaryCosh<float>, float>>;
         case UnaryOpOperation_ERF:

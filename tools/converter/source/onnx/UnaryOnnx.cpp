@@ -57,7 +57,7 @@ void UnaryOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode,
     TO_UNARY_OP("Tan", MNN::UnaryOpOperation_TAN);
     TO_UNARY_OP("Tanh", MNN::UnaryOpOperation_TANH);
     TO_UNARY_OP("Reciprocal", MNN::UnaryOpOperation_RECIPROCAL);
-    TO_UNARY_OP("Round", MNN::UnaryOpOperation_ROUND);
+    TO_UNARY_OP("Round", MNN::UnaryOpOperation_ROUND_EVEN);
     TO_UNARY_OP("Sign", MNN::UnaryOpOperation_SIGN);
 
     // For specitial error onnx
