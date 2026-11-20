@@ -14,9 +14,10 @@ MNN::OpParameter ResizeOnnx::type() {
 
 void ResizeOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode, OnnxScope* scope) {
     std::unique_ptr<MNN::InterpT> resizeParam(new MNN::InterpT);
+    const bool legacy = scope->mOpsetVersion < 11;
     std::string resizeMode = "nearest";
-    std::string coordMode = "half_pixel";
-    std::string nearestMode = "round_prefer_floor";
+    std::string coordMode = legacy ? "asymmetric" : "half_pixel";
+    std::string nearestMode = legacy ? "floor" : "round_prefer_floor";
     float cubicFactor = -0.75f;
     for (int i = 0; i < onnxNode->attribute_size(); ++i) {
         const auto& attr = onnxNode->attribute(i);
