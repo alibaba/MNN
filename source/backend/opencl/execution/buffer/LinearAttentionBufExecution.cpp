@@ -241,7 +241,7 @@ ErrorCode LinearAttentionBufExecution::onResize(const std::vector<Tensor*>& inpu
         MNN_CHECK_CL_SUCCESS(ret, "setArg linear_attn_short_conv_nosilu");
 
         if (convStateSize > 0) {
-            int stateTotal = batch * mHeadVDim * convStateSize;
+            int stateTotal = batch * mHeadVDim;
             mKernelShortConvStateUpdate =
                 runtime->buildKernel("linear_attention_buf", "linear_attn_short_conv_state_update", buildOptions,
                                      mOpenCLBackend->getPrecision());
@@ -315,7 +315,7 @@ ErrorCode LinearAttentionBufExecution::onResize(const std::vector<Tensor*>& inpu
         mKernelConvStateUpdate = runtime->buildKernel("linear_attention_buf", "linear_attn_conv_state_update",
                                                       buildOptions, mOpenCLBackend->getPrecision());
 
-        int totalConvUpdate = batch * convDim * convStateSize;
+        int totalConvUpdate = batch * convDim;
         mGWSConvStateUpdate = {(uint32_t)totalConvUpdate, 1, 1};
         maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernelConvStateUpdate));
         uint32_t lwsUpdate = std::min(maxWorkGroupSize, (uint32_t)256);
@@ -351,7 +351,7 @@ ErrorCode LinearAttentionBufExecution::onResize(const std::vector<Tensor*>& inpu
 
     // Kernel 2: conv_state_update
     if (convStateSize > 0) {
-        int totalConvUpdate = batch * convDim * convStateSize;
+        int totalConvUpdate = batch * convDim;
         uint32_t idx = 0;
         cl_int ret = CL_SUCCESS;
         ret |= mKernelConvStateUpdate->get().setArg(idx++, totalConvUpdate);
@@ -605,7 +605,7 @@ ErrorCode LinearAttentionBufExecution::onResizeChunkedPrefill(const std::vector<
     if (convStateSize > 0) {
         mKernelConvStateUpdatePrefill = runtime->buildKernel("linear_attention_buf", "linear_attn_conv_state_update",
                                                              buildOptions, mOpenCLBackend->getPrecision());
-        int totalConvUpdate = batch * convDim * convStateSize;
+        int totalConvUpdate = batch * convDim;
         mGWSConvStateUpdatePrefill = {(uint32_t)totalConvUpdate, 1, 1};
         {
             auto maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernelConvStateUpdatePrefill));
