@@ -57,6 +57,7 @@ void UnaryOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode,
     TO_UNARY_OP("Tan", MNN::UnaryOpOperation_TAN);
     TO_UNARY_OP("Tanh", MNN::UnaryOpOperation_TANH);
     TO_UNARY_OP("Reciprocal", MNN::UnaryOpOperation_RECIPROCAL);
+    TO_UNARY_OP("Round", MNN::UnaryOpOperation_ROUND_EVEN);
     TO_UNARY_OP("Sign", MNN::UnaryOpOperation_SIGN);
 
     // For specitial error onnx
@@ -89,6 +90,7 @@ REGISTER_CONVERTER(UnaryOnnx, Sin);
 REGISTER_CONVERTER(UnaryOnnx, Tan);
 REGISTER_CONVERTER(UnaryOnnx, Tanh);
 REGISTER_CONVERTER(UnaryOnnx, Reciprocal);
+REGISTER_CONVERTER(UnaryOnnx, Round);
 REGISTER_CONVERTER(UnaryOnnx, Sign);
 REGISTER_CONVERTER(UnaryOnnx, Sinh);
 REGISTER_CONVERTER(UnaryOnnx, Sqrt);
