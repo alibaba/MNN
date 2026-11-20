@@ -12,6 +12,9 @@
 #include "core/OpCommonUtils.hpp"
 #include "core/MNNFileUtils.h"
 #include "core/AttentionMaskConvention.hpp"
+#include <algorithm>
+#include <cmath>
+#include <limits>
 #include "MNNTestSuite.h"
 #include "TestUtils.h"
 #include <stdlib.h>
@@ -2577,4 +2580,337 @@ private:
 
 MNNTestSuiteRegister(AttentionDecodeTest, "op/attention_decode");
 MNNTestSuiteRegister(AttentionPrefillPathTest, "op/attention_prefill_paths");
+
+namespace {
+enum { kSoftcapHeads = 8, kSoftcapKVHeads = 2, kSoftcapDim = 128, kSoftcapThreads = 4 };
+enum class SoftcapMask { Causal, Absent, Bidirectional, Full, RightAligned };
+
+struct SoftcapBatch {
+    int length;
+    SoftcapMask mask;
+    std::vector<float> query, key, value, bias;
+
+    SoftcapBatch(int start, int len, SoftcapMask kind) : length(len), mask(kind) {
+        const float levels[] = {-8.0f, -3.0f, -1.0f, -0.25f, 0.125f, 0.5f, 1.5f, 4.0f, 10.0f};
+        query.resize(len * kSoftcapHeads * kSoftcapDim, 0.0f);
+        key.resize(len * kSoftcapKVHeads * kSoftcapDim);
+        value.resize(key.size());
+        for (int i = 0; i < len; ++i) {
+            const int token = start + i;
+            for (int h = 0; h < kSoftcapHeads; ++h) {
+                for (int d = 0; d < 8; ++d) {
+                    const float sign = (token + h) % 3 == 0 ? -1.0f : 1.0f;
+                    query[(i * kSoftcapHeads + h) * kSoftcapDim + d] =
+                        sign * (3.5f + 0.25f * ((token + 2 * h) % 5)) + 0.25f * ((d + h) % 3 - 1);
+                }
+            }
+            for (int h = 0; h < kSoftcapKVHeads; ++h) {
+                const float level = levels[(token + 2 * h) % 9];
+                for (int d = 0; d < kSoftcapDim; ++d) {
+                    const int index = (i * kSoftcapKVHeads + h) * kSoftcapDim + d;
+                    key[index] = d < 8 ? level * (1.0f + 0.05f * ((d + token + h) % 3 - 1))
+                                       : 0.125f * ((d + token + 3 * h) % 7 - 3);
+                    value[index] = (start == 0 ? -6.0f : 11.0f) + level + 0.5f * h + 0.25f * (d % 5 - 2);
+                }
+            }
+        }
+        if (kind == SoftcapMask::Full || kind == SoftcapMask::RightAligned) {
+            const int width = kind == SoftcapMask::Full ? start + len : len;
+            const int offset = kind == SoftcapMask::Full ? 0 : start;
+            bias.resize(len * width);
+            for (int i = 0; i < len; ++i) {
+                for (int j = 0; j < width; ++j) {
+                    const int row = start + i, column = offset + j;
+                    const bool masked = column > row || (column != row && (row + column) % 5 == 1);
+                    bias[i * width + j] = masked ? -std::numeric_limits<float>::infinity()
+                                                : 0.625f * ((3 * row + 5 * column) % 9 - 4);
+                }
+            }
+        }
+    }
+
+    std::vector<int> maskShape() const {
+        if (mask == SoftcapMask::Causal) {
+            return {};
+        }
+        if (mask == SoftcapMask::Bidirectional) {
+            return {1};
+        }
+        return {1, 1, length, static_cast<int>(bias.size()) / length};
+    }
+
+    float sentinel() const {
+        return mask == SoftcapMask::Bidirectional ? MNN::kAttentionMaskBidirectional : 0.0f;
+    }
+
+    std::vector<float> scaledQuery() const {
+        auto scaled = query;
+        // The exporter expresses a non-default attention scale through Q, not the native Op.
+        const float factor = 0.25f * sqrtf(static_cast<float>(kSoftcapDim));
+        for (auto& x : scaled) {
+            x *= factor;
+        }
+        return scaled;
+    }
+
+    VARPS variables() const {
+        VARPS inputs;
+        auto add = [&inputs](const std::vector<int>& shape, const std::vector<float>& data) {
+            auto var = _Input(shape, NCHW, halide_type_of<float>());
+            ::memcpy(var->writeMap<float>(), data.data(), data.size() * sizeof(float));
+            var->unMap();
+            inputs.push_back(var);
+        };
+        add({1, length, kSoftcapHeads, kSoftcapDim}, scaledQuery());
+        add({1, length, kSoftcapKVHeads, kSoftcapDim}, key);
+        add({1, length, kSoftcapKVHeads, kSoftcapDim}, value);
+        if (mask != SoftcapMask::Absent) {
+            add(maskShape(), bias.empty() ? std::vector<float>{sentinel()} : bias);
+        }
+        return inputs;
+    }
+};
+
+class SoftcapOracle {
+public:
+    std::vector<float> forward(const SoftcapBatch& batch, float cap, bool kvCache = true) {
+        if (!kvCache) {
+            mKey.clear();
+            mValue.clear();
+        }
+        const int past = static_cast<int>(mKey.size()) / (kSoftcapKVHeads * kSoftcapDim);
+        mKey.insert(mKey.end(), batch.key.begin(), batch.key.end());
+        mValue.insert(mValue.end(), batch.value.begin(), batch.value.end());
+        const int total = past + batch.length;
+        std::vector<float> output(batch.query.size());
+        std::vector<double> scores(total);
+        for (int i = 0; i < batch.length; ++i) {
+            for (int h = 0; h < kSoftcapHeads; ++h) {
+                const int kvh = h / (kSoftcapHeads / kSoftcapKVHeads);
+                double maximum = -std::numeric_limits<double>::infinity();
+                for (int j = 0; j < total; ++j) {
+                    double dot = 0.0;
+                    for (int d = 0; d < kSoftcapDim; ++d) {
+                        dot += static_cast<double>(batch.query[(i * kSoftcapHeads + h) * kSoftcapDim + d]) *
+                               mKey[(j * kSoftcapKVHeads + kvh) * kSoftcapDim + d];
+                    }
+                    double score = dot * 0.25;
+                    if (cap > 0.0f) {
+                        score = cap * std::tanh(score / cap);
+                    }
+                    if (kvCache && (batch.mask == SoftcapMask::Causal || batch.mask == SoftcapMask::Absent) &&
+                        j > past + i) {
+                        score = -std::numeric_limits<double>::infinity();
+                    } else if (batch.mask == SoftcapMask::Full) {
+                        score += batch.bias[i * total + j];
+                    } else if (batch.mask == SoftcapMask::RightAligned && j >= past) {
+                        score += batch.bias[i * batch.length + j - past];
+                    }
+                    scores[j] = score;
+                    maximum = std::max(maximum, score);
+                }
+                double sum = 0.0;
+                for (auto& score : scores) {
+                    score = std::exp(score - maximum);
+                    sum += score;
+                }
+                for (int d = 0; d < kSoftcapDim; ++d) {
+                    double result = 0.0;
+                    for (int j = 0; j < total; ++j) {
+                        result += scores[j] * mValue[(j * kSoftcapKVHeads + kvh) * kSoftcapDim + d];
+                    }
+                    output[(i * kSoftcapHeads + h) * kSoftcapDim + d] = static_cast<float>(result / sum);
+                }
+            }
+        }
+        return output;
+    }
+
+private:
+    std::vector<float> mKey, mValue;
+};
+
+static bool compareSoftcap(const std::vector<float>& expected, const std::vector<float>& actual, const char* tag,
+                           int option, int step, float cap) {
+    if (expected.size() != actual.size()) {
+        MNN_ERROR("%s: size mismatch %zu/%zu\n", tag, expected.size(), actual.size());
+        return false;
+    }
+    for (size_t i = 0; i < expected.size(); ++i) {
+        if (!std::isfinite(expected[i]) || !std::isfinite(actual[i]) ||
+            fabsf(expected[i] - actual[i]) > 0.002f + 0.0002f * fabsf(expected[i])) {
+            MNN_ERROR("%s: option=%d step=%d cap=%g element=%zu expected=%g actual=%g\n", tag, option, step, cap,
+                      i, expected[i], actual[i]);
+            return false;
+        }
+    }
+    return true;
+}
+
+static std::shared_ptr<Module> makeSoftcapModule(float cap, int option, SoftcapMask mask, KVMeta* meta,
+                                                bool kvCache = true, bool forceDefaults = false) {
+    VARPS inputs{_Input(), _Input(), _Input()};
+    if (mask != SoftcapMask::Absent) {
+        inputs.push_back(_Input());
+    }
+    MNN::OpT attention;
+    attention.type = MNN::OpType_Attention;
+    attention.main.type = MNN::OpParameter_AttentionParam;
+    attention.main.value = new MNN::AttentionParamT;
+    attention.main.AsAttentionParam()->kv_cache = kvCache;
+    attention.main.AsAttentionParam()->softcap = cap;
+    auto output = Variable::create(Expr::create(&attention, inputs));
+    MNN::NetT net;
+    Variable::save({output}, &net);
+    flatbuffers::FlatBufferBuilder builder;
+    builder.ForceDefaults(forceDefaults);
+    builder.Finish(MNN::Net::Pack(builder, &net));
+    MNN::BackendConfig backendConfig;
+    backendConfig.precision = MNN::BackendConfig::Precision_High;
+    MNN::ScheduleConfig config;
+    config.type = MNN_FORWARD_CPU;
+    config.numThread = kSoftcapThreads;
+    config.backendConfig = &backendConfig;
+    std::shared_ptr<Executor::RuntimeManager> runtime(Executor::RuntimeManager::createRuntimeManager(config));
+    if (!runtime) {
+        return nullptr;
+    }
+    runtime->setHintPtr(MNN::Interpreter::KVCACHE_INFO, meta);
+    runtime->setHint(MNN::Interpreter::ATTENTION_OPTION, option);
+    return std::shared_ptr<Module>(Module::load({}, {}, builder.GetBufferPointer(), builder.GetSize(), runtime));
+}
+
+static std::shared_ptr<Executor> softcapExecutor() {
+    MNN::BackendConfig config;
+    config.precision = MNN::BackendConfig::Precision_High;
+    return Executor::newExecutor(MNN_FORWARD_CPU, config, kSoftcapThreads);
+}
+
+static bool runSoftcapSequence(int option, SoftcapMask mask, const std::vector<int>& lengths,
+                               bool kvCache = true, float cap = 2.0f) {
+    KVMeta meta;
+    auto module = makeSoftcapModule(cap, option, mask, &meta, kvCache);
+    if (!module) {
+        return false;
+    }
+    std::shared_ptr<Module> decode;
+    SoftcapOracle oracle;
+    for (size_t step = 0; step < lengths.size(); ++step) {
+        SoftcapBatch batch(static_cast<int>(meta.previous), lengths[step], mask);
+        const auto expected = oracle.forward(batch, cap, kvCache);
+        std::vector<float> actual;
+        meta.add = batch.length;
+        auto active = batch.length == 1 && decode ? decode : module;
+        if (!readAttentionOutput(active, batch.variables(), actual)) {
+            return false;
+        }
+        meta.sync();
+        if (!compareSoftcap(expected, actual, "attention_softcap", option, static_cast<int>(step), cap)) {
+            return false;
+        }
+        if (kvCache && !decode) {
+            decode.reset(Module::clone(module.get()));
+            if (!decode) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+} // namespace
+
+class AttentionSoftcapMasksTest : public MNNTestCase {
+public:
+    bool run(int precision) override {
+        MNNTEST_CPU_ONLY();
+        auto executor = softcapExecutor();
+        ExecutorScope scope(executor);
+        for (int option : {0, 8}) {
+            for (auto mask : {SoftcapMask::Causal, SoftcapMask::Absent, SoftcapMask::Bidirectional,
+                              SoftcapMask::Full, SoftcapMask::RightAligned}) {
+                if (!runSoftcapSequence(option, mask, {7, 5, 1, 1, 1, 1})) {
+                    return false;
+                }
+            }
+            for (auto mask : {SoftcapMask::Bidirectional, SoftcapMask::Full, SoftcapMask::RightAligned}) {
+                if (!runSoftcapSequence(option, mask, {9}, false, 3.0f)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(AttentionSoftcapMasksTest, "op/attention_softcap_masks");
+
+class AttentionSoftcapHistoryTest : public MNNTestCase {
+public:
+    bool run(int precision) override {
+        MNNTEST_CPU_ONLY();
+        auto executor = softcapExecutor();
+        ExecutorScope scope(executor);
+        for (int option : {0, 8}) {
+            for (int prefill : {7, 256, 300}) {
+                if (!runSoftcapSequence(option, SoftcapMask::Causal, {prefill, 1, 1, 1, 1, 1, 1, 1, 1}) ||
+                    !runSoftcapSequence(option, SoftcapMask::Absent, {prefill, 1, 1, 1, 1, 1, 1, 1, 1})) {
+                    return false;
+                }
+            }
+            for (auto mask : {SoftcapMask::Causal, SoftcapMask::Full, SoftcapMask::RightAligned}) {
+                if (!runSoftcapSequence(option, mask, {129, 171, 1, 1, 1, 1, 1, 1, 1, 1})) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(AttentionSoftcapHistoryTest, "op/attention_softcap_history");
+
+class AttentionSoftcapDefaultTest : public MNNTestCase {
+public:
+    bool run(int precision) override {
+        MNNTEST_CPU_ONLY();
+        auto executor = softcapExecutor();
+        ExecutorScope scope(executor);
+        for (int option : {0, 8}) {
+            for (auto mask : {SoftcapMask::Causal, SoftcapMask::Absent, SoftcapMask::Bidirectional,
+                              SoftcapMask::Full, SoftcapMask::RightAligned}) {
+                KVMeta missingMeta, zeroMeta;
+                auto missing = makeSoftcapModule(0.0f, option, mask, &missingMeta);
+                auto zero = makeSoftcapModule(0.0f, option, mask, &zeroMeta, true, true);
+                if (!missing || !zero) {
+                    return false;
+                }
+                SoftcapOracle oracle;
+                int step = 0;
+                for (int len : {7, 5, 1, 1, 1, 1}) {
+                    SoftcapBatch batch(static_cast<int>(missingMeta.previous), len, mask);
+                    const auto expected = oracle.forward(batch, 0.0f);
+                    const auto inputs = batch.variables();
+                    std::vector<float> missingOutput, zeroOutput;
+                    missingMeta.add = zeroMeta.add = len;
+                    if (!readAttentionOutput(missing, inputs, missingOutput)) {
+                        return false;
+                    }
+                    missingMeta.sync();
+                    if (!readAttentionOutput(zero, inputs, zeroOutput)) {
+                        return false;
+                    }
+                    zeroMeta.sync();
+                    if (!compareSoftcap(expected, missingOutput, "attention_softcap_missing", option, step, 0.0f) ||
+                        !compareSoftcap(expected, zeroOutput, "attention_softcap_zero", option, step, 0.0f) ||
+                        !compareSoftcap(missingOutput, zeroOutput, "attention_softcap_default", option, step, 0.0f)) {
+                        return false;
+                    }
+                    ++step;
+                }
+            }
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(AttentionSoftcapDefaultTest, "op/attention_softcap_default");
+
 #endif

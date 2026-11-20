@@ -158,6 +158,10 @@ float HexagonAttention::attentionScale(int headDim) const {
 }
 
 bool HexagonAttention::onClone(Backend* bn, const Op* op, Execution** dst) {
+    auto param = op->main_as_AttentionParam();
+    if (nullptr != param && param->softcap() != 0.0f) {
+        return false;
+    }
     if (nullptr == dst) {
         return true;
     }

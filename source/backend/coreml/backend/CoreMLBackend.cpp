@@ -59,6 +59,9 @@ public:
         }
     }
     bool onClone(Backend* bn, const Op* op, Execution** dst) override {
+        if (op->type() == OpType_Attention && op->main_as_AttentionParam()->softcap() != 0.0f) {
+            return false;
+        }
         if (!dst) {
             return true;
         }
@@ -557,6 +560,9 @@ Execution* CoreMLBackend::onCreate(const std::vector<Tensor*>& inputs, const std
         }
         return nullptr;
     };
+    if (op->type() == OpType_Attention && op->main_as_AttentionParam()->softcap() != 0.0f) {
+        return unsupported("attention softcap");
+    }
     // Core ML's FP32 score path uses CPU while retaining full-capacity MLState
     // and ANE transfer buffers. The native CPU attention uses only the active KV.
     if (op->type() == OpType_Attention && mRuntime->lowMemory()) {

@@ -1122,13 +1122,16 @@ ErrorCode AttentionExecution::ensureC4TailBuffers_gpu() {
 }
 
 bool AttentionExecution::onClone(Backend* bn, const Op* op, Execution** dst) {
+    auto param = op->main_as_AttentionParam();
+    if (nullptr != param && param->softcap() != 0.0f) {
+        return false;
+    }
     if (nullptr == dst) {
         return true;
     }
     auto exe = new AttentionExecution(bn, mIsKVCacheEnabled);
     exe->mCache = mCache;
     exe->mMeta = mMeta;
-    auto param = op->main_as_AttentionParam();
     exe->mIsKVShared = nullptr != param && param->kv_shared_layer_index() >= 0;
     *dst = exe;
     return true;
@@ -1611,6 +1614,9 @@ public:
         if (op->main_type() == OpParameter_AttentionParam) {
              auto att_param = op->main_as_AttentionParam();
              if (att_param) {
+                 if (att_param->softcap() != 0.0f) {
+                     return nullptr;
+                 }
                  op_kv_cache_enabled = att_param->kv_cache();
              }
         } else {

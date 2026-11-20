@@ -1632,6 +1632,9 @@ public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const MNN::Op* op, Backend* backend,
                                 const std::vector<Tensor*>& outputs) const override {
         auto param = op->main_as_AttentionParam();
+        if (param->softcap() != 0.0f) {
+            return nullptr;
+        }
         std::shared_ptr<KVQuantParameter> quantParam;
         if (nullptr != param->mhq_quant() && param->mhq_quant()->size() > 0) {
             MNN_ASSERT(param->mhq_quant()->size() == 4);
