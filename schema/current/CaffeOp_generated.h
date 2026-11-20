@@ -189,15 +189,17 @@ enum PadMode {
   PadMode_CAFFE = 0,
   PadMode_VALID = 1,
   PadMode_SAME = 2,
+  PadMode_SAME_LOWER = 3,
   PadMode_MIN = PadMode_CAFFE,
-  PadMode_MAX = PadMode_SAME
+  PadMode_MAX = PadMode_SAME_LOWER
 };
 
-inline const PadMode (&EnumValuesPadMode())[3] {
+inline const PadMode (&EnumValuesPadMode())[4] {
   static const PadMode values[] = {
     PadMode_CAFFE,
     PadMode_VALID,
-    PadMode_SAME
+    PadMode_SAME,
+    PadMode_SAME_LOWER
   };
   return values;
 }
@@ -207,13 +209,14 @@ inline const char * const *EnumNamesPadMode() {
     "CAFFE",
     "VALID",
     "SAME",
+    "SAME_LOWER",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNamePadMode(PadMode e) {
-  if (e < PadMode_CAFFE || e > PadMode_SAME) return "";
+  if (e < PadMode_CAFFE || e > PadMode_SAME_LOWER) return "";
   const size_t index = static_cast<int>(e);
   return EnumNamesPadMode()[index];
 }
@@ -345,15 +348,17 @@ enum PoolPadType {
   PoolPadType_CAFFE = 0,
   PoolPadType_VALID = 1,
   PoolPadType_SAME = 2,
+  PoolPadType_SAME_LOWER = 3,
   PoolPadType_MIN = PoolPadType_CAFFE,
-  PoolPadType_MAX = PoolPadType_SAME
+  PoolPadType_MAX = PoolPadType_SAME_LOWER
 };
 
-inline const PoolPadType (&EnumValuesPoolPadType())[3] {
+inline const PoolPadType (&EnumValuesPoolPadType())[4] {
   static const PoolPadType values[] = {
     PoolPadType_CAFFE,
     PoolPadType_VALID,
-    PoolPadType_SAME
+    PoolPadType_SAME,
+    PoolPadType_SAME_LOWER
   };
   return values;
 }
@@ -363,13 +368,14 @@ inline const char * const *EnumNamesPoolPadType() {
     "CAFFE",
     "VALID",
     "SAME",
+    "SAME_LOWER",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNamePoolPadType(PoolPadType e) {
-  if (e < PoolPadType_CAFFE || e > PoolPadType_SAME) return "";
+  if (e < PoolPadType_CAFFE || e > PoolPadType_SAME_LOWER) return "";
   const size_t index = static_cast<int>(e);
   return EnumNamesPoolPadType()[index];
 }
@@ -5757,6 +5763,7 @@ inline const flatbuffers::TypeTable *PadModeTypeTable() {
   static const flatbuffers::TypeCode type_codes[] = {
     { flatbuffers::ET_CHAR, 0, 0 },
     { flatbuffers::ET_CHAR, 0, 0 },
+    { flatbuffers::ET_CHAR, 0, 0 },
     { flatbuffers::ET_CHAR, 0, 0 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
@@ -5765,10 +5772,11 @@ inline const flatbuffers::TypeTable *PadModeTypeTable() {
   static const char * const names[] = {
     "CAFFE",
     "VALID",
-    "SAME"
+    "SAME",
+    "SAME_LOWER"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_ENUM, 3, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_ENUM, 4, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }
@@ -5851,6 +5859,7 @@ inline const flatbuffers::TypeTable *PoolPadTypeTypeTable() {
   static const flatbuffers::TypeCode type_codes[] = {
     { flatbuffers::ET_CHAR, 0, 0 },
     { flatbuffers::ET_CHAR, 0, 0 },
+    { flatbuffers::ET_CHAR, 0, 0 },
     { flatbuffers::ET_CHAR, 0, 0 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
@@ -5859,10 +5868,11 @@ inline const flatbuffers::TypeTable *PoolPadTypeTypeTable() {
   static const char * const names[] = {
     "CAFFE",
     "VALID",
-    "SAME"
+    "SAME",
+    "SAME_LOWER"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_ENUM, 3, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_ENUM, 4, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

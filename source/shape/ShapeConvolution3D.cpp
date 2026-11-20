@@ -19,6 +19,10 @@ public:
         MNN_ASSERT(1 == outputs.size());
         
         auto layer        = op->main_as_Convolution3D()->common();
+        if (layer->padMode() == PadMode_SAME_LOWER) {
+            MNN_ERROR("Convolution3D SAME_LOWER padding is not supported\n");
+            return false;
+        }
         auto input = inputs[0];
         if (input->buffer().dimensions != 5) {
             return false;

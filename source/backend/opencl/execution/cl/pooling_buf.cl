@@ -36,7 +36,11 @@ __kernel void pooling(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
     COMPUTE_FLOAT4 result = (COMPUTE_FLOAT4)(0);
     const int inp_offset = (((b_idx+c_idx*batch)*input_shape.x+ih_start)*input_shape.y+iw_start)*4;
     #ifdef COUNT_INCLUDE_PADDING
+    #ifdef SAME_PADDING
+    int total_count = kernel_shape.x * kernel_shape.y;
+    #else
     int total_count = (min(ih_start + kernel_shape.x, input_shape.x + pad_shape.x) - ih_start) * (min(iw_start + kernel_shape.y, input_shape.y + pad_shape.y) - iw_start);
+    #endif
     #else
     int total_count = 0;
     #endif

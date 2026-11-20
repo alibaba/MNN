@@ -63,11 +63,13 @@ ErrorCode HexagonConvolutionDepthwise::onBuildCmd(const std::vector<Tensor*>& in
     mChannel = input->channel();
     mChannelBlock = UP_DIV(mChannel, mPack);
 
-    if (mPadMode == PadMode_SAME) {
+    if (mPadMode == PadMode_SAME || mPadMode == PadMode_SAME_LOWER) {
         int padNeededWidth = (mOutputWidth - 1) * mStrideX + (mKernelX - 1) * mDilateX + 1 - mInputWidth;
         int padNeededHeight = (mOutputHeight - 1) * mStrideY + (mKernelY - 1) * mDilateY + 1 - mInputHeight;
-        mPadX = padNeededWidth > 0 ? padNeededWidth / 2 : 0;
-        mPadY = padNeededHeight > 0 ? padNeededHeight / 2 : 0;
+        padNeededWidth = std::max(0, padNeededWidth);
+        padNeededHeight = std::max(0, padNeededHeight);
+        mPadX = mPadMode == PadMode_SAME_LOWER ? padNeededWidth - padNeededWidth / 2 : padNeededWidth / 2;
+        mPadY = mPadMode == PadMode_SAME_LOWER ? padNeededHeight - padNeededHeight / 2 : padNeededHeight / 2;
     } else if (mPadMode == PadMode_VALID) {
         mPadX = 0;
         mPadY = 0;

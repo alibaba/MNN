@@ -35,6 +35,10 @@ public:
             for (int i = 0; i < info->attr()->size(); ++i) {
                 const auto attr          = info->attr()->GetAs<Attribute>(i);
                 const auto attributeName = attr->key()->str();
+                if (attributeName == "auto_pad" && attr->s()->str() == "SAME_LOWER") {
+                    MNN_ERROR("3D pooling auto_pad SAME_LOWER is not supported\n");
+                    return false;
+                }
                 auto list                = attr->list();
                 if (nullptr == list || nullptr == list->i()) {
                     continue;
@@ -122,8 +126,10 @@ public:
                         auto type = attr->s()->str();
                         if (type == "NOTSET") {
                             poolParam->padType = PoolPadType_CAFFE;
-                        } else if (type == "SAME_UPPER" || type == "SAME_LOWER") {
+                        } else if (type == "SAME_UPPER") {
                             poolParam->padType = PoolPadType_SAME;
+                        } else if (type == "SAME_LOWER") {
+                            poolParam->padType = PoolPadType_SAME_LOWER;
                         } else if (type == "VALID") {
                             poolParam->padType = PoolPadType_VALID;
                         }

@@ -47,6 +47,13 @@ ErrorCode NPUConvolutionDepthwise::onResize(const std::vector<Tensor *> &inputs,
         pads.push_back(static_cast<int64_t>(conv2DCommon->padX()));
         pads.push_back(static_cast<int64_t>(conv2DCommon->padX()));
     }
+    if (conv2DCommon->padMode() == PadMode_SAME_LOWER) {
+        const int padY = std::max(0, (outputs[0]->height() - 1) * conv2DCommon->strideY() +
+                                      (kernelY - 1) * conv2DCommon->dilateY() + 1 - inputs[0]->height());
+        const int padX = std::max(0, (outputs[0]->width() - 1) * conv2DCommon->strideX() +
+                                      (kernelX - 1) * conv2DCommon->dilateX() + 1 - inputs[0]->width());
+        pads = {padY - padY / 2, padY / 2, padX - padX / 2, padX / 2};
+    }
     std::shared_ptr<MNN::ConvolutionCommon::Int8Common> quanCommon;
     if (nullptr != conv2D->quanParameter()) {
         quanCommon = ConvolutionCommon::load(mOp, backend(), true);
@@ -97,6 +104,8 @@ ErrorCode NPUConvolutionDepthwise::onResize(const std::vector<Tensor *> &inputs,
     auto padMode = "VALID"; // NOTSET
     if (PadMode_VALID == conv2DCommon->padMode()) {
         padMode = "VALID";
+    } else if (PadMode_SAME_LOWER == conv2DCommon->padMode()) {
+        padMode = "SPECIFIC";
     } else if (PadMode_SAME == conv2DCommon->padMode()) {
         padMode = "SAME";
     }

@@ -47,6 +47,13 @@ ErrorCode NPUConvolutionInt8::onResize(const std::vector<Tensor *> &inputs, cons
         padMode = "SAME";
         pad = {0,0,0,0};
     }
+    if (conv2DCommon->padMode() == PadMode_SAME_LOWER) {
+        const int padY = std::max(0, (outputs[0]->height() - 1) * conv2DCommon->strideY() +
+                                      (kernelY - 1) * conv2DCommon->dilateY() + 1 - inputs[0]->height());
+        const int padX = std::max(0, (outputs[0]->width() - 1) * conv2DCommon->strideX() +
+                                      (kernelX - 1) * conv2DCommon->dilateX() + 1 - inputs[0]->width());
+        pad = {padY - padY / 2, padY / 2, padX - padX / 2, padX / 2};
+    }
 
     if(outputCount > 10000){
         vector<float> filterData(weightSize, 0);
@@ -91,8 +98,7 @@ ErrorCode NPUConvolutionInt8::onResize(const std::vector<Tensor *> &inputs, cons
             .set_attr_strides(ge::AttrValue::LIST_INT({conv2DCommon->strideY(), conv2DCommon->strideX()}))
             .set_attr_dilations(ge::AttrValue::LIST_INT({conv2DCommon->dilateY(), conv2DCommon->dilateX()}))
             .set_attr_groups(conv2DCommon->group())
-            .set_attr_pads(ge::AttrValue::LIST_INT(
-                {conv2DCommon->padY(), conv2DCommon->padY(), conv2DCommon->padX(), conv2DCommon->padX()})) // 上下左右
+            .set_attr_pads(ge::AttrValue::LIST_INT(pad)) // 上下左右
             .set_attr_pad_mode(padMode);
 
         shared_ptr<hiai::op::Activation> relu_conv(new hiai::op::Activation(opName + "_Relu"));

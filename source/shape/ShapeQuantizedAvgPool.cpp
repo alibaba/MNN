@@ -26,7 +26,7 @@ class QuantizedAvgPoolComputer : public SizeComputer {
 
         auto input = inputs[0];
 
-        if (layer->padType() == PoolPadType_SAME) {                                   // Tensorflow padding mode SAME
+        if (layer->padType() == PoolPadType_SAME || layer->padType() == PoolPadType_SAME_LOWER) { // Tensorflow/ONNX SAME padding mode
             output_width  = ceil((float)input->width() / (float)layer->strideX());  // NHWC for tensorflow
             output_height = ceil((float)input->height() / (float)layer->strideY()); // the default layout is NCHW
         } else if (layer->padType() == PoolPadType_VALID) {                           // Tensorflow padding mode VALID

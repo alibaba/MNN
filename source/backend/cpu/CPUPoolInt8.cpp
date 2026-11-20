@@ -31,9 +31,9 @@ static void poolingAvgNC16HW16Int8(void poolfunc(int8_t*, int8_t*, size_t, size_
     const auto srcPtr = src->host<int8_t>();
     auto dstPtr       = dst->host<int8_t>();
     int pack = 16;
-    int thred0 = UP_DIV(paddingx, stridesx);
+    int thred0 = std::min(outputWidth, UP_DIV(paddingx, stridesx));
     int thred1 = inputWidth + paddingx - kernelx;
-    thred1 = UP_DIV(thred1, stridesx);     // ix + kernelx >= inputWidth;
+    thred1 = std::max(thred0, std::min(outputWidth, UP_DIV(thred1, stridesx))); // ix + kernelx >= inputWidth;
     // int factor = static_cast<int>((1 << 24)/(kernelx * kernely));
 
     const int channel_ = UP_DIV(channel, pack);
@@ -105,9 +105,9 @@ static void poolingMaxNC16HW16Int8(void poolfunc(int8_t*, int8_t*, size_t, size_
     const int channel = dst->channel();
     const int batchsize = src->batch();
     int pack = 16;
-    int thred0 = UP_DIV(paddingx, stridesx);
+    int thred0 = std::min(outputWidth, UP_DIV(paddingx, stridesx));
     int thred1 = inputWidth + paddingx - kernelx;
-    thred1 = UP_DIV(thred1, stridesx);     // ix + kernelx >= inputWidth;
+    thred1 = std::max(thred0, std::min(outputWidth, UP_DIV(thred1, stridesx))); // ix + kernelx >= inputWidth;
 
     const auto srcPtr = src->host<int8_t>();
     auto dstPtr       = dst->host<int8_t>();
@@ -190,8 +190,10 @@ ErrorCode CPUPoolInt8::onResize(const std::vector<Tensor *> &inputs, const std::
     const int outputWidth  = output->width();
     const int outputHeight = output->height();
 
-    kernelWidth  = std::min(kernelWidth, inputWidth);
-    kernelHeight = std::min(kernelHeight, inputHeight);
+    if (padType != PoolPadType_SAME && padType != PoolPadType_SAME_LOWER) {
+        kernelWidth  = std::min(kernelWidth, inputWidth);
+        kernelHeight = std::min(kernelHeight, inputHeight);
+    }
     if (mParameter->isGlobal()) {
         kernelWidth  = inputWidth;
         kernelHeight = inputHeight;
@@ -200,11 +202,17 @@ ErrorCode CPUPoolInt8::onResize(const std::vector<Tensor *> &inputs, const std::
         padWidth     = 0;
         padHeight    = 0;
     }
-    if (padType == PoolPadType_SAME) {
+    if (padType == PoolPadType_SAME || padType == PoolPadType_SAME_LOWER) {
         int padNeededWidth  = (outputWidth - 1) * strideWidth + kernelWidth - inputWidth;
         int padNeededHeight = (outputHeight - 1) * strideHeight + kernelHeight - inputHeight;
-        padWidth            = padNeededWidth > 0 ? padNeededWidth / 2 : 0;
-        padHeight           = padNeededHeight > 0 ? padNeededHeight / 2 : 0;
+        padWidth = padNeededWidth > 0
+                       ? (padType == PoolPadType_SAME_LOWER ? padNeededWidth - padNeededWidth / 2
+                                                           : padNeededWidth / 2)
+                       : 0;
+        padHeight = padNeededHeight > 0
+                        ? (padType == PoolPadType_SAME_LOWER ? padNeededHeight - padNeededHeight / 2
+                                                            : padNeededHeight / 2)
+                        : 0;
     }
     if (!mParameter->isGlobal() && mParameter->pads() != nullptr && padType == PoolPadType_CAFFE) {
         if (mParameter->pads()->size() == 4) {

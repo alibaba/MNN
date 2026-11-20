@@ -7,6 +7,7 @@
 //
 
 #include <float.h>
+#include <tuple>
 #include "core/ConvolutionCommon.hpp"
 #include "CoreMLConvolution.hpp"
 #include "backend/arm82/Arm82OptFunc.hpp"
@@ -145,6 +146,10 @@ static inline std::string padTypeConvert(PadMode padMod) {
         case PadMode_SAME:
             padType = "same";
             break;
+        case PadMode_SAME_LOWER:
+            // Core ML's SAME mode follows SAME_UPPER; use explicit padding.
+            padType = "custom";
+            break;
         case PadMode_VALID:
             padType = "valid";
             break;
@@ -156,6 +161,24 @@ static inline std::string padTypeConvert(PadMode padMod) {
             break;
     }
     return padType;
+}
+
+// Return Core ML's [left, top, right, bottom] explicit padding. SAME_LOWER
+// needs distinct trailing padding when the total padding is odd.
+static inline std::tuple<int, int, int, int> coreMLConvolutionPadding(const Tensor* input, const Tensor* output,
+                                                                       const Convolution2DCommon* common) {
+    if (common->padMode() == PadMode_SAME_LOWER) {
+        return ConvolutionCommon::convolutionPadFull(input, output, common);
+    }
+    auto pad = ConvolutionCommon::convolutionPad(input, output, common);
+    int left = pad.first, top = pad.second, right = left, bottom = top;
+    if (common->padMode() == PadMode_CAFFE && common->pads() && common->pads()->size() == 4) {
+        top = common->pads()->Get(0);
+        left = common->pads()->Get(1);
+        bottom = common->pads()->Get(2);
+        right = common->pads()->Get(3);
+    }
+    return std::make_tuple(left, top, right, bottom);
 }
 
 CoreMLConvolution::CoreMLConvolution(MNN::Backend* b, const MNN::Op* op, const std::vector<Tensor*>& inputs,
@@ -372,12 +395,9 @@ ErrorCode CoreMLConvolution::onResize(const std::vector<Tensor*>& inputs, const 
         auto x = mCoreMLBackend->getTensorName(inputs[0]);
         auto shape = std::vector<int>{batch, outputCount, outputHeight, outputWidth};
         std::vector<std::string> partials;
-        auto pads = ConvolutionCommon::convolutionPad(inputs[0], outputs[0], common);
-        int bottom = pads.second, right = pads.first;
-        if (padMod == PadMode_CAFFE && common->pads() && common->pads()->size() == 4) {
-            bottom = common->pads()->Get(2);
-            right = common->pads()->Get(3);
-        }
+        auto pads = coreMLConvolutionPadding(inputs[0], outputs[0], common);
+        int left = std::get<0>(pads), top = std::get<1>(pads);
+        int right = std::get<2>(pads), bottom = std::get<3>(pads);
         for (int begin = 0; begin < inputCount; begin += block) {
             int count = std::min(block, inputCount - begin);
             std::string tag = std::to_string(begin);
@@ -400,7 +420,7 @@ ErrorCode CoreMLConvolution::onResize(const std::vector<Tensor*>& inputs, const 
                                    .scalar("pad_type", padType, "partial_pad_type_" + tag)
                                    .array<int>("strides", {strideY, strideX}, "partial_strides_" + tag)
                                    .array<int>("dilations", {dilateY, dilateX}, "partial_dilations_" + tag)
-                                   .array<int>("pad", {pads.second, bottom, pads.first, right}, "partial_pad_" + tag)
+                                   .array<int>("pad", {top, bottom, left, right}, "partial_pad_" + tag)
                                    .output(shape, "partial_" + tag));
         }
         int serial = 0;
@@ -427,19 +447,21 @@ ErrorCode CoreMLConvolution::onResize(const std::vector<Tensor*>& inputs, const 
         addOutput(std::move(add), outputs);
         return NO_ERROR;
     }
-    std::pair<int, int> pads;
+    int top, bottom, left, right;
     if (mIsDeconv) {
-        pads = ConvolutionCommon::convolutionTransposePad(inputs[0], outputs[0], common);
+        auto pads = ConvolutionCommon::convolutionTransposePad(inputs[0], outputs[0], common);
+        top = bottom = pads.second;
+        left = right = pads.first;
+        if (padMod == PadMode_CAFFE && common->pads() && common->pads()->size() == 4) {
+            bottom = common->pads()->Get(2);
+            right = common->pads()->Get(3);
+        }
     } else {
-        pads = ConvolutionCommon::convolutionPad(inputs[0], outputs[0], common);
-    }
-    int top = pads.second;
-    int left = pads.first;
-    int bottom = pads.second;
-    int right = pads.first;
-    if (padMod == PadMode_CAFFE && common->pads() && common->pads()->size() == 4) {
-        bottom = common->pads()->Get(2);
-        right = common->pads()->Get(3);
+        auto pads = coreMLConvolutionPadding(inputs[0], outputs[0], common);
+        left = std::get<0>(pads);
+        top = std::get<1>(pads);
+        right = std::get<2>(pads);
+        bottom = std::get<3>(pads);
     }
     auto builder = operation(mIsDeconv ? "conv_transpose" : "conv");
     if (mIsDeconv) {

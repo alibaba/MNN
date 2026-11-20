@@ -84,6 +84,8 @@ std::vector<ITensor *> TRTConvolution::onEncode(const std::vector<ITensor *> &xO
 
     if (conv2DCommon->padMode() == PadMode_SAME) {
         conv_layer->setPaddingMode(nvinfer1::PaddingMode::kSAME_UPPER);
+    } else if (conv2DCommon->padMode() == PadMode_SAME_LOWER) {
+        conv_layer->setPaddingMode(nvinfer1::PaddingMode::kSAME_LOWER);
     }
     if (mOp->name()) {
         conv_layer->setName(mOp->name()->str().c_str());

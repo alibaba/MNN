@@ -53,7 +53,11 @@ __kernel void pooling(GLOBAL_SIZE_3_DIMS __read_only image2d_t input,
     const int kernel_height_end   = min(input_height_start + kernel_shape.x, input_shape.x);
     const int kernel_width_end    = min(input_width_start + kernel_shape.y, input_shape.y);
     #ifdef COUNT_INCLUDE_PADDING
+    #ifdef SAME_PADDING
+    const int block_size = kernel_shape.x * kernel_shape.y;
+    #else
     const int block_size = (min(input_height_start + kernel_shape.x, input_shape.x + pad_shape.x) - input_height_start) * (min(input_width_start + kernel_shape.y, input_shape.y + pad_shape.y) - input_width_start);
+    #endif
     #else
     const int block_size = mul24((kernel_height_end - kernel_height_start), (kernel_width_end - kernel_width_start));
     #endif

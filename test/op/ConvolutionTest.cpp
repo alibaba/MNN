@@ -1025,3 +1025,74 @@ MNNTestSuiteRegister(ConvolutionSpeedTestOnCPU, "speed/convolution/conv2d");
 MNNTestSuiteRegister(SparseConvolutionTestOnCPU, "op/convolution/sparse_conv2d");
 MNNTestSuiteRegister(DepthwiseConvolutionTest, "op/convolution/depthwise_conv");
 MNNTestSuiteRegister(GroupConvolutionTestOnCPU, "op/convolution/conv_group");
+
+class OnnxSameLowerConvolutionTest : public MNNTestCase {
+public:
+    bool run(int precision) override {
+        (void)precision;
+        auto input = _Input({1, 1, 5, 5}, NCHW, halide_type_of<float>());
+        auto inputData = input->writeMap<float>();
+        for (int i = 0; i < 25; ++i) {
+            inputData[i] = static_cast<float>(i);
+        }
+        input->unMap();
+
+        std::unique_ptr<OpT> op(new OpT);
+        op->type = OpType_Convolution;
+        op->main.type = OpParameter_Convolution2D;
+        op->main.value = new Convolution2DT;
+        auto conv = op->main.AsConvolution2D();
+        conv->common.reset(new Convolution2DCommonT);
+        conv->common->padMode = PadMode_SAME_LOWER;
+        conv->common->kernelX = conv->common->kernelY = 2;
+        conv->common->strideX = conv->common->strideY = 2;
+        conv->common->dilateX = conv->common->dilateY = 1;
+        conv->common->group = 1;
+        conv->common->inputCount = conv->common->outputCount = 1;
+        conv->weight = {1.f, 1.f, 1.f, 1.f};
+        conv->bias = {0.f};
+
+        auto output = _Convert(Variable::create(Expr::create(op.get(), {_Convert(input, NC4HW4)})), NCHW);
+        const std::vector<float> expected = {0.f, 3.f, 7.f, 15.f, 36.f, 44.f, 35.f, 76.f, 84.f};
+        auto info = output->getInfo();
+        auto outputData = output->readMap<float>();
+        if (info == nullptr || outputData == nullptr || info->dim != std::vector<int>({1, 1, 3, 3}) ||
+            !checkVectorByRelativeError<float>(outputData, expected.data(), expected.size(), 0.0001f)) {
+            MNN_ERROR("ONNX SAME_LOWER Conv test failed\n");
+            return false;
+        }
+
+        auto smallInput = _Input({1, 1, 3, 3}, NCHW, halide_type_of<float>());
+        auto smallInputData = smallInput->writeMap<float>();
+        for (int i = 0; i < 9; ++i) {
+            smallInputData[i] = static_cast<float>(i + 1);
+        }
+        smallInput->unMap();
+        std::unique_ptr<OpT> smallOp(new OpT);
+        smallOp->type = OpType_Convolution;
+        smallOp->main.type = OpParameter_Convolution2D;
+        smallOp->main.value = new Convolution2DT;
+        auto smallConv = smallOp->main.AsConvolution2D();
+        smallConv->common.reset(new Convolution2DCommonT);
+        smallConv->common->padMode = PadMode_SAME_LOWER;
+        smallConv->common->kernelX = smallConv->common->kernelY = 1;
+        smallConv->common->strideX = smallConv->common->strideY = 4;
+        smallConv->common->dilateX = smallConv->common->dilateY = 1;
+        smallConv->common->group = 1;
+        smallConv->common->inputCount = smallConv->common->outputCount = 1;
+        smallConv->weight = {1.f};
+        smallConv->bias = {0.f};
+        auto smallOutput = _Convert(Variable::create(Expr::create(smallOp.get(), {_Convert(smallInput, NC4HW4)})), NCHW);
+        auto smallInfo = smallOutput->getInfo();
+        auto smallOutputData = smallOutput->readMap<float>();
+        const float smallExpected[] = {1.f};
+        if (smallInfo == nullptr || smallOutputData == nullptr || smallInfo->dim != std::vector<int>({1, 1, 1, 1}) ||
+            !checkVectorByRelativeError<float>(smallOutputData, smallExpected, 1, 0.0001f)) {
+            MNN_ERROR("ONNX SAME_LOWER Conv zero-padding test failed\n");
+            return false;
+        }
+        return true;
+    }
+};
+
+MNNTestSuiteRegister(OnnxSameLowerConvolutionTest, "op/convolution/onnx_same_lower");

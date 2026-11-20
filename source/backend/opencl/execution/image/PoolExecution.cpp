@@ -95,12 +95,12 @@ ErrorCode PoolExecution::onEncode(const std::vector<Tensor *> &inputs, const std
     }
     buildOptions.emplace("-DLOCAL_SIZE=" + std::to_string(local_size));
 
-    if (padType == PoolPadType_SAME) {
+    if (padType == PoolPadType_SAME || padType == PoolPadType_SAME_LOWER) {
         int padNeededHeight = std::max(0, (output->height() - 1) * mStrides[0] + mKernels[0] - input->height());
         int padNeededWidth  = std::max(0, (output->width() - 1) * mStrides[1] + mKernels[1] - input->width());
 
-        mPaddings[0] = padNeededHeight;
-        mPaddings[1] = padNeededWidth;
+        mPaddings[0] = 2 * (padType == PoolPadType_SAME_LOWER ? (padNeededHeight + 1) / 2 : padNeededHeight / 2);
+        mPaddings[1] = 2 * (padType == PoolPadType_SAME_LOWER ? (padNeededWidth + 1) / 2 : padNeededWidth / 2);
     } else if (padType == PoolPadType_VALID) {
         mPaddings[0] = mPaddings[1] = 0;
     }
@@ -126,6 +126,9 @@ ErrorCode PoolExecution::onEncode(const std::vector<Tensor *> &inputs, const std
         buildOptions.emplace("-DPOOL_AVG");
         if(countType == MNN::AvgPoolCountType_INCLUDE_PADDING){
             buildOptions.emplace("-DCOUNT_INCLUDE_PADDING");
+            if (padType == PoolPadType_SAME || padType == PoolPadType_SAME_LOWER) {
+                buildOptions.emplace("-DSAME_PADDING");
+            }
         }
     }
     if(returnRedice){
