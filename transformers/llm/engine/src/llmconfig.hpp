@@ -267,6 +267,11 @@ public:
 
     bool prompt_cache() const { return config_.value("prompt_cache", false); }
 
+    bool prompt_cache_preserve_template() const {
+        // LFM3 retains think delimiters in historical assistant messages.
+        return config_.value("model_type", std::string()).compare(0, 4, "lfm3") == 0;
+    }
+
     int token_compress() const {
         if (!config_.contains("token_compress")) {
             return 0;
@@ -289,6 +294,9 @@ public:
     // generate config end >
 
     // < backend config start
+    std::string delegate() const {
+        return config_.value("delegate", "");
+    }
     std::string backend_type(bool mllm = false) const {
         if (mllm) return mllm_config_.value("backend_type", "cpu");
         return config_.value("backend_type", "cpu");

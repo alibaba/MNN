@@ -12,8 +12,8 @@ public:
     virtual ~HexagonKVCacheManager();
     virtual void onResize(int kv_num_head, int head_dim) override;
     virtual void onClear() override;
-    virtual void onAlloc(KVMeta* meta, int seq_len) override;
-    virtual void onRealloc(KVMeta* meta) override;
+    virtual ErrorCode onAlloc(KVMeta* meta, int seq_len) override;
+    virtual ErrorCode onRealloc(KVMeta* meta) override;
 
     int getK_icP() const { return k_icP; }
     int getK_ocP() const { return k_ocP; }

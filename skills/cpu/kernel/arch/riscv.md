@@ -54,7 +54,7 @@ spacemit_ime2/MNNSpacemitIme2FastPathRegistration.cpp ┘ MNNRvvInitializeFastPa
   必须先把这层改成真正的运行时派发，否则链接期重复定义。
 - 调用点在 `compute/CommonOptFunction.cpp`（float 侧，`#if defined(__riscv) && defined(MNN_USE_RVV)`
   的 `supportRVV` 块内）与 `compute/Int8FunctionsOpt.cpp`（int8 侧，`#ifdef __riscv` + `#ifdef MNN_USE_RVV`
-  双层构建门内）。两处都在**基表上逐字段覆盖**，RISC-V 没有第二张函数表、也没有第二个 Backend。
+  双层构建门内）。两处都在**基表上逐字段覆盖**。`RVVBackend` 复用基表，通过 `onCreate` 选择专用执行器。
 - 推论：**漏覆盖一个字段的后果是退回标量实现——慢但对**，和 x86_64 同类，与 ARM fp16（arm82 有独立表，
   漏字段是 `nullptr` / 崩溃）不同。所以 RISC-V 上出数值错，不要花时间核对函数表，去查 §二 的 pack/ABI
   与 §五 / §八 的门禁。三侧完整对照见 [`../../SKILL.md`](../../SKILL.md)「三侧不同构对照表」。

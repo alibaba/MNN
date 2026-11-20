@@ -226,7 +226,7 @@ public:
     // full conversation (including assistant response). Optional — the cache
     // self-updates after generate(), but this allows callers with post-processed
     // response text (e.g. deleteThinkPart) to provide a more accurate version.
-    void syncPromptCache(const ChatMessages& chat_prompts);
+    virtual void syncPromptCache(const ChatMessages& chat_prompts);
     // config function
     std::string dump_config();
     bool set_config(const std::string& content);
@@ -235,10 +235,11 @@ public:
     // tokenier function
     bool is_stop(int token);
     std::string tokenizer_decode(int token);
-    virtual std::vector<int> tokenizer_encode(const std::string& query);
+    virtual std::vector<int> tokenizer_encode(const std::string& query, bool add_special_tokens = true);
     friend class Pipeline;
-    virtual std::vector<int> tokenizer_encode(const MultimodalPrompt& multimodal_input);
+    virtual std::vector<int> tokenizer_encode(const MultimodalPrompt& multimodal_input, bool add_special_tokens = true);
     // ptompt functions
+    bool has_chat_template() const;
     std::string apply_chat_template(const std::string& user_content) const;
     std::string apply_chat_template(const ChatMessages& chat_prompts) const;
     void response(const MultimodalPrompt& multimodal_input,
@@ -287,6 +288,7 @@ protected:
     int mSeqLenIndex = 0;
     std::shared_ptr<MNN::Express::Executor> mExecutor;
 protected:
+    friend class LlmDelegate;
     friend class ArGeneration;
     friend class LookaheadGeneration;
     friend class MtpGeneration;
@@ -295,6 +297,8 @@ protected:
     friend class Omni;
     std::vector<Express::VARP> forwardVec(const std::vector<int>& input_ids);
     std::vector<Express::VARP> forwardVec(MNN::Express::VARP input_embeds);
+    // Validates the evaluated prefix and drops sampled tokens that have no KV entry.
+    virtual bool preparePromptCache(const std::string& prompt);
     // Readies a text-only re-prefill of input_ids; false when they cannot be embedded from token ids alone.
     virtual bool prepareHistoryReplay(const std::vector<int>& input_ids) {
         return true;

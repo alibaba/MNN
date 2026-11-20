@@ -13,6 +13,7 @@
 #include "sampler.hpp"
 #include <MNN/expr/Expr.hpp>
 #include <MNN/expr/ExprCreator.hpp>
+#include <set>
 
 using namespace MNN::Transformer;
 
@@ -232,6 +233,30 @@ class SamplerMixedNgramFactorTest : public MNNTestCase {
     }
 };
 MNNTestSuiteRegister(SamplerMixedNgramFactorTest, "llm/sampler_mixed_ngram_factor");
+
+// --------------------------------------------------------------------------
+// tfs_z 1.0 keeps every candidate; the cutoff used to keep only the top one of three.
+// --------------------------------------------------------------------------
+class SamplerTfsNoTrimTest : public MNNTestCase {
+    bool run(int /* precision */) override {
+        auto ctx = std::make_shared<LlmContext>();
+        auto cfg = makeConfig(R"({
+            "sampler_type":"mixed",
+            "mixed_samplers":["tfs","temperature"],
+            "tfs_z":1.0,
+            "temperature":1.0
+        })");
+        Sampler s(ctx, cfg);
+        // Probabilities are about 0.37, 0.33 and 0.30, so 200 draws see all three.
+        std::set<int> seen;
+        for (int i = 0; i < 200; i++) {
+            seen.insert(s.sample(makeLogits({1.0f, 0.9f, 0.8f})));
+        }
+        MNNTEST_ASSERT(seen.size() == 3);
+        return true;
+    }
+};
+MNNTestSuiteRegister(SamplerTfsNoTrimTest, "llm/sampler_tfs_no_trim");
 
 // --------------------------------------------------------------------------
 // Llm::set_config between requests: the sampler picks the new values up at the

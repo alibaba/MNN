@@ -229,6 +229,13 @@ static inline void MNNRvvFlashScale(float* data, float scale, int size) {
     }
 }
 
+void MNNIme2MaskedSoftmax(float* row, int valid, int length, float scale) {
+    MNNRvvFlashScale(row, scale, valid);
+    float maximum = MNNRvvFlashMax(row, valid);
+    float sum = MNNRvvFlashSoftmax(row, valid, length, maximum);
+    MNNRvvFlashScale(row, 1.0f / sum, valid);
+}
+
 static inline void MNNRvvFlashPackQ(_Float16* dst, const float* src, int srcStride, int rows, int dim, float scale) {
     for (int row = 0; row < rows; ++row) {
         int offset = 0;

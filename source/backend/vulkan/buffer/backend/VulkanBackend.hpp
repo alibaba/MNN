@@ -63,6 +63,7 @@ public:
     void finish();
     virtual bool onSelectDynamicAllocator(int index, int maxIndex) override;
     virtual void onResizeBegin() override;
+    virtual void onReallocResizeBegin() override;
     virtual ErrorCode onResizeEnd() override;
     virtual void onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const override;
     virtual const Runtime* getRuntime() override {

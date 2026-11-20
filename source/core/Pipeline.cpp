@@ -200,6 +200,8 @@ Pipeline::Pipeline(const std::string& externalFile, Schedule::PipelineInfo&& inf
 
 }
 ErrorCode Pipeline::encode(bool supportDebug, bool permitCodegen) {
+    mSupportDebug = supportDebug;
+    _clearBufferViews();
     auto& mBackend = mInfo.first.cache.first;
     auto& mBackupBackend = mInfo.first.cache.second;
     // Static Model just copy info to command buffer
@@ -953,15 +955,171 @@ ErrorCode Pipeline::fixResizeCache() {
         }
     }
     // Mask End
-    _allocForTensor(1, true);
+    _planBufferViews();
+    auto code = _allocForTensor(1, true);
 
     mInfo.first.cache.first->onSelectDynamicAllocator(0, 2);
-    res && mInfo.first.cache.second->onSelectDynamicAllocator(0, 2);
+    mInfo.first.cache.second->onSelectDynamicAllocator(0, 2);
+    if (code != NO_ERROR) {
+        return code;
+    }
+    // Rebind group-0 tensors on the restored allocator; the realloc pass keeps recorded
+    // GPU commands intact and leaves user-provided inputs untouched.
+    code = _allocForTensor(0, mAllocInput, true);
+    if (code != NO_ERROR) {
+        return code;
+    }
     MNN_PRINT("Fix: %d - Total: %d, rate = %f\n", fixNumber, totalNumber, (float)fixNumber / (float)totalNumber);
 #endif
     return NO_ERROR;
 }
-ErrorCode Pipeline::_allocForTensor(int index, bool allocInput) {
+// The view -> root relation lives on the tensor descriptors, so allocation, refcount and
+// binding all resolve it the same way without a side table.
+static inline Tensor* _storageRoot(Tensor* tensor) {
+    auto root = TensorUtils::getDescribe(tensor)->storageRoot;
+    return root == nullptr ? tensor : root;
+}
+
+// Non-null only for a Raster planned as a zero-copy view; a root resolves to itself.
+static inline Tensor* _viewRoot(const Command& cmd) {
+    if (cmd.op->type() != OpType_Raster || cmd.workOutputs.size() != 1) {
+        return nullptr;
+    }
+    auto output = cmd.workOutputs[0];
+    auto root = TensorUtils::getDescribe(output)->storageRoot;
+    return (root == nullptr || root == output) ? nullptr : root;
+}
+
+void Pipeline::_clearBufferViews() {
+    for (auto& weak : mViewDescriptions) {
+        auto description = weak.lock();
+        if (description) {
+            description->storageRoot = nullptr;
+        }
+    }
+    mViewDescriptions.clear();
+}
+
+void Pipeline::_planBufferViews() {
+    _clearBufferViews();
+    // Debug sessions hand every command's tensors to user callbacks, which may write them.
+    // An aliased output would turn such a write into a corruption of its source.
+    if (mSupportDebug) {
+        return;
+    }
+    bool hasCandidate = false;
+    for (auto& info : mInfo.second) {
+        if (info.type == Schedule::CONSTANT) {
+            continue;
+        }
+        for (auto& cmd : info.executeBuffer.command) {
+            if (cmd->op->type() == OpType_Raster && cmd->workInputs.size() == 1 && cmd->workOutputs.size() == 1 &&
+                TensorUtils::getDescribe(cmd->workOutputs[0])->usage == TensorUsage::NORMAL &&
+                TensorUtils::isFullBufferView(cmd->workInputs[0], cmd->workOutputs[0])) {
+                hasCandidate = true;
+                break;
+            }
+        }
+        if (hasCandidate) {
+            break;
+        }
+    }
+    if (!hasCandidate) {
+        return;
+    }
+    std::map<Tensor*, std::vector<Command*>> consumers;
+    std::map<Tensor*, int> writers;
+    for (auto& info : mInfo.second) {
+        for (auto& cmd : info.executeBuffer.command) {
+            for (auto t : cmd->workInputs) {
+                consumers[t].push_back(cmd.get());
+            }
+            for (auto t : cmd->workOutputs) {
+                ++writers[t];
+            }
+        }
+    }
+    std::set<Tensor*> produced;
+    for (auto& info : mInfo.second) {
+        if (info.type == Schedule::CONSTANT) {
+            continue;
+        }
+        for (auto& cmd : info.executeBuffer.command) {
+            if (cmd->op->type() == OpType_Raster && cmd->workInputs.size() == 1 && cmd->workOutputs.size() == 1) {
+                auto source = cmd->workInputs[0];
+                auto output = cmd->workOutputs[0];
+                auto root = _storageRoot(source);
+                auto src = TensorUtils::getDescribe(root);
+                auto dst = TensorUtils::getDescribe(output);
+                auto backend = cmd->execution->backend();
+                bool borrowed = src->usage == TensorUsage::INPUT || src->usage == TensorUsage::CONSTANT;
+                bool valid = output != root && dst->usage == TensorUsage::NORMAL && writers[output] == 1 &&
+                    (produced.count(root) || borrowed) && writers[root] <= (borrowed ? 0 : 1) &&
+                    dst->memoryType != Tensor::InsideDescribe::MEMORY_HOST &&
+                    dst->memoryType != Tensor::InsideDescribe::MEMORY_OUTSIDE &&
+                    dst->group == cmd->group && (src->group == dst->group || (borrowed && src->group < 0)) &&
+                    TensorUtils::getDescribeOrigin(root)->getBackend() == backend &&
+                    TensorUtils::isFullBufferView(source, output) && backend->onCanShareBuffer(root, output);
+                for (auto consumer : consumers[output]) {
+                    valid = valid && consumer->execution && consumer->execution->backend() == backend &&
+                        consumer->group == cmd->group && consumer->execution->needAllocIO();
+                    for (auto written : consumer->workOutputs) {
+                        valid = valid && written != output && _storageRoot(written) != root;
+                    }
+                }
+                if (valid && !consumers[output].empty()) {
+                    TensorUtils::setLinearLayout(output);
+                    dst->storageRoot = root;
+                    src->storageRoot = root;
+                    mViewDescriptions.emplace_back(TensorUtils::getDescribeOrigin(output)->mContent);
+                    mViewDescriptions.emplace_back(TensorUtils::getDescribeOrigin(root)->mContent);
+                }
+            }
+            if (cmd->execution && cmd->execution->needAllocIO()) {
+                produced.insert(cmd->workOutputs.begin(), cmd->workOutputs.end());
+            }
+        }
+    }
+}
+
+static void _bindBufferView(Tensor* tensor, Tensor* root) {
+    if (tensor == root) {
+        return;
+    }
+    auto dst = TensorUtils::getDescribeOrigin(tensor);
+    auto src = TensorUtils::getDescribeOrigin(root);
+    // A view is a non-owning binding. Only the storage root participates in allocator acquire/release.
+    MNN_ASSERT(dst->mem.get() == nullptr);
+    dst->setBackend(src->getBackend());
+    dst->cpuDynamicNode = src->cpuDynamicNode;
+    dst->offset = src->offset;
+    tensor->buffer().host = root->buffer().host;
+    tensor->buffer().device = root->buffer().device;
+}
+
+static bool _validBufferView(const Command& cmd) {
+    auto root = _viewRoot(cmd);
+    return root != nullptr && TensorUtils::getDescribe(root)->storageRoot == root &&
+        TensorUtils::getDescribeOrigin(cmd.workOutputs[0])->mem.get() == nullptr;
+}
+
+ErrorCode Pipeline::_bindBufferViews() const {
+    for (auto& info : mInfo.second) {
+        for (auto& cmd : info.executeBuffer.command) {
+            auto root = _viewRoot(*cmd);
+            if (root == nullptr) {
+                continue;
+            }
+            if (!_validBufferView(*cmd)) {
+                return INVALID_VALUE;
+            }
+            _bindBufferView(cmd->workOutputs[0], root);
+        }
+    }
+    return NO_ERROR;
+}
+
+ErrorCode Pipeline::_allocForTensor(int index, bool allocInput, bool reallocPass) {
 #ifdef MNN_PIPELINE_DEBUG
     int resizeNumber = 0;
 #endif
@@ -975,7 +1133,7 @@ ErrorCode Pipeline::_allocForTensor(int index, bool allocInput) {
         for (auto& iterP : buffer.command) {
             auto& iter = *iterP;
             for (auto t : iter.workInputs) {
-                auto des = TensorUtils::getDescribe(t);
+                auto des = TensorUtils::getDescribe(_storageRoot(t));
                 if (des->usage != Tensor::InsideDescribe::CONSTANT) {
                     des->useCount = 0;
                 }
@@ -989,8 +1147,11 @@ ErrorCode Pipeline::_allocForTensor(int index, bool allocInput) {
         auto& buffer = info.executeBuffer;
         for (auto& iterP : buffer.command) {
             auto& iter = *iterP;
+            if (_viewRoot(iter) != nullptr) {
+                continue;
+            }
             for (auto t : iter.workInputs) {
-                auto des = TensorUtils::getDescribe(t);
+                auto des = TensorUtils::getDescribe(_storageRoot(t));
                 if (des->usage != Tensor::InsideDescribe::CONSTANT) {
                     des->useCount += 1;
                 }
@@ -1000,8 +1161,14 @@ ErrorCode Pipeline::_allocForTensor(int index, bool allocInput) {
     // Compute RefCount End
     auto& mBackend = mInfo.first.cache.first;
     auto& mBackupBackend = mInfo.first.cache.second;
-    mBackend->onResizeBegin();
-    mBackupBackend->onResizeBegin();
+    if (reallocPass) {
+        mBackend->onReallocResizeBegin();
+        mBackupBackend->onReallocResizeBegin();
+    } else {
+        mBackend->onResizeBegin();
+        mBackupBackend->onResizeBegin();
+    }
+    std::vector<Command*> resizedCommands;
     for (auto& info : mInfo.second) {
         if (info.type == Schedule::CONSTANT) {
             continue;
@@ -1010,6 +1177,19 @@ ErrorCode Pipeline::_allocForTensor(int index, bool allocInput) {
         for (int cmdIndex=0; cmdIndex < buffer.command.size(); ++cmdIndex) {
             auto& iterP = buffer.command[cmdIndex];
             auto& iter = *iterP;
+            auto viewRoot = _viewRoot(iter);
+            if (viewRoot != nullptr) {
+                if (!_validBufferView(iter)) {
+                    return INVALID_VALUE;
+                }
+                auto output = iter.workOutputs[0];
+                _bindBufferView(output, viewRoot);
+                auto mem = TensorUtils::getDescribeOrigin(viewRoot)->mem.get();
+                if (iter.group == index && mem != nullptr) {
+                    mem->chunk().attach(output);
+                }
+                continue;
+            }
 #ifdef MNN_PIPELINE_DEBUG
             auto memory = const_cast<Runtime*>(mRuntime)->onGetMemoryInMB();
             if (nullptr != info.op->name()) {
@@ -1020,12 +1200,16 @@ ErrorCode Pipeline::_allocForTensor(int index, bool allocInput) {
             auto curBackend = iter.execution->backend();
             if (allocInput && iter.execution->needAllocIO()) {
                 for (auto t : iter.workInputs) {
-                    auto allocRes = _allocTensor(t, curBackend, mOutputStatic, index);
+                    auto root = _storageRoot(t);
+                    auto allocRes = _allocTensor(root, curBackend, mOutputStatic, index);
                     if (!allocRes) {
                         MNN_ERROR("Pipeline: _allocTensor failed for input of op type: %d\n", iter.op->type());
                         return OUT_OF_MEMORY;
                     }
                 }
+            }
+            for (auto t : iter.workInputs) {
+                _bindBufferView(t, _storageRoot(t));
             }
             if (iter.execution->needAllocIO()) {
                 for (auto t : iter.workOutputs) {
@@ -1055,10 +1239,11 @@ ErrorCode Pipeline::_allocForTensor(int index, bool allocInput) {
                     }
                     return code;
                 }
+                resizedCommands.push_back(&iter);
             }
             // Free mid tensor
             for (auto t : iter.workInputs) {
-                _releaseTensor(t, allocInput, index);
+                _releaseTensor(_storageRoot(t), allocInput, index);
             }
         }
     }
@@ -1072,17 +1257,6 @@ ErrorCode Pipeline::_allocForTensor(int index, bool allocInput) {
             _recycleDynamicMemory(c.get());
         }
     }
-    std::vector<Command*> resizedCommands;
-    for (auto& info : mInfo.second) {
-        if (info.type == Schedule::CONSTANT) {
-            continue;
-        }
-        for (auto& command : info.executeBuffer.command) {
-            if (command->group == index) {
-                resizedCommands.push_back(command.get());
-            }
-        }
-    }
     auto code = mBackend->onResizeEnd(resizedCommands);
     if (code != NO_ERROR) {
         return code;
@@ -1091,7 +1265,7 @@ ErrorCode Pipeline::_allocForTensor(int index, bool allocInput) {
     MNN_PRINT("Resize %d op for index: %d\n", resizeNumber, index);
 #endif
     code = mBackupBackend->onResizeEnd();
-    return code;
+    return code == NO_ERROR ? _bindBufferViews() : code;
 }
 ErrorCode Pipeline::allocMemory(bool firstMalloc, bool forbidReplace) {
     // MNN_PRINT("allocMemory mtype:%d, cpubackendType:%d, cpuBackend runtime:%p\n", mBackend->type(), mBackupBackend->type(), mBackupBackend->getRuntime());
@@ -1165,6 +1339,7 @@ ErrorCode Pipeline::allocMemory(bool firstMalloc, bool forbidReplace) {
     }
     /* Insert Wrap End*/
 
+    _planBufferViews();
     return _allocForTensor(0, mAllocInput);
 }
 
@@ -1196,6 +1371,13 @@ ErrorCode Pipeline::execute() {
         auto& buffer = info.executeBuffer;
         for (int cmdIndex=0; cmdIndex<buffer.command.size(); ++cmdIndex) {
             auto& cmd = *buffer.command[cmdIndex];
+            if (_viewRoot(cmd) != nullptr) {
+                if (!_validBufferView(cmd)) {
+                    _exitExecute();
+                    return INVALID_VALUE;
+                }
+                continue;
+            }
 #ifdef MNN_PIPELINE_DEBUG
             if (info.op->name() != nullptr) {
                 std::string groupOfInput = "input group: [";
@@ -1237,7 +1419,11 @@ ErrorCode Pipeline::_enterExecute() {
     if (mCpuRuntime->pCurrentStatus != NO_ERROR) {
         return (ErrorCode)mCpuRuntime->pCurrentStatus;
     }
-    return NO_ERROR;
+    auto code = _bindBufferViews();
+    if (code != NO_ERROR) {
+        _exitExecute();
+    }
+    return code;
 }
 void Pipeline::_exitExecute() {
     auto& mBackend = mInfo.first.cache.first;
@@ -1262,6 +1448,14 @@ ErrorCode Pipeline::executeCallBack(const TensorCallBackWithInfo& before, const 
         for (int cmdIndex=0; cmdIndex < buffer.command.size(); ++cmdIndex) {
             auto cmdP = buffer.command[cmdIndex];
             auto& cmd = *cmdP;
+            if (_viewRoot(cmd) != nullptr) {
+                if (!_validBufferView(cmd)) {
+                    _exitExecute();
+                    return INVALID_VALUE;
+                }
+                // Debug sessions never plan views, so no callback can observe one here.
+                continue;
+            }
             if (nullptr == cmd.info.get()) {
                 auto code = cmd.execution->onExecuteWithCallBack(cmd.workInputs, cmd.workOutputs);
                 if (NO_ERROR != code) {
@@ -1290,6 +1484,7 @@ ErrorCode Pipeline::executeCallBack(const TensorCallBackWithInfo& before, const 
 }
 
 Pipeline::~Pipeline() {
+    _clearBufferViews();
     auto& bn = mInfo.first.cache.first;
     auto& backupbn = mInfo.first.cache.second;
     bn->onClearBuffer();

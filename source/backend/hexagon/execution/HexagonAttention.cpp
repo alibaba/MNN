@@ -423,14 +423,23 @@ ErrorCode HexagonAttention::onBuildCmd(const std::vector<Tensor *> &inputs, cons
         if (mMeta->previous == mMeta->remove) {
             mKVCacheManager->onClear();
             mMeta->block = HEXAGON_KV_PAGE_SIZE;
-            mKVCacheManager->onAlloc(mMeta, insert_len);
+            auto kvCode = mKVCacheManager->onAlloc(mMeta, insert_len);
+            if (NO_ERROR != kvCode) {
+                return kvCode;
+            }
         } else {
             mMeta->block = HEXAGON_KV_PAGE_SIZE;
-            mKVCacheManager->onRealloc(mMeta);
+            auto kvCode = mKVCacheManager->onRealloc(mMeta);
+            if (NO_ERROR != kvCode) {
+                return kvCode;
+            }
         }
     } else {
         mKVCacheManager->onClear();
-        mKVCacheManager->onAlloc(nullptr, insert_len);
+        auto kvCode = mKVCacheManager->onAlloc(nullptr, insert_len);
+        if (NO_ERROR != kvCode) {
+            return kvCode;
+        }
     }
     if (!mKVCacheManager->valid()) {
         return OUT_OF_MEMORY;
@@ -570,7 +579,10 @@ ErrorCode HexagonAttention::onExecute(const std::vector<Tensor*>& inputs, const 
     }
     const int seq_current = (int)mMeta->previous - (int)mMeta->remove;
     const int seq_add = (int)mMeta->add;
-    mKVCacheManager->onRealloc(mMeta);
+    auto kvCode = mKVCacheManager->onRealloc(mMeta);
+    if (NO_ERROR != kvCode) {
+        return kvCode;
+    }
     if (!mKVCacheManager->valid()) {
         return OUT_OF_MEMORY;
     }

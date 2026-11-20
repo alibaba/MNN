@@ -721,8 +721,8 @@ struct Vec<float, 4> {
     }
     VecType operator<(const VecType& lr) const {
         __m128i one = _mm_set1_epi32(1);
-        __m128i mask = _mm_cmplt_epi32(_mm_castps_si128(value), _mm_castps_si128(lr.value));
-        VecType dst = { _mm_castsi128_ps(_mm_and_si128(one, mask)) };
+        __m128 mask = _mm_cmplt_ps(value, lr.value);
+        VecType dst = { _mm_castsi128_ps(_mm_and_si128(one, _mm_castps_si128(mask))) };
         return dst;
     }
     VecType operator<=(const VecType& lr) const {

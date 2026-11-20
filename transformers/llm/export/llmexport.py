@@ -403,6 +403,8 @@ class LlmExporter(torch.nn.Module):
                 "ngram_factor": 1.0
             }
             config['tokenizer_file'] = self.exported_tokenizer_file
+            if getattr(self.model, 'speech', None) is not None:
+                config.update(self.model.speech.get_generation_config())
             if self.args.embed_bit < 16:
                 config['embedding_file'] = f"embeddings_int{self.args.embed_bit}.bin"
             if hasattr(self, 'talker') and self.talker is not None:
@@ -780,6 +782,10 @@ class LlmExporter(torch.nn.Module):
         self.export_talker()
         self.export_vision()
         self.export_audio()
+        if self.model.speech is not None:
+            for speech_onnx in self.model.speech.export(self.onnx_path):
+                if self.mnn_converter:
+                    self.mnn_converter.export(speech_onnx, 16)
         self.export_eagle()
         self.export_dflash()
         self.export_language()
@@ -1019,7 +1025,8 @@ def build_args(parser):
     parser.add_argument('--dst_path', type=str, default='./model', help='export onnx/mnn model to path, default is `./model`.')
     parser.add_argument('--verbose', action='store_true', help='Whether or not to print verbose.')
     parser.add_argument('--test', type=str, help='test model inference with query `TEST`.')
-    parser.add_argument('--export', type=str, default=None, help='export model to an onnx/mnn model.')
+    parser.add_argument('--export', type=str, default=None, help='export model to onnx/mnn or package a compiled torq text model.')
+    parser.add_argument('--torq_model_dir', help='compiled A210 graph directory for --export torq; deploy it together with --dst_path')
     parser.add_argument('--onnx_slim', action='store_true', help='Whether or not to use onnx-slim.')
     parser.add_argument('--quant_bit', type=int, default=4, help='mnn weight bit, 2/3/4/8/16 (16 exports FP16 weights; 2 and 3 require ARMV86 i8mm + FP16), default is 4.')
     parser.add_argument('--quant_block', type=int, default=64, help='mnn quant block, 0 mean channel-wise, default is 64.')
@@ -1104,6 +1111,10 @@ def _publish_split_lora(bundle, output, lora, lora_output):
             publishing.rmdir()
 
 def run_export(args, cli=False):
+    if args.export == 'torq':
+        from runpy import run_path
+        exporter = Path(__file__).resolve().parents[1] / "engine" / "delegates" / "torq" / "export.py"
+        return run_path(str(exporter))["export_torq"](args)
     if args.dst_file:
         if args.export != 'mnn' or args.generate_for_npu:
             raise ValueError('--dst_file requires --export mnn without --generate_for_npu')

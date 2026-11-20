@@ -28,7 +28,8 @@ class Tokenizer;
 
 namespace TokenCompression {
 
-std::vector<int> encodePrompt(Tokenizer* tokenizer, const std::string& text, int maxTokens);
+std::vector<int> encodePrompt(Tokenizer* tokenizer, const std::string& text, int maxTokens,
+                              bool add_special_tokens = true);
 std::vector<std::vector<int>> sentenceDelimiters(Tokenizer* tokenizer);
 
 // Private token-only sentence selection. Delimiters are encoded once by the caller.

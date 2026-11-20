@@ -56,6 +56,14 @@ MetalExecution::MetalExecution(Backend *backend) : Execution(backend) {
     // Do nothing
 }
 
+void MetalExecution::invalidateReplay() {
+    mReplayEvents.clear();
+    mReplayKey = 0;
+    mReplayStable = 0;
+    mReplayState = 0;
+    mReplayFailCount = 0;
+}
+
 // FNV-1a over the current device buffer+offset of every input/output tensor:
 // a cheap fingerprint of "this encode would bind the same addresses as last
 // time". Two consecutive identical fingerprints arm the recording pass.

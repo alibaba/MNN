@@ -1,0 +1,21 @@
+option(MNN_LLM_TORQ "Enable Zhihe A210 TORQ text inference" OFF)
+if (NOT MNN_LLM_TORQ)
+    return()
+endif()
+
+find_path(TORQ_INCLUDE tllm/exec.h)
+find_path(UCA_INCLUDE torq_api.h)
+find_library(TORQ_LIBRARY torq_llm)
+if (NOT TORQ_INCLUDE OR NOT UCA_INCLUDE OR NOT TORQ_LIBRARY)
+    message(FATAL_ERROR "MNN_LLM_TORQ requires TORQ_INCLUDE, UCA_INCLUDE and TORQ_LIBRARY from the A210 SDK")
+endif()
+
+target_sources(llm PRIVATE "${CMAKE_CURRENT_LIST_DIR}/TorqDelegate.cpp")
+target_include_directories(llm PRIVATE "${TORQ_INCLUDE}" "${UCA_INCLUDE}")
+set_property(SOURCE "${CMAKE_CURRENT_LIST_DIR}/../LlmDelegate.cpp" APPEND PROPERTY COMPILE_DEFINITIONS MNN_LLM_TORQ)
+if (MNN_SEP_BUILD)
+    # Only libllm calls the SDK. Keep it out of the public link interface.
+    set_property(TARGET llm APPEND PROPERTY LINK_LIBRARIES "${TORQ_LIBRARY}")
+else()
+    list(APPEND MNN_EXTRA_DEPENDS ${TORQ_LIBRARY})
+endif()

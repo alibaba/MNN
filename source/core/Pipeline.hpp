@@ -64,15 +64,20 @@ public:
     }
     typedef std::map<std::pair<Tensor::InsideDescribe::NativeInsideDescribe*, Backend*>, std::pair<std::weak_ptr<Tensor::InsideDescribe::NativeInsideDescribe>, std::shared_ptr<Tensor>>> WrapTensorCache;
 private:
-    ErrorCode _allocForTensor(int index, bool allocInput);
+    ErrorCode _allocForTensor(int index, bool allocInput, bool reallocPass = false);
     ErrorCode _enterExecute();
     void _exitExecute();
     void _copyInputs();
     void _pushTuningTask(std::vector<Schedule::OpCacheInfo>&& initInfos);
     void _recycleDynamicMemory(Command* command);
+    void _planBufferViews();
+    void _clearBufferViews();
+    ErrorCode _bindBufferViews() const;
+    std::vector<std::weak_ptr<Tensor::InsideDescribe::NativeInsideDescribe>> mViewDescriptions;
     Schedule::PipelineInfo mInfo;
     bool mAllocInput;
     bool mOutputStatic;
+    bool mSupportDebug = false;
     TuningAttr mTuneAttr;
     float mFlops = 0.0f;
     bool mIsQuantModel = false;

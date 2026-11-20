@@ -252,7 +252,8 @@ MetalBackend::MetalBackend(const MetalRuntime* runtime, bool usefp16AsFp32, Back
     mRuntime = runtime;
     auto ctx = (__bridge MNNMetalContext *)runtime->context();
     mBufferPool.reset(runtime->createDynamicAllocator(0, false));
-    mExecutionBufferPool.reset(new EagerBufferAllocator(runtime->buffer(0)->root, 1024));
+    // Execution-time frees end real lifetimes, so whole free blocks can be reclaimed here.
+    mExecutionBufferPool.reset(new EagerBufferAllocator(runtime->buffer(0)->root, 1024, 0, true));
     mCurrentAllocator = mBufferPool.get();
     mUseFloatAsFp16 = usefp16AsFp32;
     mMemoryMode = mode;
@@ -563,6 +564,11 @@ void MetalBackend::aliasTensor(const Tensor* tensor, const Tensor* owner, size_t
     _MetalApplyTensor((uint8_t*)owner->buffer().device,
                       TensorUtils::getDescribeOrigin(owner)->offset + byteOffset,
                       const_cast<Tensor*>(tensor));
+}
+
+bool MetalBackend::onCanShareBuffer(const Tensor* source, const Tensor* view) const {
+    return TensorUtils::isBufferLayoutCompatible(source, view, 4) &&
+        getTensorSizeInBytes(source) >= getTensorSizeInBytes(view);
 }
 
 Backend::MemObj* MetalBackend::onAcquire(const Tensor *_tensor, StorageType storageType) {
@@ -1132,12 +1138,18 @@ ErrorCode MetalBackend::applyLinearAttnGateFolds() {
             MNN_ERROR("MetalBackend: incomplete LinearAttention gate fold request\n");
             return NOT_SUPPORT;
         }
-        if (!onAcquireBuffer(req->rawA, Backend::STATIC)) {
+        // An identity-aliased raster output borrows its origin's chunk; re-homing
+        // would sever it from the content the raster never copied.
+        bool rawAAliased = TensorUtils::getDescribe(req->rawA)->storageRoot != nullptr;
+        bool rawBAliased = TensorUtils::getDescribe(req->rawB)->storageRoot != nullptr;
+        if (!rawAAliased && !onAcquireBuffer(req->rawA, Backend::STATIC)) {
             MNN_ERROR("MetalBackend: cannot re-home LinearAttention gate fold input\n");
             return OUT_OF_MEMORY;
         }
-        if (!onAcquireBuffer(req->rawB, Backend::STATIC)) {
-            onReleaseBuffer(req->rawA, Backend::STATIC);
+        if (!rawBAliased && !onAcquireBuffer(req->rawB, Backend::STATIC)) {
+            if (!rawAAliased) {
+                onReleaseBuffer(req->rawA, Backend::STATIC);
+            }
             MNN_ERROR("MetalBackend: cannot re-home LinearAttention beta fold input\n");
             return OUT_OF_MEMORY;
         }

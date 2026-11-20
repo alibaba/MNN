@@ -1,5 +1,8 @@
+import copy
 import torch
-from .transformers import Decoder
+import torch.nn.functional as F
+from .transformers import Decoder, Rotary, Lfm3OfflineBackbone
+from .model_mapper import ModelMapper
 from .spinner import spinner_run
 from .torch_utils import onnx_export, EncoderExport, embedding_scale
 
@@ -43,6 +46,8 @@ class Audio(torch.nn.Module):
 
     @staticmethod
     def get_audio(model_type):
+        if model_type in ('lfm3_audio_encoder', 'lfm3_omni_encoder'):
+            return Lfm3Audio
         audio_models = {
             'qwen2_audio_encoder': Qwen2Audio,
             'qwen3_asr_audio_encoder': Qwen3ASRAudio,
@@ -920,3 +925,74 @@ class Gemma4Audio(Audio):
                     output_names=['audio_embeds'],
                     dynamic_axes={"input_features": {1: "seq_len"}})
         return onnx_model
+
+
+class Lfm3Audio(Lfm2Audio):
+    processor_family = 'lfm3_audio'
+
+    def __init__(self, audio, base):
+        Audio.__init__(self, audio, base)
+        self.projector = base.audio_projector.float()
+        object.__setattr__(self, '_visual_ref', base.visual)
+        self.audio_embeds = None
+        self.quant_bit = 8
+
+    def load(self):
+        self.audio = self.audio.float()
+        self.downsample = self.audio.downsample
+        self.backbone = Lfm3OfflineBackbone(self.audio.lfm, window=self.audio.config.sliding_window)
+        self.audio_pad_id = self.config.audio_token_id
+        self.sampling_rate, self.feature_size = 16000, self.audio.config.num_mel_bins
+        self.n_fft, self.hop_length = 400, 160
+        self.llm_config.update(audio_type='lfm3_audio', audio_pad=self.audio_pad_id)
+        self.audio_start_token = '<|vision_start|>' if self.model_type == 'lfm3_omni' else ''
+        self.audio_end_token = '<|vision_end|>' if self.model_type == 'lfm3_omni' else ''
+        if self.audio_start_token:
+            self.llm_config.update(
+                audio_start=self.tokenizer.convert_tokens_to_ids(self.audio_start_token),
+                audio_end=self.tokenizer.convert_tokens_to_ids(self.audio_end_token))
+        from transformers.audio_utils import mel_filter_bank
+        filters = mel_filter_bank(self.n_fft // 2 + 1, self.feature_size, 0, 8000,
+                                  self.sampling_rate, norm='slaney', mel_scale='slaney')
+        self.register_buffer('mel_filters', torch.from_numpy(filters).float(), persistent=False)
+
+    def forward(self, features):
+        hidden_states = self.downsample(features).transpose(1, 2)
+        return self.projector(self.backbone(hidden_states)).transpose(0, 1)
+
+    def features(self, waveform):
+        waveform = torch.as_tensor(waveform, dtype=torch.float32)
+        length = waveform.shape[-1]
+        frames = max(0, (length - self.n_fft + self.hop_length - 1) // self.hop_length) + 1
+        waveform = F.pad(waveform, (0, self.n_fft + (frames - 1) * self.hop_length - length))
+        spectrum = torch.stft(waveform, self.n_fft, self.hop_length,
+                              window=torch.hann_window(self.n_fft), center=False, return_complex=True)
+        mel = self.mel_filters.T @ spectrum.abs().square()
+        return ((mel.clamp_min(1e-12).log10() + 4.0) / 4.0).unsqueeze(0)
+
+    def audio_process(self, waveform):
+        self.audio_embeds = self(self.features(waveform))
+        return self.audio_embeds.shape[0]
+
+    def str_to_ids(self, prompt):
+        import re
+        import librosa
+        embeddings = []
+        def replace(match):
+            waveform, _ = librosa.load(match.group(1), sr=self.sampling_rate)
+            count = self.audio_process(waveform)
+            embeddings.append(self.audio_embeds)
+            return self.audio_start_token + '<|audio|>' * count + self.audio_end_token
+        prompt = re.sub(r'<audio>(.*?)</audio>', replace, prompt)
+        self.audio_embeds = torch.cat(embeddings, dim=0) if embeddings else None
+        if self._visual_ref is not None:
+            return self._visual_ref.str_to_ids(prompt)
+        return self.tokenizer(prompt, add_special_tokens=False, return_tensors='pt')['input_ids']
+
+    def export(self, onnx_path):
+        path = f'{onnx_path}/audio.onnx'
+        wrapper = EncoderExport(self, self.embedding_scale, output_axes=None)
+        onnx_export(wrapper, (torch.randn(1, self.feature_size, 160),), path,
+                    ['input_features'], ['audio_embeds'],
+                    {'input_features': {2: 'frames'}, 'audio_embeds': {0: 'tokens'}})
+        return path

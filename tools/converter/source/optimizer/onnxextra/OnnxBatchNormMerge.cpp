@@ -28,7 +28,7 @@ class OnnxBatchNormTransform : public OnnxExtraManager::Transform {
         MNN_THROW_CHECK(inputs.size() == 5, "BatchNorm should have 5 inputs");
 
         int channels  = 1;
-        float epsilon = 1e-10;
+        float epsilon = 1e-5f;
 
         auto bnOp       = expr->get();
         auto extraParam = bnOp->main_as_Extra();
@@ -137,7 +137,7 @@ class OnnxInstanceNormalTransform : public OnnxExtraManager::Transform {
         auto input = inputs[0];
 
         int channels  = 1;
-        float epsilon = 1e-10;
+        float epsilon = 1e-5f;
 
         auto bnOp       = expr->get();
         auto extraParam = bnOp->main_as_Extra();

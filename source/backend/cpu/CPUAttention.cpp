@@ -435,18 +435,22 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
     int insertLen = seqLen;
 
     if (!mIsKVShared) {
+        ErrorCode kvCode = NO_ERROR;
         if (mKVCache && mMeta != nullptr) {
             if (mMeta->previous == mMeta->remove) {
                 mKVCacheManager->onClear();
-                mKVCacheManager->onAlloc(mMeta, seqLen);
+                kvCode = mKVCacheManager->onAlloc(mMeta, seqLen);
             } else {
                 MNN_ASSERT(mMeta->previous == mKVCacheManager->kvLength());
-                mKVCacheManager->onRealloc(mMeta);
+                kvCode = mKVCacheManager->onRealloc(mMeta);
             }
             insertLen = (int)mMeta->add;
         } else {
             mKVCacheManager->onClear();
-            mKVCacheManager->onAlloc(mMeta, seqLen);
+            kvCode = mKVCacheManager->onAlloc(mMeta, seqLen);
+        }
+        if (NO_ERROR != kvCode) {
+            return kvCode;
         }
         // Add the new kv to the kvcache
         mKVCacheManager->onUpdateKV(key, value, (int)insertLen);

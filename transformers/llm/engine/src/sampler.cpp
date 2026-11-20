@@ -611,6 +611,10 @@ void Sampler::stepMinP(SamplerState& state) {
 
 void Sampler::stepTfs(SamplerState& state) {
     float z = mConfig.tfsZ;
+    // z >= 1 means no trimming; the cutoff loop below would still drop the token that completes the sum.
+    if (z >= 1.0f) {
+        return;
+    }
     state.ensureProbs(mConfig.temperature);
     int size = (int)state.probs.size();
     if (size < 3) return;

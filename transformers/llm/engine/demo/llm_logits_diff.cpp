@@ -84,7 +84,7 @@ int main(int argc, const char* argv[]) {
         userContent.pop_back();
     }
     auto prompt = llmA->apply_chat_template(userContent);
-    auto ids = llmA->tokenizer_encode(prompt);
+    auto ids = llmA->tokenizer_encode(prompt, !llmA->has_chat_template());
     printf("prompt tokens: %d, max new tokens: %d\n", (int)ids.size(), maxTokens);
 
     llmA->generate_init(nullptr, "\n");

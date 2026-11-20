@@ -124,16 +124,18 @@ void HexagonKVCacheManager::onClear() {
     mValid = true;
 }
 
-void HexagonKVCacheManager::onAlloc(KVMeta* meta, int seq_len) {
+ErrorCode HexagonKVCacheManager::onAlloc(KVMeta* meta, int seq_len) {
     mMeta = meta;
     mPastLength = 0;
     const int required = seq_len > 0 ? seq_len : 1;
-    if (resizePageCount(std::max(1, roundUpDiv(required, mPageSize)))) {
-        mPastLength = seq_len;
+    if (!resizePageCount(std::max(1, roundUpDiv(required, mPageSize)))) {
+        return OUT_OF_MEMORY;
     }
+    mPastLength = seq_len;
+    return NO_ERROR;
 }
 
-void HexagonKVCacheManager::onRealloc(KVMeta* meta) {
+ErrorCode HexagonKVCacheManager::onRealloc(KVMeta* meta) {
     mMeta = meta;
     int start = 0;
     int add = 0;
@@ -148,9 +150,11 @@ void HexagonKVCacheManager::onRealloc(KVMeta* meta) {
     if (required <= 0) {
         required = 1;
     }
-    if (resizePageCount(std::max(1, roundUpDiv(required, mPageSize)))) {
-        mPastLength = start + add;
+    if (!resizePageCount(std::max(1, roundUpDiv(required, mPageSize)))) {
+        return OUT_OF_MEMORY;
     }
+    mPastLength = start + add;
+    return NO_ERROR;
 }
 
 }

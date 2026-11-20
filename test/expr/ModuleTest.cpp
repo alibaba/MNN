@@ -13,6 +13,8 @@
 #include "TestUtils.h"
 #include "core/Backend.hpp"
 #include "RuntimeAttr.hpp"
+#include "module/StaticModule.hpp"
+#include "core/Session.hpp"
 #include <MNN/expr/Executor.hpp>
 #define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
@@ -1127,8 +1129,88 @@ public:
 MNNTestSuiteRegister(MutlThreadConstReplaceTest, "expr/MutlThreadConstReplaceTest");
 
 class ResizeOptimizationTest : public MNNTestCase {
+    bool testRasterOutput(int precision, bool attention = false) {
+        auto x = _Input({1, 1, 64}, NCHW, halide_type_of<float>());
+        x->setName("x");
+        auto y = _Reshape(x + x, {-1, 64});
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+        if (attention) {
+            auto qk = _Const(0.0f, {1, 1, 1, 64}, NCHW);
+            auto mask = _Const(0.0f, {1, 1, 1, 1}, NCHW);
+            auto value = _Reshape(y, {1, 1, 1, 64});
+            OpT op;
+            op.type = OpType_Attention;
+            op.main.type = OpParameter_AttentionParam;
+            op.main.value = new AttentionParamT;
+            op.main.AsAttentionParam()->kv_cache = false;
+            y = Variable::create(Expr::create(&op, {qk, qk, value, mask}));
+        }
+#endif
+        y->setName("y");
+        auto buffer = Variable::save({y});
+        BackendConfig backend;
+        backend.precision = static_cast<BackendConfig::PrecisionMode>(precision);
+        ScheduleConfig schedule;
+        schedule.type = getCurrentType();
+        schedule.backupType = schedule.type;
+        schedule.numThread = 1;
+        schedule.backendConfig = &backend;
+        std::shared_ptr<Executor::RuntimeManager> runtime(Executor::RuntimeManager::createRuntimeManager(schedule),
+                                                        Executor::RuntimeManager::destroy);
+        Module::Config config;
+        config.shapeMutable = true;
+        std::shared_ptr<Module> model(Module::load({"x"}, {"y"}, reinterpret_cast<const uint8_t*>(buffer.data()),
+                                                 buffer.size(), runtime, &config), Module::destroy);
+        if (!model) {
+            return false;
+        }
+        model->traceOrOptimize(Interpreter::Session_Resize_Check);
+        // Cover retained Raster outputs and mutable Attention inputs across a memory-plan replacement.
+        for (int phase = 0; phase < 2; ++phase) {
+            const int tokens = 1;
+            for (int repeat = 0; repeat < 2; ++repeat) {
+                auto input = _Input({1, tokens, 64}, NCHW, halide_type_of<float>());
+                auto data = input->writeMap<float>();
+                for (int i = 0; i < tokens * 64; ++i) {
+                    data[i] = (i % 31 - 15 + phase + repeat) * 0.125f;
+                }
+                input->unMap();
+                auto outputs = model->onForward({input});
+                if (outputs.size() != 1) {
+                    return false;
+                }
+                auto info = outputs[0]->getInfo();
+                auto actual = outputs[0]->readMap<float>();
+                auto expectedShape = attention ? std::vector<int>{1, 1, 64} : std::vector<int>{tokens, 64};
+                if (!info || !actual || info->dim != expectedShape) {
+                    MNN_ERROR("Raster output resize: invalid output, attention=%d phase=%d\n", attention, phase);
+                    return false;
+                }
+                for (int i = 0; i < tokens * 64; ++i) {
+                    const float expected = (i % 31 - 15 + phase + repeat) * 0.25f;
+                    if (!std::isfinite(actual[i]) || actual[i] != expected) {
+                        MNN_ERROR("Raster output resize: backend=%d phase=%d tokens=%d index=%d got=%f expected=%f\n",
+                                  schedule.type, phase, tokens, i, actual[i], expected);
+                        return false;
+                    }
+                }
+            }
+            if (phase == 0) {
+                model->traceOrOptimize(Interpreter::Session_Resize_Fix);
+            }
+        }
+        return true;
+    }
 public:
     virtual bool run(int precision) {
+        if (!testRasterOutput(precision)) {
+            return false;
+        }
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+        if (!testRasterOutput(precision, true)) {
+            return false;
+        }
+#endif
         std::vector<int8_t> buffer;
         {
             // Make Buffer
@@ -1225,6 +1307,577 @@ public:
     }
 };
 MNNTestSuiteRegister(ResizeOptimizationTest, "expr/ResizeOptimizationTest");
+
+class PlannedBufferViewTest : public MNNTestCase {
+    static Tensor* viewRoot(const Command* cmd) {
+        if (cmd->op->type() != OpType_Raster || cmd->workOutputs.size() != 1) {
+            return nullptr;
+        }
+        auto output = cmd->workOutputs[0];
+        auto root = TensorUtils::getDescribe(output)->storageRoot;
+        return (root == nullptr || root == output) ? nullptr : root;
+    }
+
+    Command* firstView(const Module* module, const Session** owner = nullptr) const {
+        if (module->type() == "StaticModule") {
+            auto session = static_cast<const StaticModule*>(module)->getSession();
+            for (auto& info : session->getPipelineInfo(0).second) {
+                for (auto& command : info.executeBuffer.command) {
+                    if (viewRoot(command.get()) != nullptr) {
+                        if (owner) {
+                            *owner = session;
+                        }
+                        return command.get();
+                    }
+                }
+            }
+        }
+        for (const auto& child : module->getChildren()) {
+            auto command = firstView(child.get(), owner);
+            if (command) {
+                return command;
+            }
+        }
+        return nullptr;
+    }
+
+    Backend* firstBackend(const Module* module) const {
+        if (module->type() == "StaticModule") {
+            auto session = static_cast<const StaticModule*>(module)->getSession();
+            for (auto& info : session->getPipelineInfo(0).second) {
+                for (auto& cmd : info.executeBuffer.command) {
+                    if (cmd->execution) {
+                        return cmd->execution->backend();
+                    }
+                }
+            }
+        }
+        for (const auto& child : module->getChildren()) {
+            auto backend = firstBackend(child.get());
+            if (backend) {
+                return backend;
+            }
+        }
+        return nullptr;
+    }
+
+    Command* outputRaster(const Module* module, const Session** owner = nullptr) const {
+        if (module->type() == "StaticModule") {
+            auto session = static_cast<const StaticModule*>(module)->getSession();
+            for (auto& info : session->getPipelineInfo(0).second) {
+                for (auto& command : info.executeBuffer.command) {
+                    if (command->op->type() == OpType_Raster && command->workOutputs.size() == 1 &&
+                        TensorUtils::getDescribe(command->workOutputs[0])->usage == TensorUsage::OUTPUT) {
+                        if (owner) {
+                            *owner = session;
+                        }
+                        return command.get();
+                    }
+                }
+            }
+        }
+        for (auto& child : module->getChildren()) {
+            auto command = outputRaster(child.get(), owner);
+            if (command) {
+                return command;
+            }
+        }
+        return nullptr;
+    }
+
+    class ViewExecutionGuard : public Execution {
+    public:
+        explicit ViewExecutionGuard(Command* command)
+            : Execution(command->execution->backend()), mCommand(command), mExecution(command->execution) {}
+        ErrorCode onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override {
+            if (viewRoot(mCommand) != nullptr) {
+                MNN_ERROR("A planned view called Raster::onResize\n");
+                return NOT_SUPPORT;
+            }
+            return mExecution->onResize(inputs, outputs);
+        }
+        ErrorCode onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override {
+            if (viewRoot(mCommand) != nullptr) {
+                MNN_ERROR("A planned view called Raster::onExecute\n");
+                return NOT_SUPPORT;
+            }
+            return mExecution->onExecute(inputs, outputs);
+        }
+    private:
+        Command* mCommand;
+        std::shared_ptr<Execution> mExecution;
+    };
+
+    bool inspect(const Module* module, int& views, bool guard = false) {
+        if (module->type() == "StaticModule") {
+            auto session = static_cast<const StaticModule*>(module)->getSession();
+            for (auto& info : session->getPipelineInfo(0).second) {
+                for (auto& cmd : info.executeBuffer.command) {
+                    if (viewRoot(cmd.get()) != nullptr &&
+                        TensorUtils::getDescribe(cmd->workOutputs[0])->usage == TensorUsage::OUTPUT) {
+                        MNN_ERROR("A graph output escaped as a non-owning view\n");
+                        return false;
+                    }
+                    if (viewRoot(cmd.get()) == nullptr) {
+                        continue;
+                    }
+                    ++views;
+                    auto input = cmd->workInputs[0];
+                    auto output = cmd->workOutputs[0];
+                    auto src = TensorUtils::getDescribeOrigin(input);
+                    auto dst = TensorUtils::getDescribeOrigin(output);
+                    if (dst->mem.get() != nullptr || input->buffer().host != output->buffer().host ||
+                        input->deviceId() != output->deviceId() || src->offset != dst->offset ||
+                        TensorUtils::getDescribe(output)->storageRoot == nullptr ||
+                        TensorUtils::getDescribe(output)->usage != TensorUsage::NORMAL) {
+                        MNN_ERROR("Invalid Pipeline buffer view binding\n");
+                        return false;
+                    }
+                    auto actualBackend = cmd->execution->backend()->type();
+                    if (actualBackend != getCurrentType() &&
+                        !(getCurrentType() == MNN_FORWARD_CPU && actualBackend == MNN_FORWARD_CPU_EXTENSION)) {
+                        MNN_ERROR("Planned view used an unexpected backend\n");
+                        return false;
+                    }
+                    if (guard) {
+                        cmd->execution.reset(new ViewExecutionGuard(cmd.get()));
+                    }
+                }
+            }
+        }
+        for (auto& child : module->getChildren()) {
+            if (!inspect(child.get(), views, guard)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool runModel(int precision, bool borrowed, int allocator, bool fixed) {
+        auto x = _Input({1, 7}, NCHW, halide_type_of<float>());
+        x->setName("x");
+        auto a = borrowed ? x : x + x;
+        auto b = _Reshape(a, {-1});
+        auto doubled = b + b;
+        auto y = a + _Reshape(doubled, {1, -1});
+        auto z = a * a;
+        y->setName("y");
+        z->setName("z");
+        auto buffer = Variable::save({y, z});
+        BackendConfig backend;
+        backend.precision = static_cast<BackendConfig::PrecisionMode>(precision);
+        ScheduleConfig schedule;
+        schedule.type = getCurrentType();
+        schedule.backupType = schedule.type;
+        schedule.numThread = MNNTestSuite::get()->pStaus.thread > 0 ? MNNTestSuite::get()->pStaus.thread : 1;
+        schedule.backendConfig = &backend;
+        std::shared_ptr<Executor::RuntimeManager> runtime(Executor::RuntimeManager::createRuntimeManager(schedule),
+                                                        Executor::RuntimeManager::destroy);
+        runtime->setHint(Interpreter::MEM_ALLOCATOR_TYPE, allocator);
+        Module::Config config;
+        config.shapeMutable = true;
+        std::shared_ptr<Module> model(Module::load({"x"}, {"y", "z"},
+                                                 reinterpret_cast<const uint8_t*>(buffer.data()), buffer.size(),
+                                                 runtime, &config), Module::destroy);
+        if (!model) {
+            return false;
+        }
+        model->traceOrOptimize(Interpreter::Session_Resize_Check);
+        for (int round = 0; round < 6; ++round) {
+            const int shapes[] = {7, 1, 33, 7, 17, 7};
+            int size = fixed ? 7 : shapes[round];
+            auto input = _Input({1, size}, NCHW, halide_type_of<float>());
+            auto data = input->writeMap<float>();
+            for (int i = 0; i < size; ++i) {
+                data[i] = (i % 7 + round - 4) * 0.125f;
+            }
+            input->unMap();
+            auto outputs = model->onForward({input});
+            if (outputs.size() != 2) {
+                return false;
+            }
+            for (int n = 0; n < 2; ++n) {
+                auto info = outputs[n]->getInfo();
+                auto actual = outputs[n]->readMap<float>();
+                if (!info || !actual || info->dim != std::vector<int>({1, size})) {
+                    return false;
+                }
+                for (int i = 0; i < size; ++i) {
+                    float value = (i % 7 + round - 4) * 0.125f * (borrowed ? 1.0f : 2.0f);
+                    float expected = n == 0 ? 3.0f * value : value * value;
+                    if (!std::isfinite(actual[i]) || fabsf(actual[i] - expected) > 0.002f) {
+                        MNN_ERROR("Planned view mismatch: borrowed=%d allocator=%d fixed=%d round=%d "
+                                  "output=%d i=%d got=%f expected=%f\n",
+                                  borrowed, allocator, fixed, round, n, i, actual[i], expected);
+                        return false;
+                    }
+                }
+            }
+            int views = 0;
+            if (!inspect(model.get(), views, round == 0)) {
+                return false;
+            }
+            if ((getCurrentType() == MNN_FORWARD_CPU || getCurrentType() == MNN_FORWARD_METAL) && views == 0) {
+                MNN_ERROR("No Pipeline buffer view was planned\n");
+                return false;
+            }
+            if (round == 0 && views > 0) {
+                const Session* session = nullptr;
+                auto command = firstView(model.get(), &session);
+                auto rootDes = TensorUtils::getDescribe(viewRoot(command));
+                auto self = rootDes->storageRoot;
+                // Break the root's self-reference: the view still resolves, but the group is inconsistent.
+                rootDes->storageRoot = nullptr;
+                auto callback = [](const std::vector<Tensor*>&, const OperatorInfo*) { return true; };
+                // Re-entering Module::onForward can rebuild the plan and repair the injected relation.
+                auto invalid = session->run();
+                auto invalidCallback = session->runWithCallBack(callback, callback);
+                rootDes->storageRoot = self;
+                if (invalid != INVALID_VALUE || invalidCallback != INVALID_VALUE || session->run() != NO_ERROR) {
+                    MNN_ERROR("Invalid view relation was not rejected or recovery failed\n");
+                    return false;
+                }
+            }
+            if (fixed && round == 0) {
+                model->traceOrOptimize(Interpreter::Session_Resize_Fix);
+            }
+        }
+        return true;
+    }
+
+    bool testMapping() {
+        std::unique_ptr<Tensor> source(Tensor::createDevice<float>({1, 8}));
+        std::unique_ptr<Tensor> view(Tensor::createDevice<float>({8}));
+        TensorUtils::getDescribe(source.get())->dimensionFormat = MNN_DATA_FORMAT_NCHW;
+        TensorUtils::getDescribe(view.get())->dimensionFormat = MNN_DATA_FORMAT_NCHW;
+        TensorUtils::makeFullRef(view.get(), source.get());
+        auto& region = TensorUtils::getDescribe(view.get())->regions[0];
+        if (!TensorUtils::isFullBufferView(source.get(), view.get())) {
+            return false;
+        }
+        region.src.stride[2] = 2;
+        region.dst.stride[2] = 2;
+        if (TensorUtils::isFullBufferView(source.get(), view.get())) {
+            return false;
+        }
+        region.src.stride[2] = region.dst.stride[2] = 1;
+        region.src.offset = 1;
+        if (TensorUtils::isFullBufferView(source.get(), view.get())) {
+            return false;
+        }
+        region.src.offset = 0;
+        TensorUtils::getDescribe(view.get())->regions.push_back(region);
+        if (TensorUtils::isFullBufferView(source.get(), view.get())) {
+            return false;
+        }
+        TensorUtils::getDescribe(view.get())->regions.resize(1);
+        TensorUtils::getDescribe(source.get())->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
+        TensorUtils::getDescribe(view.get())->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
+        return TensorUtils::isFullBufferView(source.get(), view.get()) &&
+            !TensorUtils::isBufferLayoutCompatible(source.get(), view.get(), 4) &&
+            !TensorUtils::isBufferLayoutCompatible(source.get(), view.get(), 0);
+    }
+
+    int layoutViews(const Module* module) const {
+        int count = 0;
+        if (module->type() == "StaticModule") {
+            auto session = static_cast<const StaticModule*>(module)->getSession();
+            for (const auto& info : session->getPipelineInfo(0).second) {
+                for (const auto& cmd : info.executeBuffer.command) {
+                    if (viewRoot(cmd.get()) != nullptr &&
+                        TensorUtils::getDescribe(cmd->workInputs[0])->dimensionFormat !=
+                            TensorUtils::getDescribe(cmd->workOutputs[0])->dimensionFormat) {
+                        ++count;
+                    }
+                }
+            }
+        }
+        for (const auto& child : module->getChildren()) {
+            count += layoutViews(child.get());
+        }
+        return count;
+    }
+
+    bool testLayoutView(int precision, bool fixed) {
+        auto x = _Input({1, 64, 1, 1}, NCHW, halide_type_of<float>());
+        x->setName("x");
+        auto packed = _Square(_Convert(x + x, NC4HW4));
+        auto plain = _Convert(packed, NCHW);
+        auto y = _Reshape(plain + plain, {-1});
+        y->setName("y");
+        auto buffer = Variable::save({y});
+        BackendConfig backend;
+        backend.precision = static_cast<BackendConfig::PrecisionMode>(precision);
+        ScheduleConfig schedule;
+        schedule.type = getCurrentType();
+        schedule.backupType = schedule.type;
+        schedule.backendConfig = &backend;
+        schedule.numThread = MNNTestSuite::get()->pStaus.thread > 0 ? MNNTestSuite::get()->pStaus.thread : 1;
+        std::shared_ptr<Executor::RuntimeManager> runtime(Executor::RuntimeManager::createRuntimeManager(schedule),
+                                                        Executor::RuntimeManager::destroy);
+        Module::Config config;
+        config.shapeMutable = true;
+        std::shared_ptr<Module> model(Module::load({"x"}, {"y"}, reinterpret_cast<const uint8_t*>(buffer.data()),
+                                                 buffer.size(), runtime, &config), Module::destroy);
+        if (!model) {
+            return false;
+        }
+        model->traceOrOptimize(Interpreter::Session_Resize_Check);
+        const int batches[] = {1, 2, 1, 1};
+        const int channels[] = {64, 64, 15, 64};
+        for (int round = 0; round < 4; ++round) {
+            int batch = fixed ? 1 : batches[round];
+            int channel = fixed ? 64 : channels[round];
+            auto input = _Input({batch, channel, 1, 1}, NCHW, halide_type_of<float>());
+            auto ptr = input->writeMap<float>();
+            for (int i = 0; i < batch * channel; ++i) {
+                ptr[i] = (i % 7 + round - 3) * 0.125f;
+            }
+            input->unMap();
+            auto outputs = model->onForward({input});
+            if (outputs.size() != 1 || !outputs[0]->getInfo() ||
+                outputs[0]->getInfo()->size != batch * channel) {
+                return false;
+            }
+            auto actual = outputs[0]->readMap<float>();
+            if (!actual) {
+                return false;
+            }
+            for (int i = 0; i < batch * channel; ++i) {
+                float value = (i % 7 + round - 3) * 0.125f;
+                if (!std::isfinite(actual[i]) || actual[i] != value * value * 8.0f) {
+                    MNN_ERROR("Layout view mismatch: batch=%d channels=%d index=%d\n", batch, channel, i);
+                    return false;
+                }
+            }
+            int views = 0;
+            std::unique_ptr<Tensor> c4(Tensor::createDevice<float>({1, 64, 1, 1}));
+            std::unique_ptr<Tensor> nchw(Tensor::createDevice<float>({1, 64}));
+            std::unique_ptr<Tensor> same(Tensor::createDevice<float>({1, 64, 1, 1}));
+            TensorUtils::getDescribe(c4.get())->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
+            TensorUtils::getDescribe(same.get())->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
+            TensorUtils::getDescribe(nchw.get())->dimensionFormat = MNN_DATA_FORMAT_NCHW;
+            // OpenCL aliases this layout only in buffer mode, and auto mode resolves per GPU
+            // vendor, so ask the backend instead of hard-coding the mode here.
+            bool shareable = getCurrentType() == MNN_FORWARD_METAL;
+            if (getCurrentType() == MNN_FORWARD_OPENCL) {
+                auto bn = firstBackend(model.get());
+                shareable = bn != nullptr && bn->onCanShareBuffer(c4.get(), nchw.get());
+            }
+            bool expected = shareable && batch == 1 && channel == 64;
+            if (!inspect(model.get(), views) || (layoutViews(model.get()) > 0) != expected) {
+                MNN_ERROR("Unexpected layout view/fallback selection\n");
+                return false;
+            }
+            if (expected && round == 0) {
+                auto bn = firstView(model.get())->execution->backend();
+                if (!bn->onCanShareBuffer(c4.get(), nchw.get()) || bn->onCanShareBuffer(nchw.get(), c4.get()) ||
+                    !bn->onCanShareBuffer(c4.get(), same.get())) {
+                    MNN_ERROR("Layout view capacity check failed\n");
+                    return false;
+                }
+            }
+            if (fixed && round == 0) {
+                model->traceOrOptimize(Interpreter::Session_Resize_Fix);
+            }
+        }
+        return true;
+    }
+
+    bool testOutputBoundary(int precision, bool callbacks) {
+        auto x = _Input({1, 7}, NCHW, halide_type_of<float>());
+        x->setName("x");
+        auto y = _Reshape(x + x, {-1});
+        y->setName("y");
+        auto buffer = Variable::save({y});
+        BackendConfig backend;
+        backend.precision = static_cast<BackendConfig::PrecisionMode>(precision);
+        ScheduleConfig schedule;
+        schedule.type = getCurrentType();
+        schedule.backupType = schedule.type;
+        schedule.backendConfig = &backend;
+        schedule.numThread = MNNTestSuite::get()->pStaus.thread > 0 ? MNNTestSuite::get()->pStaus.thread : 1;
+        std::shared_ptr<Executor::RuntimeManager> runtime(Executor::RuntimeManager::createRuntimeManager(schedule),
+                                                        Executor::RuntimeManager::destroy);
+        if (callbacks) {
+            runtime->setMode(Interpreter::Session_Debug);
+        }
+        std::shared_ptr<Module> model(Module::load({"x"}, {"y"}, reinterpret_cast<const uint8_t*>(buffer.data()),
+                                                 buffer.size(), runtime), Module::destroy);
+        if (!model) {
+            return false;
+        }
+        for (int i = 0; i < 7; ++i) {
+            x->writeMap<float>()[i] = i * 0.125f;
+        }
+        auto outputs = model->onForward({x});
+        int views = 0;
+        if (outputs.size() != 1 || !inspect(model.get(), views) || views != 0) {
+            return false;
+        }
+        const Session* session = nullptr;
+        auto raster = outputRaster(model.get(), &session);
+        if (raster == nullptr) {
+            return false;
+        }
+        auto outDes = TensorUtils::getDescribe(raster->workOutputs[0]);
+        // Mark an unplanned Raster output as a view of a tensor that is not a storage root.
+        outDes->storageRoot = raster->workInputs[0];
+        auto callback = [](const std::vector<Tensor*>&, const OperatorInfo*) { return true; };
+        auto invalid = callbacks ? session->runWithCallBack(callback, callback) : session->run();
+        outDes->storageRoot = nullptr;
+        if (invalid != INVALID_VALUE) {
+            MNN_ERROR("An invalid view marking silently skipped a Raster\n");
+            return false;
+        }
+        if (session->run() != NO_ERROR) {
+            return false;
+        }
+        model.reset();
+        runtime.reset();
+        x = nullptr;
+        auto actual = outputs[0]->readMap<float>();
+        if (!actual) {
+            return false;
+        }
+        for (int i = 0; i < 7; ++i) {
+            if (!std::isfinite(actual[i]) || actual[i] != i * 0.25f) {
+                return false;
+            }
+        }
+        return true;
+    }
+    // A debug session hands Raster outputs to user callbacks, so they must stay independent.
+    bool testCallbackIsolation(int precision) {
+        auto x = _Input({1, 7}, NCHW, halide_type_of<float>());
+        x->setName("x");
+        auto a = x + x;
+        auto b = _Reshape(a, {-1});
+        auto y = b + b;
+        auto z = a + _Reshape(y, {1, -1});
+        z->setName("z");
+        b->setName("b");
+        auto buffer = Variable::save({z, b});
+        BackendConfig backend;
+        backend.precision = static_cast<BackendConfig::PrecisionMode>(precision);
+        ScheduleConfig schedule;
+        schedule.type = getCurrentType();
+        schedule.backupType = schedule.type;
+        schedule.backendConfig = &backend;
+        schedule.numThread = MNNTestSuite::get()->pStaus.thread > 0 ? MNNTestSuite::get()->pStaus.thread : 1;
+        std::shared_ptr<Executor::RuntimeManager> runtime(Executor::RuntimeManager::createRuntimeManager(schedule),
+                                                        Executor::RuntimeManager::destroy);
+        runtime->setMode(Interpreter::Session_Debug);
+        Module::Config config;
+        config.shapeMutable = false;
+        std::shared_ptr<Module> model(Module::load({"x"}, {"z", "b"},
+                                                 reinterpret_cast<const uint8_t*>(buffer.data()), buffer.size(),
+                                                 runtime, &config), Module::destroy);
+        if (!model) {
+            return false;
+        }
+        auto isBRaster = [](const std::vector<Tensor*>& ts, const OperatorInfo* info) {
+            return nullptr != info && std::string(info->type()) == "Raster" && ts.size() == 1 &&
+                ts[0]->dimensions() == 1 && ts[0]->length(0) == 7;
+        };
+        int action = 0; // 1: write b, 2: skip b
+        int writes = 0, skips = 0;
+        std::shared_ptr<Tensor> staging(Tensor::create<float>({7}));
+        auto executor = ExecutorScope::Current();
+        executor->setCallBack([&](const std::vector<Tensor*>& ts, const OperatorInfo* info) {
+                                  if (action == 2 && isBRaster(ts, info)) {
+                                      ++skips;
+                                      return false;
+                                  }
+                                  return true;
+                              },
+                              [&](const std::vector<Tensor*>& ts, const OperatorInfo* info) {
+                                  if (action == 1 && isBRaster(ts, info)) {
+                                      for (int i = 0; i < 7; ++i) {
+                                          staging->host<float>()[i] = 2.0f;
+                                      }
+                                      staging->host<float>()[0] = 10.0f;
+                                      const_cast<Tensor*>(ts[0])->copyFromHostTensor(staging.get());
+                                      ++writes;
+                                  }
+                                  return true;
+                              });
+        auto fill = [&](float v) {
+            for (int i = 0; i < 7; ++i) {
+                x->writeMap<float>()[i] = v;
+            }
+            x->unMap();
+        };
+        fill(1.0f);
+        auto outputs = model->onForward({x});
+        int views = 0;
+        if (outputs.size() != 2 || !inspect(model.get(), views) || views != 0) {
+            MNN_ERROR("A debug session planned a buffer view\n");
+            return false;
+        }
+        if (outputs[0]->readMap<float>()[0] != 6.0f || outputs[1]->readMap<float>()[0] != 2.0f) {
+            MNN_ERROR("Callback isolation baseline mismatch\n");
+            return false;
+        }
+        // Writing b must not reach a: z = a + 2*b = 2 + 20, not 10 + 20.
+        action = 1;
+        outputs = model->onForward({x});
+        if (writes != 1 || outputs[0]->readMap<float>()[0] != 22.0f ||
+            outputs[1]->readMap<float>()[0] != 10.0f) {
+            MNN_ERROR("A callback write on a Raster output leaked into its source\n");
+            return false;
+        }
+        // before=false skips the copy, so y reads the stale b=2: a=4, y=4, z=8 instead of 12.
+        action = 0;
+        fill(1.0f);
+        model->onForward({x});
+        fill(2.0f);
+        action = 2;
+        outputs = model->onForward({x});
+        if (skips != 1 || outputs[0]->readMap<float>()[0] != 8.0f) {
+            MNN_ERROR("before=false did not skip the Raster copy: skips=%d z=%f\n",
+                      skips, outputs[0]->readMap<float>()[0]);
+            return false;
+        }
+        action = 0;
+        executor->setCallBack([](const std::vector<Tensor*>&, const OperatorInfo*) { return true; },
+                              [](const std::vector<Tensor*>&, const OperatorInfo*) { return true; });
+        const Session* session = nullptr;
+        if (nullptr == outputRaster(model.get(), &session)) {
+            MNN_ERROR("Callback isolation found no output Raster\n");
+            return false;
+        }
+        auto always = [](const std::vector<Tensor*>&, const OperatorInfo*) { return true; };
+        auto stopAtB = [&](const std::vector<Tensor*>& ts, const OperatorInfo* info) { return !isBRaster(ts, info); };
+        if (session->runWithCallBack(always, stopAtB) != CALL_BACK_STOP || session->run() != NO_ERROR) {
+            MNN_ERROR("after=false did not stop the run or recovery failed\n");
+            return false;
+        }
+        return true;
+    }
+public:
+    bool run(int precision) override {
+        auto executor = cloneCurrentExecutor();
+        ExecutorScope scope(executor);
+        executor->setCallBack([](const std::vector<Tensor*>&, const OperatorInfo*) { return true; },
+                             [](const std::vector<Tensor*>&, const OperatorInfo*) { return true; });
+        if (!testMapping() || !testOutputBoundary(precision, false) || !testOutputBoundary(precision, true) ||
+            !testLayoutView(precision, false) || !testLayoutView(precision, true)) {
+            return false;
+        }
+        for (bool borrowed : {false, true}) {
+            for (int allocator : {0, 1}) {
+                for (bool fixed : {false, true}) {
+                    if (!runModel(precision, borrowed, allocator, fixed)) {
+                        return false;
+                    }
+                }
+            }
+        }
+        return testCallbackIsolation(precision);
+    }
+};
+MNNTestSuiteRegister(PlannedBufferViewTest, "expr/PlannedBufferView");
 
 class WinogradMemoryTest : public MNNTestCase {
 public:

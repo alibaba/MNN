@@ -164,6 +164,30 @@ public:
             MNN_ERROR("stridedslice dim=0, stride=1 test failed!\n");
             return false;
         }
+        // 12. negative stride whose end exceeds the input rank, x[:, 8:3:-1]
+        input = _Input({2, 10}, NCHW);
+        begin = _Input({2}, NCHW);
+        end = _Input({2}, NCHW);
+        strided = _Input({2}, NCHW);
+        auto inputPtr12 = input->writeMap<float>();
+        for (int i = 0; i < 20; ++i) {
+            inputPtr12[i] = (float)i;
+        }
+        const int begin_data12[] = {0, 8};
+        memcpy(begin->writeMap<int>(), begin_data12, 2 * sizeof(int));
+        const int end_data12[] = {2, 3};
+        memcpy(end->writeMap<int>(), end_data12, 2 * sizeof(int));
+        const int stride_data12[] = {1, -1};
+        memcpy(strided->writeMap<int>(), stride_data12, 2 * sizeof(int));
+        auto output_12 = _StridedSlice(input, begin, end, strided, 0, 0, 0, 0, 0);
+        const std::vector<int> expectedShape_12 = {2, 5};
+        const std::vector<float> expectedOutput_12 = {8, 7, 6, 5, 4, 18, 17, 16, 15, 14};
+        if (!checkVector<int>(output_12->getInfo()->dim.data(), expectedShape_12.data(), expectedShape_12.size(), 0) ||
+            !checkVector<float>(output_12->readMap<float>(), expectedOutput_12.data(), expectedOutput_12.size(),
+                                0.01)) {
+            MNN_ERROR("stridedslice negative stride, end > rank test failed!\n");
+            return false;
+        }
         return true;
     }
 };

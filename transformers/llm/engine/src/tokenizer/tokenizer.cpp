@@ -227,6 +227,8 @@ void Tokenizer::cache_special_tokens() {
 
 Tokenizer::PostProcessorInfo Tokenizer::apply_post_processor(std::vector<int>& ids) const {
     PostProcessorInfo info;
+    ids.insert(ids.begin(), prefix_tokens_.begin(), prefix_tokens_.end());
+    info.prefix_size = prefix_tokens_.size();
     if (post_single_ops_.empty()) {
         return info;
     }
@@ -250,13 +252,14 @@ Tokenizer::PostProcessorInfo Tokenizer::apply_post_processor(std::vector<int>& i
     info.has_single_sequence_a = sequence_a_count == 1;
     if (info.has_single_sequence_a) {
         info.suffix_size = processed.size() - info.prefix_size - base_ids.size();
+        info.prefix_size += prefix_tokens_.size();
     }
     ids.swap(processed);
     return info;
 }
 
-std::vector<int> Tokenizer::encode(const std::string& str, bool with_post_processor) {
-    std::vector<int> ids = prefix_tokens_;
+std::vector<int> Tokenizer::encode(const std::string& str, bool add_special_tokens) {
+    std::vector<int> ids;
     if (special_tokens_cache_.empty() && !special_tokens_.empty()) {
         cache_special_tokens();
     }
@@ -286,7 +289,7 @@ std::vector<int> Tokenizer::encode(const std::string& str, bool with_post_proces
     } else {
         encode(str, ids);
     }
-    if (with_post_processor) {
+    if (add_special_tokens) {
         apply_post_processor(ids);
     }
     return ids;
@@ -2084,7 +2087,16 @@ std::string PipelineTokenizer::decode(const std::vector<int>& ids) {
     for (int id : ids) {
         // Skip special tokens (like [UNK], [CLS], [SEP], etc.)
         if (is_special(id)) continue;
-        tokens.push_back(model_->id_to_token(id));
+        std::string token = model_->id_to_token(id);
+        if (token.empty()) {
+            for (const auto& added : added_tokens_) {
+                if (added.id == id) {
+                    token = added.content;
+                    break;
+                }
+            }
+        }
+        tokens.push_back(std::move(token));
     }
     if (decoder_) {
         decoder_->decode_chain(tokens);
@@ -2112,6 +2124,12 @@ std::string PipelineTokenizer::decode(const std::vector<int>& ids) {
 std::string PipelineTokenizer::decode(int id) {
     if (!model_) return "";
     std::string token = model_->id_to_token(id);
+    if (token.empty()) {
+        // Added control tokens can live beyond the base model vocabulary.
+        for (const auto& added : added_tokens_) {
+            if (added.id == id) return added.content;
+        }
+    }
     // For single-token decode (streaming), apply Replace/ByteFallback/ByteLevel
     // but not Strip/Fuse which are meant for full-sequence decode.
     // Simple approach: replace ▁ with space (Metaspace/SentencePiece convention)

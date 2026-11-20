@@ -201,7 +201,10 @@ class Llm:
         '''
         return self._c_obj.apply_chat_template(prompt)
 
-    def tokenizer_encode(self, prompt):
+    def has_chat_template(self):
+        return self._c_obj.has_chat_template()
+
+    def tokenizer_encode(self, prompt, add_special_tokens=True):
         '''
         encode the prompt to token ids
 
@@ -218,7 +221,7 @@ class Llm:
         >>> ids = llm.tokenizer_encode('Hello')
         >>> ids = llm.tokenizer_encode({'text': '<img>image_0</img>Describe the image', 'images': [{'data': img_obj, height: 224, width: 224}]})
         '''
-        return self._c_obj.tokenizer_encode(prompt)
+        return self._c_obj.tokenizer_encode(prompt, add_special_tokens)
 
     def tokenizer_decode(self, token):
         return self._c_obj.tokenizer_decode(token)

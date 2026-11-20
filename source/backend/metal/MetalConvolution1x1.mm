@@ -434,6 +434,11 @@ bool MetalConvolution1x1::setupQKVFusion(const Tensor* selfOutput,
                                          MetalConvolution1x1* peerK, const Tensor* peerKOutput,
                                          MetalConvolution1x1* peerV, const Tensor* peerVOutput,
                                          MetalConvolution1x1* peerW, const Tensor* peerWOutput) {
+    for (auto output : {selfOutput, peerKOutput, peerVOutput, peerWOutput}) {
+        if (output != nullptr && TensorUtils::getDescribe(output)->storageRoot != nullptr) {
+            return false;
+        }
+    }
     if (!mIs2sgDecode || !peerK->mIs2sgDecode || !peerV->mIs2sgDecode) {
         return false;
     }
@@ -1636,9 +1641,10 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
 
         baseKeys.emplace_back("conv1x1_float_sg_matrix");
         // total computation not too small
-        if(area >= 16 && icDiv4 >= 4 && icDiv4 % 2 == 0 && ocDiv4 >= 4 && area * icDiv4 * ocDiv4 >= 64 * 64 * 64) {
+        if(area >= 16 && icDiv4 >= 4 && icDiv4 % 2 == 0 && ocDiv4 >= 4 &&
+           (int64_t)area * icDiv4 * ocDiv4 >= 64 * 64 * 64) {
             // Enough threads
-            if(area * ocDiv4 / icDiv4 >= 1024) {
+            if((int64_t)area * ocDiv4 / icDiv4 >= 1024) {
                 auto keys = baseKeys;
                 keys.emplace_back("conv1x1_gemm_32x16_sg");
                 auto pipeline = rt->findPipeline(keys);

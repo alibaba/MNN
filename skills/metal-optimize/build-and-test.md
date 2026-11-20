@@ -177,6 +177,11 @@ cd build
 # config.json 加 "chunk": 512, "attention_mode": 10
 ```
 
+## macOS 峰值内存口径
+
+- Metal 统一内存不能仅用 `RSS` / `ru_maxrss` 代表进程总内存；使用 `proc_pid_rusage(RUSAGE_INFO_V4)` 的 `ri_lifetime_max_phys_footprint` 记录内核维护的峰值，同时采样 `ri_phys_footprint` 并注明单位。不要再把 Metal 分配量与 footprint 相加，以免重复计数。
+- `llm_bench -rep N` 还会执行一次预热；进程峰值覆盖加载、预热和计时运行，不能把 `-rep 1` 的峰值称为单次冷启动请求峰值。报告同时注明模型权重量化、实际 token 数、chunk、KV 精度及是否使用 swap。
+
 ## 正确性验证（LLM 场景）
 
 ```bash

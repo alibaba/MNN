@@ -71,7 +71,7 @@ cd apps/Android/MnnTaoAvatar
 
 - [TaoAvatar Paper](https://arxiv.org/html/2503.17032v1)
 - [Models Collection](https://modelscope.cn/collections/TaoAvatar-68d8a46f2e554a)
-- [LLM Model: Qwen2.5-1.5B MNN](https://github.com/alibaba/MNN/tree/master/3rd_party/NNR)
+- [LLM Model: Qwen2.5-1.5B MNN](https://modelscope.cn/models/MNN/Qwen2.5-1.5B-Instruct-MNN)
 - [TTS Model: bert-vits2-MNN](https://modelscope.cn/models/MNN/bert-vits2-MNN)
 - [A2BS Model: UniTalker-MNN](https://modelscope.cn/models/MNN/UniTalker-MNN)
 - [NNR Model: TaoAvatar-NNR-MNN](https://modelscope.cn/models/MNN/TaoAvatar-NNR-MNN)
