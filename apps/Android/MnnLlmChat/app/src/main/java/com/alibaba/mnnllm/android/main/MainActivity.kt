@@ -17,6 +17,17 @@ import android.view.ViewConfiguration
 import android.view.ViewTreeObserver
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.lifecycle.lifecycleScope
+import com.alibaba.mnnllm.android.modelist.DocumentModelSource
+import com.alibaba.mnnllm.android.modelist.LocalModelImporter
+import com.alibaba.mnnllm.android.modelist.LocalModelsProvider
+import com.alibaba.mnnllm.android.modelist.ModelListManager
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.SearchView
 import androidx.appcompat.widget.Toolbar
@@ -487,6 +498,8 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
     }
 
     override fun onDestroy() {
+        modelImportProgress?.dismiss()
+        modelImportProgress = null
         super.onDestroy()
     }
 
@@ -528,13 +541,57 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
         }
     }
 
+    private var modelImportJob: Job? = null
+    private var modelImportProgress: androidx.appcompat.app.AlertDialog? = null
+    private val modelFolderPicker = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null && modelImportJob?.isCompleted != false) {
+            val progress = androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle(R.string.import_model_folder)
+                .setMessage(R.string.import_model_copying)
+                .setNegativeButton(android.R.string.cancel) { _, _ -> modelImportJob?.cancel() }
+                .setCancelable(false)
+                .create()
+            modelImportProgress = progress
+            progress.show()
+            modelImportJob = lifecycleScope.launch {
+                try {
+                    val imported = withContext(Dispatchers.IO) {
+                        val result = LocalModelImporter(LocalModelsProvider.importedModelsDir(applicationContext))
+                            .import(DocumentModelSource.fromTree(contentResolver, uri))
+                        // Once the atomic rename commits, publish discovery even if the screen closes.
+                        withContext(NonCancellable) {
+                            ModelListManager.notifyModelListMayChange(ModelListManager.ChangeReason.MANUAL_REFRESH)
+                        }
+                        result
+                    }
+                    Toast.makeText(this@MainActivity,
+                        getString(R.string.import_model_success, imported.name), Toast.LENGTH_LONG).show()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.e(TAG, "Local model import failed", e)
+                    if (isFinishing || isDestroyed) return@launch
+                    androidx.appcompat.app.AlertDialog.Builder(this@MainActivity)
+                        .setTitle(R.string.import_model_failed)
+                        .setMessage(e.message ?: getString(R.string.import_model_failed))
+                        .setPositiveButton(android.R.string.ok, null).show()
+                } finally {
+                    progress.dismiss()
+                    if (modelImportProgress === progress) modelImportProgress = null
+                }
+            }
+        }
+    }
+
     fun addLocalModels(view: View?) {
+        if (modelImportJob?.isCompleted == false) return
         val adbCommand = "adb shell mkdir -p /data/local/tmp/mnn_models && adb push \${model_path} /data/local/tmp/mnn_models/"
         val message = getResources().getString(R.string.add_local_models_message, adbCommand)
         val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle(R.string.add_local_models_title)
             .setMessage(message)
-            .setPositiveButton(android.R.string.ok) { dialog, _ -> dialog.dismiss() }
+            .setPositiveButton(R.string.import_model_folder) { _, _ -> modelFolderPicker.launch(null) }
+            .setNegativeButton(android.R.string.cancel, null)
             .setNeutralButton(R.string.copy_command) { _, _ ->
                 val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 val clip = ClipData.newPlainText("ADB Command", adbCommand)

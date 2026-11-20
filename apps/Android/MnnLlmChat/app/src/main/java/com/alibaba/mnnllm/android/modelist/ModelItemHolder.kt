@@ -227,13 +227,10 @@ class ModelItemHolder(
             true
         }
         
-        // Determine if model is deletable
-        // Deletable condition:
-        // 1. Must be a downloaded model (has download info) -> This excludes manually added local models
-        // 2. Must NOT be a builtin model -> This excludes builtin models
+        // App-owned imports are deletable; manually pushed adb models and builtins remain protected.
         val isDownloaded = modelWrapper.downloadedModelInfo != null
-        val isBuiltin = modelItem.isBuiltin || modelItem.modelId?.startsWith("Builtin/") == true
-        val isDeletable = isDownloaded && !isBuiltin
+        val isDeletable = ModelDeletionHelper.canDeleteModel(
+            v.context, modelItem.modelId, isDownloaded, modelItem.isBuiltin)
 
         // Delete, settings, and model info are always available
         popupMenu.menu.findItem(R.id.menu_delete_model).setVisible(isDeletable)
