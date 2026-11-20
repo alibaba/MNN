@@ -491,7 +491,7 @@ Returns:
 A variable with the same type as `features`.
 */
 VARP _Softplus(VARP features) {
-    return _Log(_Add(_Exp(features), _Const(1)));
+    return _Maximum(features, _Scalar<float>(0)) + _Log1p(_Exp(_Negative(_Abs(features))));
 }
 /*Computes softsign: features / (abs(features) + 1).
 Args:
