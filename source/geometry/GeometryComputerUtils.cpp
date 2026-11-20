@@ -477,6 +477,30 @@ std::shared_ptr<Command> GeometryComputerUtils::makeBinary(int type, Tensor* inp
     return cmdP;
 }
 
+Tensor* GeometryComputerUtils::normalizeNegativeIndices(const Op* op, Tensor* indices, int axisLen,
+                                                        GeometryComputer::Context& context, CommandBuffer& res) {
+    auto count = indices->elementSize();
+    if (count == 0) {
+        return indices;
+    }
+    std::shared_ptr<Tensor> normalized(Tensor::createDevice<int>({count}));
+    std::shared_ptr<Tensor> negativeMask(Tensor::createDevice<int>({count}));
+    std::shared_ptr<Tensor> shifted(Tensor::createDevice<int>({count}));
+    auto zeroConst = context.allocConst(op, {}, halide_type_of<int>());
+    zeroConst->host<int>()[0] = 0;
+    auto axisLenConst = context.allocConst(op, {}, halide_type_of<int>());
+    axisLenConst->host<int>()[0] = axisLen;
+    res.command.emplace_back(makeBinary(BinaryOpOperation_LESS, indices, zeroConst.get(), negativeMask.get()));
+    res.command.emplace_back(makeBinary(BinaryOpOperation_ADD, indices, axisLenConst.get(), shifted.get()));
+    flatbuffers::FlatBufferBuilder builder;
+    OpBuilder opBuilder(builder);
+    opBuilder.add_type(OpType_Select);
+    builder.Finish(opBuilder.Finish());
+    res.command.emplace_back(makeCommand(builder, {negativeMask.get(), shifted.get(), indices}, {normalized.get()}));
+    res.extras.insert(res.extras.end(), {normalized, negativeMask, shifted});
+    return normalized.get();
+}
+
 std::shared_ptr<Command> GeometryComputerUtils::makeReduce(ReductionType type, Tensor* input0, Tensor* output, int axis) {
     flatbuffers::FlatBufferBuilder builder(DEFAULT_ALLOCATE_SIZE);
     auto vec = builder.CreateVector(std::vector<int>{axis});

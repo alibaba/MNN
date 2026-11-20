@@ -71,6 +71,23 @@ class ScatterElementsTest : public MNNTestCase {
             }
         }
         {
+            const float dataData[]    = {1.0, 2.0, 3.0};
+            const int indicesData[]      = {-1, 0};
+            const float updatesData[]    = {9.0, 8.0};
+            const float expectedData[] = {8.0, 2.0, 9.0};
+
+            auto data    = _Const(dataData, {3}, NHWC, halide_type_of<float>());
+            auto indices = _Const(indicesData, {2}, NHWC, halide_type_of<int>());
+            auto updates = _Const(updatesData, {2}, NHWC, halide_type_of<float>());
+            auto output  = _ScatterElements(data, indices, updates);
+
+            auto outputData = output->readMap<float>();
+            const int size  = output->getInfo()->size;
+            if (!checkVector<float>(outputData, expectedData, size, threshold)) {
+                return false;
+            }
+        }
+        {
             const float dataData[]    = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
             const int indicesData[]      = {0, 1, 2, 0, 1, 4};
             const float updatesData[]    = {1, 2, 3, 6, 7, 8};

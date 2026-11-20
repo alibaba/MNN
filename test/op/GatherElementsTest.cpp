@@ -41,6 +41,19 @@ public:
                 return false;
             }
         }
+        {
+            const float dataData[]  = {1, 2, 3, 4, 5, 6};
+            const int indicesData[] = {-1, -2, -3, 0, 1, 2};
+            const float expectedData[] = {3, 2, 1, 4, 5, 6};
+            auto data    = _Const(dataData, {2, 3}, NHWC, halide_type_of<float>());
+            auto indices = _Const(indicesData, {2, 3}, NHWC, halide_type_of<int>());
+            auto output  = _GatherElements(data, indices, _Scalar(1));
+            auto outputData = output->readMap<float>();
+            const int size  = output->getInfo()->size;
+            if (!checkVector<float>(outputData, expectedData, size, 0.001)) {
+                return false;
+            }
+        }
         return true;
     }
 };
