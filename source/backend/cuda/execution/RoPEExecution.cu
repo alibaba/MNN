@@ -123,17 +123,24 @@ public:
                            k->dimensions() == 4 && q->length(0) == k->length(0) &&
                            q->length(1) == mNumHead * mHeadDim && k->length(1) == mKvNumHead * mHeadDim &&
                            q->length(2) == 1 && q->length(3) == 1 && k->length(2) == 1 && k->length(3) == 1 &&
-                           TensorUtils::getDescribe(q)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 &&
-                           TensorUtils::getDescribe(k)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 &&
+                           (TensorUtils::getDescribe(q)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ||
+                            TensorUtils::getDescribe(q)->dimensionFormat == MNN_DATA_FORMAT_NCHW) &&
+                           (TensorUtils::getDescribe(k)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ||
+                            TensorUtils::getDescribe(k)->dimensionFormat == MNN_DATA_FORMAT_NCHW) &&
                            TensorUtils::getDescribe(outputs[0])->dimensionFormat == MNN_DATA_FORMAT_NHWC &&
                            TensorUtils::getDescribe(outputs[1])->dimensionFormat == MNN_DATA_FORMAT_NHWC;
         if (!valid) {
-            MNN_ERROR("CUDA RoPE: invalid C4 q/k layout or head configuration.\n");
+            MNN_ERROR("CUDA RoPE: invalid q/k layout or head configuration.\n");
             return NOT_SUPPORT;
         }
         mSeqLen = q->length(0);
-        mQHiddenPack = UP_DIV(q->length(1), PACK_NUMBER) * PACK_NUMBER;
-        mKHiddenPack = UP_DIV(k->length(1), PACK_NUMBER) * PACK_NUMBER;
+        // With unit spatial dimensions, both layouts store each token contiguously.
+        mQHiddenPack = TensorUtils::getDescribe(q)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4
+                           ? UP_DIV(q->length(1), PACK_NUMBER) * PACK_NUMBER
+                           : q->length(1);
+        mKHiddenPack = TensorUtils::getDescribe(k)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4
+                           ? UP_DIV(k->length(1), PACK_NUMBER) * PACK_NUMBER
+                           : k->length(1);
         int ropeDim = mRopeCutHeadDim;
         if (ropeDim <= 0 || ropeDim > mHeadDim) {
             ropeDim = mHeadDim;
@@ -221,8 +228,10 @@ public:
     Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const Op* op,
                         Backend* backend) const override {
         if (inputs.size() != 4 || outputs.size() != 2 ||
-            TensorUtils::getDescribe(inputs[0])->dimensionFormat != MNN_DATA_FORMAT_NC4HW4 ||
-            TensorUtils::getDescribe(inputs[1])->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
+            (TensorUtils::getDescribe(inputs[0])->dimensionFormat != MNN_DATA_FORMAT_NC4HW4 &&
+             TensorUtils::getDescribe(inputs[0])->dimensionFormat != MNN_DATA_FORMAT_NCHW) ||
+            (TensorUtils::getDescribe(inputs[1])->dimensionFormat != MNN_DATA_FORMAT_NC4HW4 &&
+             TensorUtils::getDescribe(inputs[1])->dimensionFormat != MNN_DATA_FORMAT_NCHW)) {
             return nullptr;
         }
         return new RoPEExecution(op, backend);

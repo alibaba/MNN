@@ -531,8 +531,10 @@ struct jsonAggregator : public Printer {
             writer.String(t.delegate.c_str());
         } else if (t.backend == 1) {
             writer.String("METAL");
-        }
-        else if (t.backend == 3) writer.String("OPENCL");
+        } else if (t.backend == 2) {
+            writer.String("CUDA");
+        } else if (t.backend == 3)
+            writer.String("OPENCL");
         else if (t.backend == 7) writer.String("VULKAN");
         else if (t.backend == 10) writer.String("HEXAGON");
         else writer.String("CPU");
