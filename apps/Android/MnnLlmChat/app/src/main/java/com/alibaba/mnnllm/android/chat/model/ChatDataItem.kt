@@ -3,6 +3,7 @@
 package com.alibaba.mnnllm.android.chat.model
 
 import android.net.Uri
+import com.alibaba.mnnllm.android.chat.GenerateResultProcessor
 import com.alibaba.mnnllm.android.chat.chatlist.AudioPlayerComponent
 import com.alibaba.mnnllm.android.chat.chatlist.ChatViewHolders
 import java.io.File
@@ -41,7 +42,22 @@ class ChatDataItem {
     var benchmarkInfo: String? = null
 
     var displayText: String? = null
-        get() = field?:""
+        get() {
+            val display = field ?: ""
+            if (type != ChatViewHolders.ASSISTANT) return display
+            val formatted = GenerateResultProcessor.answerDisplayText(display, loading)
+            if (formatted == display) return display
+            val raw = text
+            if (raw != null && display != raw &&
+                listOf("<answer>".length, "<answer></answer>".length).any { removedLength ->
+                    val suffix = raw.takeLast(display.length + removedLength)
+                    display == GenerateResultProcessor.answerDisplayText(suffix, loading)
+                }
+            ) {
+                return display
+            }
+            return formatted
+        }
 
     var thinkingText: String? = null
 

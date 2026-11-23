@@ -30,6 +30,152 @@ class ChatSimpleTest {
     }
 
     @Test
+    fun `test assistant answer streaming all split points and copy`() {
+        val body = "完整回答\n保留正文。"
+        val input = "<answer>$body</answer>"
+        for (split in 0..input.length) {
+            val processor = GenerateResultProcessor()
+            processor.generateBegin()
+            val item = ChatDataItem(ChatViewHolders.ASSISTANT)
+            item.loading = true
+            var previous = 0
+            for (end in listOf(split, input.length)) {
+                processor.process(input.substring(previous, end))
+                item.thinkingText = processor.getThinkingContent()
+                item.displayText = processor.getNormalOutput()
+                item.text = processor.getRawResult()
+                val expected = body.take((end - "<answer>".length).coerceIn(0, body.length))
+                assertEquals("split=$split end=$end", expected, item.displayText)
+                assertEquals(expected, item.displayText ?: item.text ?: "")
+                assertEquals(input.substring(0, end), item.text)
+                previous = end
+            }
+            processor.process(null)
+            item.displayText = processor.getNormalOutput()
+            item.loading = false
+            assertEquals(body, item.displayText)
+            assertEquals(body, item.displayText ?: item.text ?: "")
+            assertEquals(input, item.text)
+            val history = ChatDataItem(item.time, item.type, item.text)
+            history.displayText = item.displayText
+            assertEquals(body, history.displayText)
+            assertEquals(input, history.text)
+        }
+    }
+
+    @Test
+    fun `test assistant legacy history and final response assignment`() {
+        val body = "\n正文 <answer>字面标签</answer> 保留\n`<answer>代码</answer>`\n"
+        val raw = " \t<answer>$body</answer>\r\n"
+        val expected = " \t$body\r\n"
+        val legacyHistory = ChatDataItem("2024-01-01 10:00:00", ChatViewHolders.ASSISTANT, raw)
+        assertEquals(expected, legacyHistory.displayText)
+        assertEquals(raw, legacyHistory.text)
+        legacyHistory.displayText = raw
+        assertEquals(expected, legacyHistory.displayText)
+        assertEquals(expected, legacyHistory.displayText ?: legacyHistory.text ?: "")
+        val finalResponse = ChatDataItem(ChatViewHolders.ASSISTANT)
+        finalResponse.text = raw
+        finalResponse.displayText = raw
+        assertEquals(expected, finalResponse.displayText)
+        assertEquals(raw, finalResponse.text)
+    }
+
+    @Test
+    fun `test assistant normalized history is not stripped twice`() {
+        val body = "<answer>字面内层标签</answer>"
+        for (prefix in listOf("", "<think>已有思考内容</think>")) {
+            for (normal in listOf("<answer>$body</answer>", " \t<answer>$body</answer>\r\n")) {
+                val raw = prefix + normal
+                val expected = if (normal.startsWith(" \t")) " \t$body\r\n" else body
+                val item = ChatDataItem("2024-01-01 10:00:00", ChatViewHolders.ASSISTANT, raw)
+                item.displayText = normal
+                assertEquals(expected, item.displayText)
+                val savedDisplay = item.displayText
+                val restored = ChatDataItem(item.time, item.type, item.text)
+                restored.displayText = savedDisplay
+                repeat(3) {
+                    assertEquals(expected, restored.displayText)
+                    assertEquals(expected, restored.displayText ?: restored.text ?: "")
+                    assertEquals(raw, restored.text)
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `test partial answer candidates are flushed as literal text when finished`() {
+        for (raw in listOf("<", "<a", "<ans", "<answer", "<answer>正文</ans")) {
+            val item = ChatDataItem(ChatViewHolders.ASSISTANT)
+            item.loading = true
+            item.text = raw
+            item.displayText = raw
+            assertEquals(if (raw.startsWith("<answer>")) "正文" else "", item.displayText)
+            item.loading = false
+            assertEquals(if (raw.startsWith("<answer>")) "正文</ans" else raw, item.displayText)
+            assertEquals(raw, item.text)
+        }
+    }
+
+    @Test
+    fun `test user header and code answer literals are preserved`() {
+        val literal = "<answer>用户字面示例</answer>"
+        for (type in listOf(ChatViewHolders.USER, ChatViewHolders.HEADER)) {
+            val item = ChatDataItem("2024-01-01 10:00:00", type, literal)
+            for (loading in listOf(true, false)) {
+                item.loading = loading
+                assertEquals(literal, item.displayText)
+                item.displayText = "<ans"
+                assertEquals("<ans", item.displayText)
+                item.displayText = literal
+                assertEquals(literal, item.text)
+            }
+        }
+        for (literalCode in listOf(
+            "`<answer>字面示例</answer>`", "```xml\n<answer>字面示例</answer>\n```",
+            "~~~xml\n<answer>字面示例</answer>\n~~~", "正文 <answer>字面示例</answer>"
+        )) {
+            val item = ChatDataItem("2024-01-01 10:00:00", ChatViewHolders.ASSISTANT, literalCode)
+            for (loading in listOf(true, false)) {
+                item.loading = loading
+                assertEquals(literalCode, item.displayText)
+                assertEquals(literalCode, item.displayText ?: item.text ?: "")
+                assertEquals(literalCode, item.text)
+            }
+        }
+    }
+
+    @Test
+    fun `test qwen thinking display remains separate and raw unchanged`() {
+        val processor = GenerateResultProcessor()
+        processor.generateBegin()
+        val raw = "<think>Qwen3思考</think>正常回答 `标签 <answer>示例</answer>`"
+        processor.process(raw)
+        processor.process(null)
+        val item = ChatDataItem(ChatViewHolders.ASSISTANT)
+        item.thinkingText = processor.getThinkingContent()
+        item.displayText = processor.getNormalOutput()
+        item.text = processor.getRawResult()
+        assertEquals("Qwen3思考\n", item.thinkingText)
+        assertEquals("正常回答 `标签 <answer>示例</answer>`", item.displayText)
+        assertEquals(raw, item.text)
+        for (split in 0..raw.length) {
+            val splitProcessor = GenerateResultProcessor()
+            splitProcessor.generateBegin()
+            splitProcessor.process(raw.substring(0, split))
+            splitProcessor.process(raw.substring(split))
+            splitProcessor.process(null)
+            val splitItem = ChatDataItem(ChatViewHolders.ASSISTANT)
+            splitItem.thinkingText = splitProcessor.getThinkingContent()
+            splitItem.displayText = splitProcessor.getNormalOutput()
+            splitItem.text = splitProcessor.getRawResult()
+            assertEquals("split=$split", splitProcessor.getNormalOutput(), splitItem.displayText)
+            assertEquals(splitProcessor.getThinkingContent(), splitItem.thinkingText)
+            assertEquals(raw, splitItem.text)
+        }
+    }
+
+    @Test
     fun `test ChatDataItem with type only`() {
         // Given
         val type = ChatViewHolders.ASSISTANT

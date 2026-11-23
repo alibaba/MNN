@@ -21,19 +21,12 @@
                 android:layout_height="match_parent"
                 android:layout_gravity="center_horizontal"
                 android:gravity="center_vertical"
-                android:orientation="vertical">
-<!--                <TextView-->
-<!--                    android:layout_width="wrap_content"-->
-<!--                    android:layout_height="wrap_content"-->
-<!--                    android:text="@string/app_name"-->
-<!--                    android:layout_gravity="center_horizontal"-->
-<!--                    android:layout_marginBottom="6dp"-->
-<!--                    style="?textAppearanceTitleMedium"/>-->
+                android:orientation="horizontal">
                 <com.alibaba.mnnllm.android.widgets.ModelSwitcherView
                     android:id="@+id/model_switcher"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_gravity="center_horizontal"
+                    android:layout_gravity="center_vertical"
                     />
             </LinearLayout>
         </com.google.android.material.appbar.MaterialToolbar>
@@ -62,6 +55,20 @@
         android:layout_gravity="bottom"
         android:orientation="vertical">
 
+        <ScrollView
+            android:id="@+id/agent_steps_scroll"
+            android:layout_width="match_parent"
+            android:layout_height="112dp"
+            android:visibility="gone">
+            <TextView
+                android:id="@+id/tv_agent_steps"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:padding="12dp"
+                android:textAppearance="?attr/textAppearanceBodySmall"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                android:accessibilityLiveRegion="polite" />
+        </ScrollView>
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_toggle_audio_output"
             android:layout_width="wrap_content"
@@ -218,6 +225,28 @@
                             android:textColor="?attr/colorOnSurfaceVariant"
                             android:visibility="gone"
                             tools:text="1.2K / 4K"
+                            tools:visibility="visible" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btn_agent_mode"
+                            android:layout_width="wrap_content"
+                            android:layout_height="35dp"
+                            android:layout_marginEnd="8dp"
+                            android:paddingTop="0dp"
+                            android:paddingBottom="0dp"
+                            android:paddingStart="12dp"
+                            android:paddingEnd="12dp"
+                            app:backgroundTint="@null"
+                            android:background="@drawable/bg_mode_toggle"
+                            app:iconPadding="8dp"
+                            app:iconGravity="textStart"
+                            app:icon="@drawable/ic_agent_globe"
+                            app:iconTint="@color/agent_chip_tint"
+                            android:text="@string/agent_mode_chip"
+                            android:textAllCaps="false"
+                            android:textColor="@color/agent_chip_tint"
+                            android:contentDescription="@string/agent_mode_chip"
+                            android:visibility="gone"
                             tools:visibility="visible" />
 
                         <com.google.android.material.button.MaterialButton

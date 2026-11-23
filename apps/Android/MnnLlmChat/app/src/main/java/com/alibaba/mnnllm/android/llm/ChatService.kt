@@ -17,9 +17,10 @@ class ChatService {
     private var residentSession: ChatSession? = null
     private var residentRelease: CompletableFuture<Unit>? = null
 
-    internal fun beforeLoad(session: ChatSession) {
+    internal fun beforeLoad(session: ChatSession, isReleaseRequested: () -> Boolean = { false }) {
         while (true) {
             val previous = synchronized(loadLock) {
+                if (isReleaseRequested()) throw CancellationException("Session was released while waiting to load")
                 if (residentSession === session) return
                 val resident = residentSession
                 if (resident == null) {

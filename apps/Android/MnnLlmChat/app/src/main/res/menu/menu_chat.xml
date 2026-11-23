@@ -1,6 +1,15 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
     <item
+        android:id="@+id/agent_manage"
+        android:title="@string/agent_manage"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/agent_retry"
+        android:title="@string/agent_retry"
+        android:visible="false"
+        app:showAsAction="never" />
+    <item
         android:id="@+id/start_new_chat"
         android:title="@string/start_new_chat"
         app:showAsAction="never" />

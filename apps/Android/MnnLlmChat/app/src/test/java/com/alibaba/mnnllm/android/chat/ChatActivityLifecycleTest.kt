@@ -6,6 +6,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleRegistry
 import com.alibaba.mnnllm.android.chat.model.ChatDataItem
 import com.alibaba.mnnllm.android.chat.model.ChatDataManager
+import com.alibaba.mnnllm.android.llm.ChatService
 import com.alibaba.mnnllm.android.llm.ChatSession
 import com.alibaba.mnnllm.android.llm.GenerateProgressListener
 import io.mockk.every
@@ -16,6 +17,7 @@ import io.mockk.just
 import io.mockk.Runs
 import io.mockk.unmockkAll
 import io.mockk.verify
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
@@ -26,7 +28,10 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.*
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
@@ -128,6 +133,78 @@ class ChatActivityLifecycleTest {
             finish.countDown()
             first.cancelAndJoin()
             presenter.destroy()
+        }
+    }
+
+    @Test
+    fun modelReplacement_waitsForNativeRelease_andIgnoresStaleCompletion() {
+        val service = ChatService()
+        val previous = mockk<ChatSession>(relaxed = true)
+        val next = mockk<ChatSession>(relaxed = true)
+        val stale = mockk<ChatSession>(relaxed = true)
+        val releaseStarted = CountDownLatch(1)
+        every { previous.release() } answers { releaseStarted.countDown() }
+        service.beforeLoad(previous)
+        val executor = Executors.newSingleThreadExecutor()
+        val replacement = executor.submit<Unit> { service.beforeLoad(next) }
+        try {
+            assertTrue(releaseStarted.await(3, TimeUnit.SECONDS))
+            service.onNativeReleased(stale, succeeded = true)
+            assertFalse(replacement.isDone)
+            service.onNativeReleased(previous, succeeded = true)
+            replacement.get(3, TimeUnit.SECONDS)
+            verify(exactly = 1) { previous.release() }
+            verify(exactly = 0) { next.release() }
+        } finally {
+            service.onNativeReleased(previous, succeeded = true)
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun releasedLoadWaiter_doesNotReleaseNewResident() {
+        val service = ChatService()
+        val previous = mockk<ChatSession>(relaxed = true)
+        val stale = mockk<ChatSession>(relaxed = true)
+        val next = mockk<ChatSession>(relaxed = true)
+        val releaseRequested = AtomicBoolean(false)
+        service.beforeLoad(previous)
+        every { previous.release() } answers {
+            releaseRequested.set(true)
+            service.onNativeReleased(previous, succeeded = true)
+            service.beforeLoad(next)
+        }
+        every { next.release() } answers { service.onNativeReleased(next, succeeded = true) }
+        val executor = Executors.newSingleThreadExecutor()
+        val replacement = executor.submit<Unit> { service.beforeLoad(stale) { releaseRequested.get() } }
+        try {
+            val error = assertThrows(ExecutionException::class.java) { replacement.get(3, TimeUnit.SECONDS) }
+            assertTrue(error.cause is CancellationException)
+            service.onNativeReleased(stale, succeeded = false)
+            service.onNativeReleased(stale, succeeded = true)
+            verify(exactly = 0) { next.release() }
+            service.beforeLoad(next)
+        } finally {
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun failedNativeRelease_doesNotAdmitReplacement() {
+        val service = ChatService()
+        val previous = mockk<ChatSession>(relaxed = true)
+        val next = mockk<ChatSession>(relaxed = true)
+        service.beforeLoad(previous)
+        every { previous.release() } answers { service.onNativeReleased(previous, succeeded = false) }
+        val executor = Executors.newSingleThreadExecutor()
+        val replacement = executor.submit<Unit> { service.beforeLoad(next) }
+        try {
+            val error = assertThrows(ExecutionException::class.java) { replacement.get(3, TimeUnit.SECONDS) }
+            assertEquals("Previous model could not be released", error.cause?.message)
+            service.onNativeReleased(next, succeeded = true)
+            verify(exactly = 0) { next.release() }
+        } finally {
+            executor.shutdownNow()
         }
     }
 

@@ -24,6 +24,7 @@ import com.alibaba.mnnllm.android.modelsettings.ModelConfig.Companion.loadConfig
 import com.alibaba.mnnllm.android.utils.FileSplitter
 import com.alibaba.mnnllm.android.qnn.QnnModule
 import kotlinx.coroutines.CancellationException
+import org.json.JSONObject
 class LlmSession (
     private val modelId: String,
     override var sessionId: String,
@@ -100,6 +101,10 @@ class LlmSession (
     private var releaseStarted = false
 
     private var keepHistory = false
+    @Volatile
+    private var runtimeMaxNewTokens: Int? = null
+    @Volatile
+    private var runtimeAudioEnabled = false
 
     private var isQnn = false
 
@@ -119,7 +124,7 @@ class LlmSession (
             modelLoading = true
         }
         try {
-            provide().beforeLoad(this)
+            provide().beforeLoad(this) { releaseRequested }
             check(!releaseRequested) { "Session has been released" }
             isQnn = ModelTypeUtils.isQnnModel(modelId)
             checkAndMergeSplitFiles()
@@ -286,7 +291,10 @@ class LlmSession (
     }
 
     override fun setEnableAudioOutput(enable: Boolean) {
-        withNative(Unit) { updateEnableAudioOutputNative(it, enable) }
+        withNative(Unit) {
+            updateEnableAudioOutputNative(it, enable)
+            runtimeAudioEnabled = enable
+        }
     }
 
     override val debugInfo
@@ -298,7 +306,10 @@ class LlmSession (
     }
 
     fun updateMaxNewTokens(maxNewTokens: Int) {
-        withNative(Unit) { updateMaxNewTokensNative(it, maxNewTokens) }
+        withNative(Unit) {
+            updateMaxNewTokensNative(it, maxNewTokens)
+            runtimeMaxNewTokens = maxNewTokens.coerceAtLeast(1)
+        }
     }
 
     fun updateSystemPrompt(systemPrompt: String) {
@@ -319,6 +330,40 @@ class LlmSession (
     fun updateConfig(configJson: String) {
         Log.d(TAG, "updateConfig: $configJson")
         withNative(Unit) { updateConfigNative(it, configJson) }
+    }
+
+    data class AgentConfigSnapshot(
+        val maxNewTokens: Int,
+        val audioEnabled: Boolean,
+        val jinja: String?,
+        val expectsThinking: Boolean,
+    )
+
+    fun captureAgentConfig(): AgentConfigSnapshot {
+        check(isModelLoaded()) { "Agent model is not available" }
+        val config = JSONObject(dumpConfig())
+        val jinja = config.optJSONObject("jinja")
+        val thinking = jinja?.optJSONObject("context")?.opt("enable_thinking") as? Boolean
+        return AgentConfigSnapshot(
+            runtimeMaxNewTokens ?: config.optInt("max_new_tokens", 2048).coerceAtLeast(1),
+            runtimeAudioEnabled, if (thinking != null) jinja.toString() else null, thinking == true
+        )
+    }
+
+    fun configureAgentPass(snapshot: AgentConfigSnapshot, outputTokenLimit: Int, allowThinking: Boolean) {
+        updateMaxNewTokens(outputTokenLimit)
+        setEnableAudioOutput(false)
+        snapshot.jinja?.let {
+            val jinja = JSONObject(it)
+            jinja.getJSONObject("context").put("enable_thinking", allowThinking)
+            updateConfig(JSONObject().put("jinja", jinja).toString())
+        }
+    }
+
+    fun restoreAgentConfig(snapshot: AgentConfigSnapshot) {
+        updateMaxNewTokens(snapshot.maxNewTokens)
+        snapshot.jinja?.let { updateConfig(JSONObject().put("jinja", JSONObject(it)).toString()) }
+        setEnableAudioOutput(snapshot.audioEnabled)
     }
 
     override fun checkContext(prompt: String): ContextCheck = withSessionOperation { ptr ->

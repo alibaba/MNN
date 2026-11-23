@@ -43,6 +43,7 @@ object ChatViewHolders {
     const val HEADER: Int = 0
     const val ASSISTANT: Int = 1
     const val USER: Int = 2
+    const val THINKING_COMPLETE_WITHOUT_TIMING: Long = -2L
 
     class HeaderViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         private val viewTime: TextView = itemView.findViewById(R.id.tv_date)
@@ -385,9 +386,13 @@ object ChatViewHolders {
             } else {
                 View.VISIBLE
             }
-            textThinkingHeader.text = if (data.thinkingFinishedTime >= 0)
-                textThinkingHeader.resources.getString(R.string.r1_think_complete_template, (data.thinkingFinishedTime / 1000).toString())
-            else textThinkingHeader.resources.getString(R.string.r1_thinking_message)
+            textThinkingHeader.text = when {
+                data.thinkingFinishedTime == THINKING_COMPLETE_WITHOUT_TIMING ->
+                    context.getString(R.string.agent_thinking_complete)
+                data.thinkingFinishedTime >= 0 ->
+                    context.getString(R.string.r1_think_complete_template, (data.thinkingFinishedTime / 1000).toString())
+                else -> context.getString(R.string.r1_thinking_message)
+            }
             if (showThinking && !TextUtils.isEmpty(data.thinkingText)) {
                 val thinkingText = data.thinkingText!!
                 thinkingContainer.visibility = View.VISIBLE

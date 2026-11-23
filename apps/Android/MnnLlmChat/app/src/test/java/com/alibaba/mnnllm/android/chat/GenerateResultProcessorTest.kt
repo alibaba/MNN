@@ -64,6 +64,131 @@ class GenerateResultProcessorTest {
     }
 
     @Test
+    fun answerDisplayText_allChunkSplitPoints_hideOnlyOuterMarkers() {
+        val body = "完整回答 42\n第二行。"
+        val opening = "<answer>"
+        val input = opening + body + "</answer>"
+        for (first in 0..input.length) {
+            for (second in first..input.length) {
+                val processor = GenerateResultProcessor()
+                processor.generateBegin()
+                var previous = 0
+                for (end in listOf(first, second, input.length)) {
+                    processor.process(input.substring(previous, end))
+                    val expected = body.take((end - opening.length).coerceIn(0, body.length))
+                    assertEquals("splits=$first,$second end=$end", expected,
+                        GenerateResultProcessor.answerDisplayText(processor.getNormalOutput(), streaming = true))
+                    assertEquals(input.substring(0, end), processor.getRawResult())
+                    assertEquals("", processor.getThinkingContent())
+                    previous = end
+                }
+                processor.process(null)
+                assertEquals(body, GenerateResultProcessor.answerDisplayText(processor.getNormalOutput()))
+                assertEquals(input, processor.getRawResult())
+            }
+        }
+    }
+
+    @Test
+    fun answerDisplayText_preservesWhitespaceAndInnerLiteralTags() {
+        val body = "\n正文 <answer>字面示例</answer> 仍然保留\n"
+        assertEquals(" \t" + body + "\r\n", GenerateResultProcessor.answerDisplayText(
+            " \t<answer>" + body + "</answer>\r\n"))
+        assertEquals("未完成回答", GenerateResultProcessor.answerDisplayText("<answer>未完成回答"))
+        assertEquals("<answer>示例</answer>", GenerateResultProcessor.answerDisplayText(
+            "<answer><answer>示例</answer></answer>"))
+        assertEquals("正文 </answer> 中间字面结束标签", GenerateResultProcessor.answerDisplayText(
+            "<answer>正文 </answer> 中间字面结束标签</answer>"))
+        assertEquals("正文 <answer> 表示开始", GenerateResultProcessor.answerDisplayText(
+            "<answer>正文 <answer> 表示开始</answer>"))
+        assertEquals(" \n", GenerateResultProcessor.answerDisplayText(" \n<ans", streaming = true))
+        assertEquals(" \n<ans", GenerateResultProcessor.answerDisplayText(" \n<ans"))
+    }
+
+    @Test
+    fun answerDisplayText_bareTextAllSplitPoints_isNotLost() {
+        val inputs = listOf(
+            "裸文本回答\n 保留空格 ", "<", "<a", "<ans", "<answer", "</answer>",
+            "<answerX>不是控制标记</answerX>", "<answer attr=\"x\">保留</answer>",
+            "<ANSWER>保留</ANSWER>", "正文 <answer>示例</answer>",
+            "`<answer>示例</answer>`", "```xml\n<answer>示例</answer>\n```",
+            "~~~xml\n<answer>示例</answer>\n~~~", "<xml>保留</xml>"
+        )
+        for (input in inputs) {
+            for (split in 0..input.length) {
+                val processor = GenerateResultProcessor()
+                processor.generateBegin()
+                val prefix = input.substring(0, split)
+                processor.process(prefix)
+                val openingCandidates = listOf("<", "<a", "<an", "<ans", "<answ", "<answe", "<answer")
+                assertEquals(if (prefix in openingCandidates) "" else prefix,
+                    GenerateResultProcessor.answerDisplayText(processor.getNormalOutput(), streaming = true))
+                processor.process(input.substring(split))
+                processor.process(null)
+                assertEquals("input=$input split=$split", input,
+                    GenerateResultProcessor.answerDisplayText(processor.getNormalOutput()))
+                assertEquals(input, processor.getRawResult())
+            }
+        }
+        assertEquals("", GenerateResultProcessor.answerDisplayText(null))
+        assertEquals("", GenerateResultProcessor.answerDisplayText("<ans", streaming = true))
+        assertEquals("正文", GenerateResultProcessor.answerDisplayText("<answer>正文</ans", streaming = true))
+        assertEquals("正文</ans", GenerateResultProcessor.answerDisplayText("<answer>正文</ans"))
+        assertEquals("</ans", GenerateResultProcessor.answerDisplayText("</ans", streaming = true))
+    }
+
+    @Test
+    fun answerDisplayText_wrappedCode_keepsLiteralTagsAndPartialSuffixes() {
+        val bodies = listOf(
+            "`<answer>示例</answer>`", "``literal `<answer>示例</answer>` ``",
+            "```xml\n<answer>示例</answer>\n```", "~~~xml\n<answer>示例</answer>\n~~~",
+            "```xml\n<answer>示例</answer>\n```\n", "~~~xml\n<answer>示例</answer>\n~~~\n",
+            "  ````xml\n<answer>示例</answer>\n```\n````\n",
+            "```xml\r<answer>示例</answer>\r```\r", "\\`不是 inline code"
+        )
+        for (body in bodies) {
+            val input = "<answer>$body</answer>"
+            for (end in 0..input.length) {
+                val expected = body.take((end - "<answer>".length).coerceIn(0, body.length))
+                assertEquals("body=$body end=$end", expected,
+                    GenerateResultProcessor.answerDisplayText(input.substring(0, end), streaming = true))
+            }
+            assertEquals(body, GenerateResultProcessor.answerDisplayText(input))
+        }
+        for (body in listOf("`字面 </answer>", "```xml\n字面 </answer>", "~~~xml\n字面 </answer>")) {
+            assertEquals(body, GenerateResultProcessor.answerDisplayText("<answer>$body"))
+            for (length in 1 until "</answer>".length) {
+                val partial = body.removeSuffix("</answer>") + "</answer>".take(length)
+                assertEquals(partial, GenerateResultProcessor.answerDisplayText("<answer>$partial", streaming = true))
+            }
+        }
+    }
+
+    @Test
+    fun answerDisplayText_qwenThinkParsing_isUnchanged() {
+        val answer = "正常回答\n`<answer>字面示例</answer>`"
+        for (split in 0..answer.length) {
+            val processor = GenerateResultProcessor()
+            processor.generateBegin()
+            processor.process("<think>")
+            processor.process("先思考")
+            processor.process("再确认")
+            processor.process("</think>")
+            processor.process(answer.substring(0, split))
+            processor.process(answer.substring(split))
+            processor.process(null)
+            assertEquals("先思考再确认\n", processor.getThinkingContent())
+            assertEquals(answer, processor.getNormalOutput())
+            assertEquals(answer, GenerateResultProcessor.answerDisplayText(processor.getNormalOutput()))
+            assertEquals("先思考再确认\n$answer", processor.getDisplayResult())
+            assertEquals("<think>先思考再确认</think>$answer", processor.getRawResult())
+            assertTrue(processor.thinkTime >= 0)
+        }
+        val raw = "<think>保留现有解析职责</think>正常回答"
+        assertEquals(raw, GenerateResultProcessor.answerDisplayText(raw))
+    }
+
+    @Test
     fun gptOss_thinkingOnly_extractsMessage() {
         val p = GenerateResultProcessor()
         p.generateBegin()
