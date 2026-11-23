@@ -57,6 +57,7 @@ public:
     LlmConfig() {}
     std::shared_ptr<LlmResources> resources_;
     LlmResources::Policy resource_policy_;
+    std::shared_ptr<LlmResources> lora_;
 
     explicit LlmConfig(std::shared_ptr<LlmResources> provider) : resources_(std::move(provider)) {
         resource_policy_ = resources_->policy();
@@ -85,6 +86,9 @@ public:
     }
 
     LlmResources::Resource resource(const std::string& path) const {
+        if (lora_ && path == llm_model()) {
+            return lora_->resource("lora.mnn");
+        }
         if (resources_) {
             const auto name = relativeResourcePath("", path);
             return name.empty() ? LlmResources::Resource() : resources_->resource(name);
@@ -158,9 +162,16 @@ public:
         }
         return ujson::json::parse(std::string(reinterpret_cast<const char*>(data), size));
     }
-    bool diskCacheEnabled() const { return !resources_ || resource_policy_.diskCache; }
-    bool debugCallbacksEnabled() const { return !resources_ || resource_policy_.debugCallbacks; }
-    LlmConfig(const LlmConfig& other) = default;
+    bool diskCacheEnabled() const { return resource_policy_.diskCache; }
+    bool debugCallbacksEnabled() const { return resource_policy_.debugCallbacks; }
+    LlmConfig(const LlmConfig& other)
+        : base_dir_(other.base_dir_), resources_(other.resources_), resource_policy_(other.resource_policy_),
+          lora_(other.lora_) {
+        // ujson copies are views; assign into fresh values to isolate adapter configuration.
+        config_ = other.config_;
+        mllm_config_ = other.mllm_config_;
+        cur_config_ = other.cur_config_;
+    }
     LlmConfig(const std::string& path) {
         // load config
         if (has_suffix(path, ".json")) {

@@ -1076,9 +1076,11 @@ python llmexport.py --path /path/to/Qwen2.5-0.5B-Instruct --lora_path /path/to/l
 ```bash
 python llmexport.py --path /path/to/Qwen2.5-0.5B-Instruct --lora_path /path/to/lora --lora_split --export mnn
 ```
-导出后模型文件夹内除了原始模型外，还会增加`lora.mnn`，这个就是lora模型文件。
+导出后模型文件夹内还会增加 `lora.mnn`，保留计算图，LoRA A/B 权重默认以 FP16 存储，`alpha/r` 已乘入 B。基础模型权重和其他参数精度不变。
 
-也可以同时指定 `--dst_file model.mpack`，基础模型会导出为 `model.mpack`，分离的 `lora.mnn` 保存在同一目录。单文件模型调用 `create_lora` 时，传入 `lora.mnn` 的文件路径。`lora.mnn` 包含计算图，采用普通 MNN 格式存储。
+也可以同时指定 `--dst_file model.mpack`，基础模型会导出为 `model.mpack`，分离的 `lora.mpack` 保存在同一目录。适配器包内是带计算图的 `lora.mnn`，沿用单文件包的格式规则，不重复打包基座的外部权重文件。普通 `lora.mnn` 不经过包格式编码。
+
+`create_lora` 同时支持已有的 `lora.mnn` 和单文件适配器包，包格式按内容识别，不依赖后缀。目录基座的相对适配器路径相对于基座目录；单文件基座使用适配器的实际文件路径。
 
 运行时创建lora模型
   ```cpp

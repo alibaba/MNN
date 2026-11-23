@@ -62,6 +62,9 @@ class LoRA:
     def build_conv(self, input_index, output_name, dims, weight):
         output_index = self.build_tensor(output_name)
         oc, ic = dims
+        weight = weight.detach().cpu().half()
+        if not weight.isfinite().all().item():
+            raise ValueError(f'Non-finite FP16 LoRA weights: {output_name}')
         bias = [0.0 for i in range(oc)]
         op = {
             'type': 'Convolution',
@@ -76,7 +79,10 @@ class LoRA:
                     'outputCount': oc, 'relu': False, 'padMode': 'CAFFE',
                     'relu6': False, 'inputCount': ic, 'hasOutputShape': False
                 },
-                "weight": weight,
+                "quanParameter": {
+                    "type": 3,
+                    "buffer": weight.numpy().astype('<f2', copy=False).view('i1').reshape(-1).tolist()
+                },
                 "bias": bias
             },
             'defaultDimentionFormat': 'NC4HW4'
@@ -133,8 +139,8 @@ class LoRA:
     def build_lora_chain(self, input_index, output_index, tag):
         # lora_B @ lora_A @ x -> lora_B @ (lora_A @ x), added onto output_index
         lora_a, lora_b = self.get_lora(tag)
-        a_out = self.build_conv(input_index, f'{tag}_A', list(lora_a.shape), lora_a.flatten().tolist())
-        b_out = self.build_conv(a_out, f'{tag}_B', list(lora_b.shape), lora_b.flatten().tolist())
+        a_out = self.build_conv(input_index, f'{tag}_A', list(lora_a.shape), lora_a)
+        b_out = self.build_conv(a_out, f'{tag}_B', list(lora_b.shape), lora_b)
         return self.build_binary('ADD', [output_index, b_out], f'{tag}_add')
 
     def apply_lora(self, op):

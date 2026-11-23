@@ -486,7 +486,7 @@ bool Llm::load() {
     module_config.rearrange    = true;
     // using base module for lora module
     if (mBaseModule != nullptr) {
-        module_config.base = mBaseModule;
+        module_config.base = mBaseModule.get();
     }
     // load single model
     std::vector<std::string> inputNames {"input_ids", "attention_mask", "position_ids", "logits_index"};
@@ -569,8 +569,27 @@ bool Llm::load() {
 }
 
 Llm* Llm::create_lora(const std::string& lora_path) {
+    if (!mModule || mConfig->lora_) {
+        MNN_ERROR("Create LoRA adapters from a loaded base model.\n");
+        return nullptr;
+    }
     auto llm = new Llm(std::make_shared<LlmConfig>(*mConfig));
-    if (mConfig->resources_) {
+    std::shared_ptr<LlmResources> adapter;
+    const bool absolute = !lora_path.empty() &&
+                          (lora_path[0] == '/' || lora_path[0] == '\\' ||
+                           (lora_path.size() > 1 && lora_path[1] == ':'));
+    const auto adapterPath = !absolute && !mConfig->resources_ ? mConfig->base_dir_ + lora_path : lora_path;
+    if (tryOpenLlmFile(adapterPath, adapter)) {
+        if (!adapter || !adapter->resource("lora.mnn").valid()) {
+            MNN_ERROR("Invalid LoRA package.\n");
+            delete llm;
+            return nullptr;
+        }
+        llm->mConfig->lora_ = adapter;
+        llm->mConfig->resource_policy_.diskCache &= adapter->policy().diskCache;
+        llm->mConfig->resource_policy_.debugCallbacks &= adapter->policy().debugCallbacks;
+        llm->set_config("{\"use_mmap\": false, \"use_cached_mmap\": false}");
+    } else if (mConfig->resources_) {
         struct LoraResources final : LlmResources {
             std::shared_ptr<LlmResources> base;
             std::string model, adapter;
@@ -593,7 +612,7 @@ Llm* Llm::create_lora(const std::string& lora_path) {
     } else {
         llm->set_config("{\"llm_model\": \"" + lora_path + "\", \"use_mmap\": false, \"use_cached_mmap\": false}");
     }
-    llm->mBaseModule = mModule.get();
+    llm->mBaseModule = mModule;
     auto res = llm->load();
     if (!res) {
         MNN_ERROR("[MNN:LLM] Load Lora error\n");
