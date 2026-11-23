@@ -57,7 +57,8 @@ class SamplerIsPenaltyActiveTest : public MNNTestCase {
             Sampler s(ctx, cfg);
             // With empty history, penalty has nothing to penalize; the token
             // distribution is unchanged so greedy still picks 0.
-            auto logits = makeLogits({5.0f, 3.0f, 1.0f});
+            // The gap keeps token 1 below the default min_p cutoff, so the pick is deterministic.
+            auto logits = makeLogits({10.0f, 3.0f, 1.0f});
             int tok = s.sample(logits);
             MNNTEST_ASSERT(tok == 0);
         }
