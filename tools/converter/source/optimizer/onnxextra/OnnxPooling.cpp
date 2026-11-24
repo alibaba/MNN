@@ -200,6 +200,23 @@ public:
             return res->expr().first;
         }
         auto poolExpr = Expr::create(poolOp.get(), {inputs[0]}, outputSize);
+        if (type == "MaxPool" && !is3DPooling && outputSize == 2) {
+            // Pooling's second output is the argmax inside each (n, c) plane,
+            // ONNX wants the flattened index over the whole input: ((n * C + c) * H + h) * W + w
+            auto values       = Variable::create(poolExpr, 0);
+            auto indices      = Variable::create(poolExpr, 1);
+            auto inputShape   = _Shape(inputs[0], true);
+            auto batchChannel = _Slice(inputShape, _Unsqueeze(_Scalar<int>(0), {0}), _Unsqueeze(_Scalar<int>(2), {0}));
+            auto spatial      = _Slice(inputShape, _Unsqueeze(_Scalar<int>(2), {0}), _Unsqueeze(_Scalar<int>(-1), {0}));
+            auto planeOffset  = _Range(_Scalar<int>(0), _ReduceProd(batchChannel), _Scalar<int>(1));
+            auto offsetShape  = _Concat({batchChannel, _Fill(_Shape(spatial, true), _Scalar<int>(1))}, 0);
+            planeOffset       = _Reshape(planeOffset * _ReduceProd(spatial), offsetShape);
+            std::unique_ptr<OpT> copyOp(new OpT);
+            copyOp->type = OpType_Identity;
+            auto resultExpr = Expr::create(copyOp.get(), {values, indices + planeOffset}, 2);
+            resultExpr->setName(expr->name());
+            return resultExpr;
+        }
         auto res      = Variable::create(poolExpr);
         poolExpr->setName(expr->name());
         return res->expr().first;

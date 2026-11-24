@@ -199,6 +199,10 @@ static bool _computeTensorFormat(std::vector<MNN_DATA_FORMAT>& tensorFormat, std
         {
             _setInputFormat(tensorFormat, op->inputIndexes[0], MNN_DATA_FORMAT_NC4HW4);
             tensorFormat[op->outputIndexes[0]] = MNN_DATA_FORMAT_NC4HW4;
+            if (op->type == OpType_Pooling && op->outputIndexes.size() == 2) {
+                // The indices output of max pooling has the same layout as its input
+                tensorFormat[op->outputIndexes[1]] = MNN_DATA_FORMAT_NC4HW4;
+            }
             for (int i=1; i<op->inputIndexes.size(); ++i) {
                 _setInputFormat(tensorFormat, op->inputIndexes[i], originFormat);
             }
