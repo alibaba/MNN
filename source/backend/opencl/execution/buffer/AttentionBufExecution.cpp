@@ -1199,9 +1199,6 @@ bool AttentionBufExecution::flashPrefillEligible(const std::vector<Tensor*>& inp
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
     const int maxWgSize = std::min((int)mMaxWorkGroupSize, 256);
     const uint64_t maxLocal = runtime->getMaxLocalMem();
-    // lq is FLOAT and ls is COMPUTE_FLOAT, and the two widths only agree outside the Normal
-    // level, which stores in half but computes in float. See the three buildOptionsStr
-    // branches in OpenCLRuntime::buildKernelWithCache.
     const auto precision = mOpenCLBackend->getPrecision();
     const int floatBytes =
         (BackendConfig::Precision_Normal == precision || BackendConfig::Precision_Low == precision) ? 2 : 4;
@@ -1227,7 +1224,7 @@ bool AttentionBufExecution::flashPrefillEligible(const std::vector<Tensor*>& inp
             // Makes phase 1's (tileQ / 4) x (tileKV / 4) micro-tiles map exactly onto the
             // workgroup, and gives every softmax work-item 16 kv entries.
             const int tileKV = 16 * wg / tileQ;
-            // lq[ROUND_UP(headDim,4) * tileQ] FLOAT, ls[tileKV * tileQ] COMPUTE_FLOAT, then
+            // lq[ROUND_UP(headDim,4) * tileQ] FLOAT, ls[tileKV * tileQ], then
             // lred[tileQ * tpr] + ll[tileQ] + la[tileQ] as float. ROUND_UP because phase 0 fills
             // lq four dim rows at a time, so the dim axis is padded when headDim % 4 != 0.
             const uint64_t localBytes = (uint64_t)ROUND_UP(headDim, 4) * tileQ * floatBytes +
