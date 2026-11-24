@@ -2577,4 +2577,68 @@ private:
 
 MNNTestSuiteRegister(AttentionDecodeTest, "op/attention_decode");
 MNNTestSuiteRegister(AttentionPrefillPathTest, "op/attention_prefill_paths");
+
+class AttentionKvCacheOOMTest : public MNNTestCase {
+    static VARP scalarMask() {
+        auto m = _Input({}, NCHW, halide_type_of<float>());
+        m->writeMap<float>()[0] = 0.0f;
+        return m;
+    }
+
+public:
+    AttentionKvCacheOOMTest() = default;
+    virtual ~AttentionKvCacheOOMTest() = default;
+
+    virtual bool run(int precision) {
+        auto status = MNNTestSuite::get()->pStaus;
+        if (MNN_FORWARD_METAL != (MNNForwardType)status.forwardType) {
+            MNNTestSuite::get()->skipped++;
+            MNN_PRINT("\tskip: Metal-only case, backend=%d\n", status.forwardType);
+            return true;
+        }
+        MNN::BackendConfig bnConfig;
+        bnConfig.memory = (MNN::BackendConfig::MemoryMode)status.memory;
+        bnConfig.precision = (MNN::BackendConfig::PrecisionMode)status.precision;
+        bnConfig.power = (MNN::BackendConfig::PowerMode)status.power;
+        auto exe = Executor::newExecutor((MNNForwardType)status.forwardType, bnConfig,
+                                         status.thread > 0 ? status.thread : 1);
+        std::shared_ptr<ExecutorScope> scope(new ExecutorScope(exe));
+
+        const int savedNumHead = NumHead, savedKvNumHead = KvNumHead, savedHeadDim = HeadDim;
+        NumHead = 8;
+        KvNumHead = 8;
+        HeadDim = 128;
+        const int kRealSeq = 8;
+        const size_t kClaimedSeq = 2000000000;
+
+        gMeta.previous = 0;
+        gMeta.remove = 0;
+        gMeta.add = kClaimedSeq;
+        auto module = _makeAttentionModule();
+        bool pass = true;
+        if (nullptr == module) {
+            MNN_PRINT("\tattention_kv_oom: module load reported failure\n");
+        } else {
+            auto q = generateRandTensor(kRealSeq, NumHead, HeadDim, precision);
+            auto k = generateRandTensor(kRealSeq, KvNumHead, HeadDim, precision);
+            auto v = generateRandTensor(kRealSeq, KvNumHead, HeadDim, precision);
+            auto outputs = module->onForward({vector_to_var(q), vector_to_var(k), vector_to_var(v), scalarMask()});
+            if (!outputs.empty()) {
+                MNN_PRINT("Error: attention_kv_oom produced %d output(s) after a failed kv alloc\n",
+                          (int)outputs.size());
+                pass = false;
+            }
+        }
+        module.reset();
+        gMeta.sync();
+        gMeta.previous = 0;
+        gMeta.remove = 0;
+        gMeta.add = 0;
+        NumHead = savedNumHead;
+        KvNumHead = savedKvNumHead;
+        HeadDim = savedHeadDim;
+        return pass;
+    }
+};
+MNNTestSuiteRegister(AttentionKvCacheOOMTest, "op/attention_kv_oom");
 #endif
