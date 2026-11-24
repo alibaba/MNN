@@ -13,6 +13,10 @@ public:
     virtual ~HexagonAttention();
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
     static Execution* create(Backend* backend, const Op* op) {
+        auto param = op->main_as_AttentionParam();
+        if (nullptr != param && param->softcap() != 0.0f) {
+            return nullptr;
+        }
         return new HexagonAttention(backend, op);
     }
 private:

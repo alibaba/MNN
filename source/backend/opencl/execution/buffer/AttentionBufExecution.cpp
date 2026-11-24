@@ -2079,10 +2079,13 @@ void AttentionBufExecution::prebuildOpenCLPrograms(const std::vector<Tensor*>& i
 }
 
 bool AttentionBufExecution::onClone(Backend* bn, const Op* op, Execution** dst) {
+    auto param = op->main_as_AttentionParam();
+    if (nullptr != param && param->softcap() != 0.0f) {
+        return false;
+    }
     if (nullptr == dst) {
         return true;
     }
-    auto param = op->main_as_AttentionParam();
     if (bn->getMetaPtr() == mMeta && mMeta != nullptr) {
         *dst = new AttentionBufExecution(mKVCacheCLManager, op, bn);
     } else if (nullptr != param && param->kv_shared_layer_index() >= 0) {
@@ -2098,13 +2101,16 @@ class AttentionBufCreator : public OpenCLBackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override {
+        auto param = op->main_as_AttentionParam();
+        if (param->softcap() != 0.0f) {
+            return nullptr;
+        }
         for (int i = 0; i < inputs.size(); ++i) {
             TensorUtils::setTensorSupportPack(inputs[i], false);
         }
         for (int i = 0; i < outputs.size(); ++i) {
             TensorUtils::setTensorSupportPack(outputs[i], false);
         }
-        auto param = op->main_as_AttentionParam();
         OPENCL_CREATOR_CHECK(new AttentionBufExecution(op, backend, param->output_c4()));
     }
 };

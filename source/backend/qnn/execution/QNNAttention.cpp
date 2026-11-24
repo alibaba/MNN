@@ -489,6 +489,9 @@ public:
     virtual QNNCommonExecution * onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op,
                                 Backend* backend) const override {
         auto param = op->main_as_AttentionParam();
+        if (nullptr != param && param->softcap() != 0.0f) {
+            return nullptr;
+        }
         if(inputs.size() < 3 || inputs.size() > 4 || outputs.size() != 1) {
             MNN_ERROR("MNN QNN not support attention op with inputs size:%d outputs size:%d\n", (int)inputs.size(), (int)outputs.size());
             return nullptr;

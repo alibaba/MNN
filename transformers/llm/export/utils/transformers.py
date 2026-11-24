@@ -107,6 +107,26 @@ def kv_shared_owner(config, layer_id):
             return index
     return None
 
+def attention_softcap(attn, config):
+    # Original HF settings take precedence over the flattened export config.
+    for cfg in (attn, getattr(attn, 'config', None), getattr(config, 'origin_config', None), config):
+        if cfg is None:
+            continue
+        for candidate in (getattr(cfg, 'text_config', None), cfg):
+            if candidate is None or not hasattr(candidate, 'attn_logit_softcapping'):
+                continue
+            softcap = candidate.attn_logit_softcapping
+            if softcap is None:
+                return 0.0
+            try:
+                softcap = float(softcap)
+            except (TypeError, ValueError, OverflowError):
+                raise ValueError('attn_logit_softcapping must be finite and non-negative') from None
+            if not math.isfinite(softcap) or softcap < 0.0:
+                raise ValueError('attn_logit_softcapping must be finite and non-negative')
+            return softcap
+    return 0.0
+
 class Attention(torch.nn.Module):
     def __init__(self, attn, layer_id, config, rotary, mapper):
         super().__init__()
@@ -149,6 +169,7 @@ class Attention(torch.nn.Module):
         # Read attention scaling from the original HF attention module
         if hasattr(attn, 'scaling'):
             self.attn_scaling = attn.scaling
+        self.attn_logit_softcapping = attention_softcap(attn, config)
 
         # k_eq_v / KV sharing detection (gemma4 and similar models)
         # Mapper key 'k_eq_v' acts as sentinel: its presence means per-layer detection is needed.
@@ -190,7 +211,7 @@ class Attention(torch.nn.Module):
         self.fused_attn = FusedAttention(
             self.num_heads * self.head_dim, self.kv_cache,
             f'/layers.{layer_id}/self_attn/FusedAttention', layer_id, kv_shared_idx,
-            self.head_dim)
+            self.head_dim, self.attn_logit_softcapping)
         self.rope_cut_head_dim = min(int(getattr(self.rotary, 'rotary_dim', self.head_dim)), self.head_dim)
         self.fused_rope = FusedRoPE(
             self.rope_cut_head_dim,
@@ -447,6 +468,8 @@ class Attention(torch.nn.Module):
         # query_states @ key_states
         attn_scaling = getattr(self, 'attn_scaling', 1.0 / math.sqrt(self.head_dim))
         attn_weights = torch.matmul(query_states, key_states) * attn_scaling
+        if self.attn_logit_softcapping > 0.0:
+            attn_weights = self.attn_logit_softcapping * torch.tanh(attn_weights / self.attn_logit_softcapping)
         # attention_mask
         if attention_mask.dtype in (torch.bool, torch.int32):
             # chatglm
