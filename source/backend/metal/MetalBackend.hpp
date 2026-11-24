@@ -170,6 +170,14 @@ public:
         return mMaxThreadSize;
     }
 
+    void markResourceAllocFailed() const {
+        mCommandBufferFailed = true;
+    }
+
+    bool runFailed() const {
+        return mCommandBufferFailed;
+    }
+
 private:
     MetalRuntime(void* context);
     void* mContext = nullptr;

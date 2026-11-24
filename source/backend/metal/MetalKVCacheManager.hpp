@@ -37,7 +37,7 @@ private:
     std::shared_ptr<KVQuantParameter> mKVQuantParameter = nullptr;
 
 private:
-    void expandKVCacheInDisk(size_t oldKeySize, size_t oldValueSize, size_t curKeySize, size_t curValueSize,
+    bool expandKVCacheInDisk(size_t oldKeySize, size_t oldValueSize, size_t curKeySize, size_t curValueSize,
                              int copy_len, bool need_copy, file_t specKeyFile = INVALID_FILE,
                              file_t specValueFile = INVALID_FILE);
     bool expandKVCacheInMem(size_t oldSize, int copy_len, bool need_copy);

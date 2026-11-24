@@ -102,7 +102,7 @@ public:
 
 private:
     void _init();
-    void compilerShader(const std::vector<Tensor*>& inputs);
+    bool compilerShader(const std::vector<Tensor*>& inputs);
     ErrorCode handleKVAllocMemory();
     // onEncode cannot return a code, so a KV alloc failure there is parked here and
     // surfaced by onExecute instead of letting the encode run on unallocated memory.
@@ -114,7 +114,7 @@ private:
     // Per-token encode-path decisions (split-kv / fused decode-qk-softmax /
     // simd flags / causal flags) + KV memory bookkeeping. Shared by onEncode
     // and onReplayUpdate so replayed tokens recompute identical state.
-    void _computePathFlags(const std::vector<Tensor*>& inputs);
+    bool _computePathFlags(const std::vector<Tensor*>& inputs);
     AttentionCopyParam _makeCopyParam(const Tensor* key, const Tensor* value) const;
     AttentionQKVParam _makeQKVParam(const std::vector<Tensor*>& inputs, int seqLenPiece) const;
     AttentionSoftmaxParam _makeSoftmaxParam(int seqLenPiece) const;

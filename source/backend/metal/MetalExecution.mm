@@ -94,6 +94,9 @@ ErrorCode MetalExecution::onExecute(const std::vector<Tensor *> &inputs, const s
     // buffers track their own resources.
     @autoreleasepool {
     auto backend = static_cast<MetalBackend *>(this->backend());
+    if (backend->runtime()->runFailed()) {
+        return NO_EXECUTION;
+    }
 #ifdef MNN_SESSION_CPU_TRACE
     auto t0 = std::chrono::steady_clock::now();
 #endif
@@ -120,6 +123,9 @@ ErrorCode MetalExecution::onExecute(const std::vector<Tensor *> &inputs, const s
                 encoded = true;
                 mReplayFailCount = 0;
             } else {
+                if (backend->runtime()->runFailed()) {
+                    return NO_EXECUTION;
+                }
                 // Stale recording (address moved or dynamic hook bailed):
                 // drop it and re-observe; the normal encode below re-arms.
                 mReplayState  = 0;
@@ -152,6 +158,12 @@ ErrorCode MetalExecution::onExecute(const std::vector<Tensor *> &inputs, const s
                 gMetalReplayProxy = proxy;
                 this->onEncode(inputs, outputs, (id<MTLComputeCommandEncoder>)proxy);
                 gMetalReplayProxy = nil;
+                if (backend->runtime()->runFailed()) {
+                    mReplayState  = 0;
+                    mReplayStable = 0;
+                    mReplayEvents.clear();
+                    return NO_EXECUTION;
+                }
                 if (proxy.failed) {
                     mReplayState = -1; // unrecordable encode: stay on normal path
                     mReplayEvents.clear();
@@ -170,6 +182,9 @@ ErrorCode MetalExecution::onExecute(const std::vector<Tensor *> &inputs, const s
     }
     if (!encoded) {
         this->onEncode(inputs, outputs, encoder);
+    }
+    if (backend->runtime()->runFailed()) {
+        return NO_EXECUTION;
     }
 #if MNN_METAL_OP_PROFILE
     // counter mode: per-op encoder boundary (cheap, same command buffer)

@@ -625,9 +625,11 @@ ErrorCode MetalLinearAttention::onResize(const std::vector<Tensor *> &inputs, co
         mResizeGeneration++;
     }
     bool success = backend()->onAcquireBuffer(mConvOut.get(), Backend::DYNAMIC);
+    const bool gotConvOut = success;
 
 
     bool needChunkStats = seqLen >= 64 && mUseFlashChunk;
+    bool gotChunkStats = false;
     if (needChunkStats) {
         // Padded to whole chunks so prep writes, and the scan reads, all 64
         // slots of the tail chunk — the gate cumsum of the padded lanes is a
@@ -640,7 +642,8 @@ ErrorCode MetalLinearAttention::onResize(const std::vector<Tensor *> &inputs, co
             mChunkStats.reset(Tensor::createDevice<int32_t>({batch * H, 4, paddedSeq}));
             mResizeGeneration++;
         }
-        success = success && backend()->onAcquireBuffer(mChunkStats.get(), Backend::DYNAMIC);
+        gotChunkStats = success && backend()->onAcquireBuffer(mChunkStats.get(), Backend::DYNAMIC);
+        success = gotChunkStats;
     }
 
     // Fused decode kernels loop over L internally and read conv_out directly,
@@ -661,6 +664,7 @@ ErrorCode MetalLinearAttention::onResize(const std::vector<Tensor *> &inputs, co
     }
     // A verify block uses the fused verify kernel, which also reads conv_out directly.
     bool needQKV = mAttentionType != "short_conv" && !specVerify && !fusedDecode && !fusedLongPrefill;
+    bool gotQ = false, gotK = false, gotV = false;
     if (needQKV) {
         // Same reasoning as mConvOut above: keep the Tensor objects while their
         // shape is unchanged so a recording never holds a freed Tensor*, and
@@ -675,21 +679,27 @@ ErrorCode MetalLinearAttention::onResize(const std::vector<Tensor *> &inputs, co
             mV.reset(Tensor::createDevice<float>({batch, seqLen, H, dv}));
             mResizeGeneration++;
         }
-        success = success && backend()->onAcquireBuffer(mQ.get(), Backend::DYNAMIC);
-        success = success && backend()->onAcquireBuffer(mK.get(), Backend::DYNAMIC);
-        success = success && backend()->onAcquireBuffer(mV.get(), Backend::DYNAMIC);
+        gotQ = success && backend()->onAcquireBuffer(mQ.get(), Backend::DYNAMIC);
+        gotK = gotQ && backend()->onAcquireBuffer(mK.get(), Backend::DYNAMIC);
+        gotV = gotK && backend()->onAcquireBuffer(mV.get(), Backend::DYNAMIC);
+        success = gotV;
     }
-    if (!success) return OUT_OF_MEMORY;
-
-    if (needQKV) {
+    if (gotV) {
         backend()->onReleaseBuffer(mV.get(), Backend::DYNAMIC);
+    }
+    if (gotK) {
         backend()->onReleaseBuffer(mK.get(), Backend::DYNAMIC);
+    }
+    if (gotQ) {
         backend()->onReleaseBuffer(mQ.get(), Backend::DYNAMIC);
     }
-    if (needChunkStats) {
+    if (gotChunkStats) {
         backend()->onReleaseBuffer(mChunkStats.get(), Backend::DYNAMIC);
     }
-    backend()->onReleaseBuffer(mConvOut.get(), Backend::DYNAMIC);
+    if (gotConvOut) {
+        backend()->onReleaseBuffer(mConvOut.get(), Backend::DYNAMIC);
+    }
+    if (!success) return OUT_OF_MEMORY;
 
     return NO_ERROR;
 }

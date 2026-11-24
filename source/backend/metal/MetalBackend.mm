@@ -502,7 +502,9 @@ public:
         mHoldAllocator = std::move(allocator);
     }
     virtual ~ MetalMemRelease() {
-        mAllocator->free(mBuffer);
+        if (!mBuffer.invalid()) {
+            mAllocator->free(mBuffer);
+        }
     }
     MemChunk chunk() override {
         return mBuffer;
@@ -607,12 +609,11 @@ Backend::MemObj* MetalBackend::onAcquire(const Tensor *_tensor, StorageType stor
             break;
         }
     }
-    if (storageType == Backend::STATIC) {
-        if(nullptr == buffer.first) {
-            MNN_ERROR("onAcquireBuffer error!\n");
-            return nullptr;
-        }
-    } else {
+    if (buffer.invalid()) {
+        MNN_ERROR("onAcquireBuffer error!\n");
+        return nullptr;
+    }
+    if (storageType != Backend::STATIC) {
         buffer.attach(tensor);
     }
     if (nullptr == buffer.first) {
@@ -2206,6 +2207,10 @@ bool MetalRuntime::onSetCache(const void* buffer, size_t size) {//set Cache
 
 MemChunk MetalRuntimeAllocator::onAlloc(size_t size, size_t align) {
     auto buffer = [mDevice newBufferWithLength:size options:MTLCPUCacheModeDefaultCache];
+    if (buffer == nil) {
+        MNN_ERROR("MNN::Metal: newBufferWithLength(%zu) returned nil, out of memory\n", size);
+        return MemChunk(nullptr, 0);
+    }
     auto mMetalBufferAlloc = new MetalBufferAlloc(buffer);
     return MemChunk((void *)mMetalBufferAlloc, 0);
 }
