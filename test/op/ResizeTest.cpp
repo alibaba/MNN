@@ -150,7 +150,9 @@ public:
         {
             auto output                             = _Interp({input, scaleVar}, wScale, hScale, outW, outH, 3, false);
             output                                  = _Convert(output, NHWC);
-            const std::vector<float> expectedOutput = { 2.516724, 2.217651, 2.516724, 2.698303, -0.516724, -0.217651, -0.516724, -0.698303, 2.516724, 2.217651, 2.516724, 2.698303, 4.358459, 3.696228, 4.358459, 4.760529};
+            const std::vector<float> expectedOutput = {-1.294159, -1.696228, -2.358460, -2.760528, -0.036072, -0.217651,
+                                                       -0.516724, -0.698303, 2.036072,  2.217651,  2.516724,  2.698303,
+                                                       3.294159,  3.696228,  4.358460,  4.760528};
             auto gotOutput                          = output->readMap<float>();
             if (!checkVector<float>(gotOutput, expectedOutput.data(), 16, 0.01)) {
                 MNN_ERROR("InterpType:3 test failed!\n");
@@ -249,7 +251,9 @@ public:
             auto output                             = _Interp({input0, scaleVar}, wScale, hScale, outW, outH, 3, false);
             output                                  = _Convert(output, NHWC);
             output->writeScaleMap(0.03967, 1.);
-            const std::vector<float> expectedOutput = { 2.516724, 2.217651, 2.516724, 2.698303, -0.516724, -0.217651, -0.516724, -0.698303, 2.516724, 2.217651, 2.516724, 2.698303, 4.358459, 3.696228, 4.358459, 4.760529};
+            const std::vector<float> expectedOutput = {-1.294159, -1.696228, -2.358460, -2.760528, -0.036072, -0.217651,
+                                                       -0.516724, -0.698303, 2.036072,  2.217651,  2.516724,  2.698303,
+                                                       3.294159,  3.696228,  4.358460,  4.760528};
             auto gotOutput                          = output->readMap<float>();
             if (!checkVector<float>(gotOutput, expectedOutput.data(), 16, 0.02)) {
                 MNN_ERROR("InterpType:3 test failed!\n");

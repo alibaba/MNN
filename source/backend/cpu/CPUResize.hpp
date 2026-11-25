@@ -150,7 +150,7 @@ public:
         // Compute Line Position
         for (int dx = 0; dx < outW; ++dx) {
             float x                   = (float)dx * xFactor + wOffset;
-            int xInt                  = (int)x;
+            int xInt = (int)floor(x);
             _lineFactor[dx]           = (float)(x - floor(x));
             _linePosition[4 * dx + 0] = CLAMP(xInt - 1, 0, inW - 1);
             _linePosition[4 * dx + 1] = CLAMP(xInt + 0, 0, inW - 1);
@@ -176,7 +176,7 @@ public:
                 auto topData    = reinterpret_cast<T*>(output->host<uint8_t>()) + b * outBatchSize + (int)n * pack * outW * outH;
                 for (int dy = 0; dy < outH; dy++) {
                     float y  = (float)dy * yFactor + hOffset;
-                    int yInt = (int)y;
+                    int yInt = (int)floor(y);
                     int yp[4];
                     yp[0] = CLAMP(yInt - 1, 0, inH - 1);
                     yp[1] = CLAMP(yInt, 0, inH - 1);
