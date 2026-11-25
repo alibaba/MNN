@@ -111,7 +111,20 @@ public:
                 }
             }
         }
-        {
+        for (int mode : {0, 1, 2}) {
+            KVMeta meta;
+            BackendConfig backendConfig;
+            backendConfig.memory = BackendConfig::Memory_Low;
+            auto layerRuntime = rt;
+            if (mode != 0) {
+                auto layerConfig = cfg;
+                layerConfig.backendConfig = &backendConfig;
+                layerRuntime.reset(Executor::RuntimeManager::createRuntimeManager(layerConfig),
+                                   Executor::RuntimeManager::destroy);
+                if (mode == 2) {
+                    layerRuntime->setHintPtr(Interpreter::KVCACHE_INFO, &meta);
+                }
+            }
             for (int modelSeed : {13, 29}) {
                 auto x = _Input({3, 64, 1, 1}, NC4HW4);
                 x->setName("x");
@@ -126,8 +139,9 @@ public:
                 }
                 y = _Convert(y, NCHW);
                 y->setName("y");
-                auto model = load(Variable::save({y}), {"x"}, {"y"}, rt);
+                auto model = load(Variable::save({y}), {"x"}, {"y"}, layerRuntime);
                 for (int m : {3, 1, 3}) {
+                    meta.add = m;
                     auto a = values(m * 64, 2), ref = a;
                     for (int l = 0; l < 4; ++l) {
                         std::vector<float> trans(64 * 64);
@@ -144,7 +158,9 @@ public:
                         }
                     }
                     auto out = model->onForward({_Convert(input({m, 64, 1, 1}, a), NC4HW4)});
-                    ok = check(out.empty() ? nullptr : out[0], ref, "four_embedded_linears") && ok;
+                    ok = check(out.empty() ? nullptr : out[0], ref,
+                               mode == 2 ? "llm_shared_linears" :
+                               (mode == 1 ? "low_memory_linears" : "four_embedded_linears")) && ok;
                 }
             }
         }

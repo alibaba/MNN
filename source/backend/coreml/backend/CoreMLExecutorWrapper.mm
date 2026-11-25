@@ -9,6 +9,17 @@
 #import "CoreMLExecutorWrapper.h"
 #import "CoreMLExecutor.h"
 namespace MNN {
+CoreMLWeightImage createCoreMLWeightImage(int width, int height) {
+    @autoreleasepool {
+        CVPixelBufferRef buffer = nullptr;
+        NSDictionary* attributes = @{(id)kCVPixelBufferIOSurfacePropertiesKey: @{}};
+        if (CVPixelBufferCreate(nullptr, width, height, kCVPixelFormatType_OneComponent8,
+                                (__bridge CFDictionaryRef)attributes, &buffer) != kCVReturnSuccess) {
+            return nullptr;
+        }
+        return CoreMLWeightImage(buffer, CVPixelBufferRelease);
+    }
+}
 static CoreMLExecutor* executorRef(void* ptr) { return (__bridge CoreMLExecutor*)ptr; }
 CoreMLExecutorWrapper::CoreMLExecutorWrapper(int precision) {
     auto executor = [[CoreMLExecutor alloc] init];
@@ -22,6 +33,13 @@ CoreMLExecutorWrapper::~CoreMLExecutorWrapper() {
     }
 }
 bool CoreMLExecutorWrapper::compiledFromSource() const { return executorRef(mCoreMLExecutorPtr).compiledFromSource; }
+#ifdef MNN_COREML_PREFILL_BENCH
+bool CoreMLExecutorWrapper::loadBenchmarkModel(const std::string& path) {
+    @autoreleasepool {
+        return [executorRef(mCoreMLExecutorPtr) loadBenchmarkModel:path];
+    }
+}
+#endif
 bool CoreMLExecutorWrapper::compileModel(CoreML__Specification__Model* model, const std::string& weightsPath,
                                          const std::shared_ptr<std::vector<uint8_t>>& weights, bool forceFileCompilation) {
     @autoreleasepool {
@@ -46,7 +64,14 @@ std::shared_ptr<CoreMLExecutorWrapper> CoreMLExecutorWrapper::createSession(cons
 }
 bool CoreMLExecutorWrapper::invokModel(const std::vector<std::pair<const Tensor*, std::string>>& inputs,
                                       const std::vector<std::pair<const Tensor*, std::string>>& outputs, bool flatIO) {
+    return invokModel(inputs, outputs, flatIO, {});
+}
+bool CoreMLExecutorWrapper::invokModel(const std::vector<std::pair<const Tensor*, std::string>>& inputs,
+                                      const std::vector<std::pair<const Tensor*, std::string>>& outputs, bool flatIO,
+                                      const CoreMLImageInputs& images) {
     std::lock_guard<std::mutex> lock(*mPredictionMutex);
-    @autoreleasepool { return [executorRef(mCoreMLExecutorPtr) invokeWithInputs:inputs outputs:outputs flatIO:flatIO]; }
+    @autoreleasepool {
+        return [executorRef(mCoreMLExecutorPtr) invokeWithInputs:inputs outputs:outputs flatIO:flatIO images:images];
+    }
 }
 } // namespace MNN

@@ -44,11 +44,80 @@ The graph test separately covers branches, multiple outputs, dynamic resize and 
 that partition test is not counted as native MIL coverage. Model quality also requires application checks
 such as class-aware detection/NMS comparison. LLM behavior is not covered by this CV validation.
 
-## Experimental low-memory programs
+## Whole-layer Core ML prefill with Metal decode
 
-`BackendConfig::Memory_Low` retains the geometry/per-operator program route. Weights are runtime inputs;
+Build with `MNN_COREML=ON`, `MNN_METAL=ON`, `MNN_LOW_MEMORY=ON`, `MNN_SUPPORT_TRANSFORMER_FUSE=ON`
+and `MNN_BUILD_LLM=ON`.
+The ordinary LLM entry point can opt into the complete-layer path with:
+
+```json
+{"backend_type": "metal", "memory": "low", "precision": "normal", "prefill_backend": "coreml"}
+```
+
+`backend/CoreMLTransformer.cpp` recognizes the fused Qwen3/Pocket full-attention graph by its data
+connections and parameters. It builds RMSNorm, Q/K normalization, RoPE, grouped attention, SwiGLU and
+residuals together in a single MIL program. It uses the existing protobuf builder and public Core ML
+compiler/executor; it neither synthesizes nor patches compiled bundles. Model-specific RoPE inputs and
+the vocabulary head are extracted as ordinary MNN modules, while embedding and tokenization keep the
+existing LLM implementation.
+
+Each transformer layer makes one synchronous Core ML prediction. Layers with equal dimensions and
+normalization parameters share the same loaded program. Prefix lengths use causal padding to 128, 256,
+512, 1024 or 2048 tokens, and padded outputs are discarded. At most four programs are retained per model.
+Q4/Q8 weights remain quantized between requests. Two reusable FP16 weight buffers let a worker prepare
+the next layer while the current layer predicts. This is FP16 ANE computation, not INT4/INT8 ANE arithmetic;
+input weights, output tensors and Core ML's own storage still contribute to latency and memory.
+
+The completed FP16 K/V tensors are handed to native Metal attention through internal `KVMeta` state.
+Metal consumes each layer's state once, synchronizes before host writes, invalidates old encode replay,
+and continues with its existing quantized-weight decode. There is no new public KV import method.
+Reset starts a new Core ML prefix; continuation of an existing history stays on Metal. Temporary compiler
+files use the existing executor cleanup lifecycle, and graph compilation is only a first-use/shape cost.
+`CoreMLWeight` and `CoreMLLayer` signposts expose preparation/prediction overlap to Instruments.
+
+For external Q4/G64 projections, set `"coreml_prefill_weights": "int8_per_channel"` alongside
+`"prefill_backend": "coreml"` to convert weights during prefill. The background task reads one projection
+at a time and requantizes each output channel into the next layer's reusable 8-bit pixel buffers.
+The shared Core ML layer graph consumes those buffers and FP16 channel scales. Two layers of converted
+weights are retained per transformer instance. Metal decode continues to use the original MNN weights.
+The default setting is `"fp16"`. Per-channel requantization changes logits and requires model-specific validation.
+See the [macOS prefill benchmark](../../../transformers/llm/engine/tools/coreml_prefill/README.md) for the
+Metal baseline, fixed-weight control, streaming CPU/GPU variants and Instruments protocol.
+
+The recognized graph requires full causal attention, full-head RoPE with repeated cosine/sine halves,
+Q/K RMSNorm, bias-free quantized projections and an ordinary text decoder. Linear attention, shared KV,
+quantized/file-backed KV, chunked prefill, speculative decoding and LoRA are not supported by this path. Unsupported graph
+or runtime semantics fail explicitly when the option is requested. Prefixes exceeding 2048 tokens are
+rejected; use ordinary Metal for those workloads. With the option absent the existing LLM behavior is unchanged.
+
+This is an opt-in feature that requires model/workload validation. On the development M3 Pro, the Pocket
+layer plan placed all 136 non-constant operations on ANE (214 for Qwen3-4B); runtime traces recorded
+28/28 and 36/36 layers' ANE predictions, followed by native Metal decode. That is evidence for the
+tested graphs/device, not an ANE guarantee on every Apple device.
+Short-prompt Pocket validation passed the full-logit/greedy gate, but synthetic long-context inputs and
+Qwen3-4B exceeded the 2% relative-L2 threshold. The CR records these limits and the paired Metal measurements;
+those workloads are not qualified as equivalent replacements. No iPhone validation is claimed for this path.
+
+## Experimental low-memory programs (`backend_type: "npu"`)
+
+`BackendConfig::Memory_Low` retains geometry lowering. Weights are runtime inputs;
 canonical names and serialized program structure form the runtime cache key. Layers with equal shapes
 and semantics can share a loaded model while retaining separate bindings and state.
+
+When the existing LLM entry supplies KV metadata, the backend groups connected prefill projections and
+FFN operations. Each group binds that layer's weights as inputs; equal graphs reuse the runtime's loaded
+program. Normalization and Attention remain on native CPU and delimit the groups. Single-token execution
+and single-row projections, including the last-token vocabulary head, also use native CPU. With
+`MNN_LOW_MEMORY=ON` and supported quantized weights this keeps native W4A8 decode and its existing KV cache;
+there is no separate KV import API. Low-memory callers without KV metadata retain per-operator programs.
+The current LLM executor's CPU fallback runtime has one thread; the NPU configuration's `thread_num`
+does not change that runtime.
+
+Use the normal `llm_demo` entry with `"backend_type": "npu"` and `"memory": "low"`.
+Compilation uses the backend's existing MIL/protobuf and public Core ML file compilation path;
+no compiled-model files are synthesized or patched. This is CPU/Core ML hybrid execution, not an
+all-ANE layer. The current workspace is synchronous, without weight-preparation overlap. Core ML inputs
+are FP16 even when the MNN file stores Q4/Q8 weights; this does not implement ANE INT4/INT8 arithmetic.
 
 Immutable convolution weights are shared across shape-specific executions by their serialized contents and
 external-file identity/revision, including geometry-generated fused-projection children. The cache holds
@@ -60,7 +129,7 @@ rows, avoiding a separate single-row product for each token in the MIL graph.
 
 `BackendConfig::Memory_Low` (`memory: "low"` for LLM) retains supported quantized projection weights and
 decodes them before each prediction into one runtime-owned FP16 workspace. Its size follows the largest
-executing operator's weight inputs, rather than the whole model. A runtime lock covers decode and synchronous
+executing group's weight inputs, rather than the whole model. A runtime lock covers decode and synchronous
 prediction, so concurrent executions cannot overwrite the workspace. This reduces memory at the cost of
 repeated CPU decoding; unsupported quantization forms keep the ordinary FP16 path.
 
@@ -69,7 +138,7 @@ The runtime retains up to 64 program entries for reuse while it is alive. MIL pr
 10 MiB; larger blobs use a temporary file. The in-memory buffer is retained with the model, so multiple
 active programs can together exceed this per-program threshold. Core ML may also use its own caches.
 
-Per-command callback programs use the file compilation path to limit retained asset memory. Programs
+LLM groups and per-command callback programs use the file compilation path to limit retained asset memory. Programs
 containing `resample` or `topk` also use it for numerical compatibility.
 Temporary files live in per-program directories under the app cache at `MNN/CoreMLPrograms`. Each
 directory is removed when its last program/session is released. A later compilation removes directories

@@ -274,6 +274,23 @@ std::shared_ptr<void> createCoreMLTemporaryDirectory(std::string& path) {
     self.model = nil;
     _cacheLock.reset();
 }
+#ifdef MNN_COREML_PREFILL_BENCH
+- (bool)loadBenchmarkModel:(const std::string&)directory {
+    _cacheLock = createProgramDirectory(programRoot());
+    if (!_cacheLock) {
+        return NO;
+    }
+    MLModelConfiguration* config = [MLModelConfiguration new];
+    config.computeUnits = MLComputeUnitsCPUAndNeuralEngine;
+    NSError* error = nil;
+    self.model = [MLModel modelWithContentsOfURL:[NSURL fileURLWithPath:@(directory.c_str())]
+                                   configuration:config error:&error];
+    if (!self.model) {
+        NSLog(@"[CoreML] Cannot load fixed benchmark layer: %@", error);
+    }
+    return self.model != nil;
+}
+#endif
 - (bool)buildModel:(CoreML__Specification__Model*)spec weightsPath:(const std::string&)weightsPath
            weights:(const std::shared_ptr<std::vector<uint8_t>>&)weights forceFileCompilation:(bool)forceFileCompilation {
     if (!isAvailable()) {
@@ -479,7 +496,8 @@ std::shared_ptr<void> createCoreMLTemporaryDirectory(std::string& path) {
     return session;
 }
 - (bool)invokeWithInputs:(const std::vector<std::pair<const MNN::Tensor*, std::string>>&)inputs
-                 outputs:(const std::vector<std::pair<const MNN::Tensor*, std::string>>&)outputs flatIO:(bool)flatIO {
+                 outputs:(const std::vector<std::pair<const MNN::Tensor*, std::string>>&)outputs flatIO:(bool)flatIO
+                  images:(const MNN::CoreMLImageInputs&)images {
     @autoreleasepool {
         if (!_cacheLock) {
             return NO;
@@ -491,6 +509,9 @@ std::shared_ptr<void> createCoreMLTemporaryDirectory(std::string& path) {
         }
         NSError* error = nil;
         NSMutableDictionary<NSString*, MLFeatureValue*>* features = [NSMutableDictionary dictionary];
+        for (const auto& image : images) {
+            features[@(image.first.c_str())] = [MLFeatureValue featureValueWithPixelBuffer:image.second];
+        }
         for (const auto& input : inputs) {
             auto array = wrapTensor(input.first, flatIO, &error);
             if (!array) {

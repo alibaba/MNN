@@ -44,6 +44,11 @@ include_directories(${CMAKE_CURRENT_LIST_DIR}/include/)
 # source files
 FILE(GLOB_RECURSE SRCS ${CMAKE_CURRENT_LIST_DIR}/src/*)
 
+if (MNN_COREML AND MNN_METAL)
+    list(APPEND SRCS ${CMAKE_CURRENT_LIST_DIR}/../../../source/backend/coreml/llm/CoreMLPrefillModule.cpp)
+    add_definitions(-DMNN_COREML_PREFILL)
+endif()
+
 if (MNN_SEP_BUILD)
     if (MNN_BUILD_SHARED_LIBS)
         # compile dynamic so, support Linux/Mac
@@ -122,6 +127,11 @@ ELSE()
 INSTALL(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/include/ DESTINATION include FILES_MATCHING PATTERN *.hpp)
 ENDIF()
 
+
+if(MNN_COREML_PREFILL_BENCH)
+    add_executable(coreml_prefill_bench ${PREFILL_BENCH_DIR}/bench.cpp)
+    target_link_libraries(coreml_prefill_bench ${LLM_DEPS})
+endif()
 
 if(MNN_LLM_BUILD_DEMO)
     add_executable(llm_demo ${CMAKE_CURRENT_LIST_DIR}/demo/llm_demo.cpp)

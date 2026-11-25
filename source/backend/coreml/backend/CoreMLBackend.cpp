@@ -15,6 +15,7 @@
 #include <climits>
 #include <CommonCrypto/CommonDigest.h>
 #include "core/Command.hpp"
+#include "core/KVMeta.hpp"
 
 extern bool isAvailable();
 namespace MNN {
@@ -60,7 +61,8 @@ public:
     }
     bool onClone(Backend* bn, const Op* op, Execution** dst) override {
         if (!dst) {
-            return true;
+            // Keep quantized weights in the graph until the prefill/decode shape is known.
+            return !static_cast<CoreMLBackend*>(backend())->isLLM();
         }
         if (!bn || bn->type() != MNN_FORWARD_NN) {
             return false;
@@ -172,7 +174,7 @@ public:
             bn->addInput(weight.second.get(), weight.first);
         }
         if (code == NO_ERROR && mContext->builder.numOperations() != 0) {
-            if (static_cast<const CoreMLRuntime*>(bn->getRuntime())->lowMemory() ||
+            if ((static_cast<const CoreMLRuntime*>(bn->getRuntime())->lowMemory() && !bn->isLLM()) ||
                 mExecutionType == OpType_Attention) {
                 code = bn->buildProgram(*mContext, outputs);
             } else {
@@ -216,6 +218,14 @@ public:
                 return NO_ERROR;
             }
             auto& group = *mContext->group;
+            auto runtime = static_cast<const CoreMLRuntime*>(backend()->getRuntime());
+            std::unique_lock<std::mutex> weightLock;
+            if (group.weightContext && !group.weightContext->weights->streamed.empty()) {
+                weightLock = runtime->lockWeights();
+                if (!runtime->prepareWeights(*group.weightContext)) {
+                    return OUT_OF_MEMORY;
+                }
+            }
             if (!group.session->invokModel(group.inputs, group.staging)) {
                 return NO_EXECUTION;
             }
@@ -325,6 +335,7 @@ ErrorCode CoreMLBackend::buildCallbackProgram(Execution* execution, CoreMLProgra
 ErrorCode CoreMLBackend::buildProgramGroups(const std::vector<Command*>& commands,
                                             const std::map<Execution*, PendingProgram>& programs,
                                             bool forceFileCompilation) {
+    const bool sharedWeights = isLLM();
     std::map<const Tensor*, std::vector<size_t>> consumers;
     for (size_t i = 0; i < commands.size(); ++i) {
         for (auto tensor : commands[i]->workInputs) {
@@ -349,12 +360,29 @@ ErrorCode CoreMLBackend::buildProgramGroups(const std::vector<Command*>& command
             continue;
         }
         size_t end = begin;
+        std::set<const Tensor*> available;
         const char* groupLimit = std::getenv("MNN_COREML_GROUP_SIZE");
         size_t limit = groupLimit ? std::max(1, atoi(groupLimit)) : commands.size();
         for (; end < commands.size() && end - begin < limit; ++end) {
             auto entry = programs.find(commands[end]->execution.get());
             if (entry == programs.end() || entry->second.context->flatIO) {
                 break;
+            }
+            if (sharedWeights) {
+                if (end > begin) {
+                    bool connected = true;
+                    for (auto tensor : commands[end]->workInputs) {
+                        connected = connected &&
+                                    (available.count(tensor) || entry->second.context->constants.count(tensor));
+                    }
+                    // Cached layout/copy commands can be absent from this resize list.
+                    // A new activation input must not be consumed before its producer runs.
+                    if (!connected) {
+                        break;
+                    }
+                }
+                available.insert(commands[end]->workInputs.begin(), commands[end]->workInputs.end());
+                available.insert(commands[end]->workOutputs.begin(), commands[end]->workOutputs.end());
             }
         }
         if (std::getenv("MNN_COREML_VERBOSE")) {
@@ -365,12 +393,15 @@ ErrorCode CoreMLBackend::buildProgramGroups(const std::vector<Command*>& command
         }
         MlModelBuilder builder(9);
         std::shared_ptr<CoreMLProgramGroup> group(new CoreMLProgramGroup);
+        if (sharedWeights) {
+            group->weightContext = std::make_shared<CoreMLProgramContext>();
+        }
         std::map<const Tensor*, std::string> values;
         // Count the serialized blob, including metadata and alignment, before allocating it.
         constexpr size_t memoryWeightLimit = 10 * 1024 * 1024;
         size_t weightBytes = 64;
         std::set<const Tensor*> seen;
-        for (size_t i = begin; i < end && weightBytes <= memoryWeightLimit; ++i) {
+        for (size_t i = begin; !sharedWeights && i < end && weightBytes <= memoryWeightLimit; ++i) {
             auto& pending = programs.at(commands[i]->execution.get());
             auto& context = *pending.context;
             for (const auto& binding : context.bindings) {
@@ -447,7 +478,29 @@ ErrorCode CoreMLBackend::buildProgramGroups(const std::vector<Command*>& command
                 names[binding.second] = value;
                 values[tensor] = value;
                 bool constant = context.weights->tensors.count(binding.second) || context.constants.count(tensor);
-                if (constant) {
+                if (sharedWeights) {
+                    auto source = context.weights->streamed.find(binding.second);
+                    if (source != context.weights->streamed.end()) {
+                        group->weightContext->weights->streamed[value] = source->second;
+                        group->weightContext->weightViews[value] = context.weightViews.at(binding.second);
+                    } else if (constant) {
+                        auto owner = TensorUtils::getDescribeOrigin(tensor)->getBackend();
+                        if (tensor->getType() == halide_type_of<float>() &&
+                            (!owner || owner->type() != MNN_FORWARD_NN)) {
+                            std::shared_ptr<Tensor> converted(Tensor::create(tensor->shape(),
+                                halide_type_t(halide_type_float, 16), nullptr, Tensor::CAFFE));
+                            if (!converted || !converted->host<void>()) {
+                                return OUT_OF_MEMORY;
+                            }
+                            MNNQuantizeFP16(tensor->host<float>(), converted->host<int16_t>(),
+                                            TensorUtils::getRawSize(tensor));
+                            tensor = converted.get();
+                            group->storage.push_back(std::move(converted));
+                        }
+                    }
+                    addInfo(tensor, value, false);
+                    group->inputs.emplace_back(tensor, value);
+                } else if (constant) {
                     auto shape = tensor->shape();
                     size_t elements = TensorUtils::getRawSize(tensor);
                     const void* data = tensor->host<void>();
@@ -521,7 +574,7 @@ ErrorCode CoreMLBackend::buildProgramGroups(const std::vector<Command*>& command
             MNN_PRINT("[CoreML] weight storage: %s (%zu bytes)\n", weightData ? "memory" : "file", actualWeightBytes);
         }
         auto program = mRuntime->getProgram(builder.build(), hasWeights ? path : "", hasWeights ? weightData : nullptr,
-                                            forceFileCompilation);
+                                            forceFileCompilation || sharedWeights);
         if (!program) {
             return NO_EXECUTION;
         }
@@ -547,6 +600,7 @@ bool CoreMLBackend::addCreator(OpType type, Creator* creator) {
     return creators().emplace(type, creator).second;
 }
 CoreMLBackend::CoreMLBackend(const CoreMLRuntime* runtime) : Backend(MNN_FORWARD_NN), mRuntime(runtime) {
+    setMetaPtr(runtime->pMeta);
     mBuffers.reset(new EagerBufferAllocator(BufferAllocator::Allocator::createDefault()));
 }
 Execution* CoreMLBackend::onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
@@ -557,6 +611,22 @@ Execution* CoreMLBackend::onCreate(const std::vector<Tensor*>& inputs, const std
         }
         return nullptr;
     };
+    if (isLLM() && static_cast<KVMeta*>(getMetaPtr())->add == 1) {
+        return unsupported("single-token native decode");
+    }
+    if (isLLM() && op->type() == OpType_LayerNorm) {
+        // Keep FP32 residual/norm arithmetic on CPU, including fused two-output norms.
+        // These boundaries also keep reusable projection/FFN programs within a layer.
+        return unsupported("native LLM normalization");
+    }
+    if (isLLM() && op->type() == OpType_Convolution && !inputs.empty()) {
+        auto common = op->main_as_Convolution2D()->common();
+        // The last-token vocabulary projection has no prefill GEMM to amortize weight transfers.
+        if (common->kernelX() == 1 && common->kernelY() == 1 && common->group() == 1 &&
+            common->inputCount() > 0 && TensorUtils::getRawSize(inputs[0]) == common->inputCount()) {
+            return unsupported("single-row native projection");
+        }
+    }
     // Core ML's FP32 score path uses CPU while retaining full-capacity MLState
     // and ANE transfer buffers. The native CPU attention uses only the active KV.
     if (op->type() == OpType_Attention && mRuntime->lowMemory()) {
@@ -924,6 +994,10 @@ Backend* CoreMLRuntime::onCreate(const BackendConfig*, Backend*) const {
     return new CoreMLBackend(this);
 }
 CoreMLRuntime::CompilerType CoreMLRuntime::onGetCompilerType() const {
+    if (lowMemory() && pMeta != nullptr) {
+        // Decode and unsupported prefill ops use native CPU loop implementations.
+        return Compiler_Loop;
+    }
     return lowMemory() ? Compiler_Geometry : Compiler_Origin;
 }
 void CoreMLRuntime::onGabageCollect(int level) {

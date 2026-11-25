@@ -7,6 +7,9 @@
 // #define MNN_OPEN_TIME_TRACE 1
 
 #include <algorithm>
+#ifdef MNN_COREML_PREFILL
+#include "backend/coreml/backend/CoreMLPrefillModule.hpp"
+#endif
 #include <fstream>
 #include <limits>
 #include <iostream>
@@ -432,6 +435,7 @@ bool Llm::load() {
     // Must release old module before runtime, because module's Execution objects
     // reference Backend owned by RuntimeManager. Releasing runtime first would
     // destroy the Backend, causing use-after-free when module destructor runs.
+    mCoreMLPrefill.reset();
     mModulePool.clear();
     mModule.reset();
     mMaskCache.clear();
@@ -516,6 +520,24 @@ bool Llm::load() {
             MNN_ERROR("[Warning]: Set module multi outputs, please double check.\n");
         }
         return false;
+    }
+    if (mConfig->config_.value("prefill_backend", "") == "coreml") {
+#ifdef MNN_COREML_PREFILL
+        if (mConfig->backend_type() != "metal" || mConfig->memory() != "low" || outputNames.size() != 1 ||
+            inputNames.size() != 4 || mBaseModule || !mConfig->speculative_type().empty() ||
+            mConfig->config_.value("attention_mode", mConfig->config_.value("quant_qkv", 8)) % 8 != 0 ||
+            mConfig->kvcache_mmap() || mBlockSize != 0) {
+            MNN_ERROR("[CoreML] prefill requires Metal, low memory, unquantized in-memory KV and unchunked text decode\n");
+            return false;
+        }
+        mCoreMLPrefill = createCoreMLPrefillModule(*mConfig, model_path, weight_path, mRuntimeManager, mMeta.get());
+        if (!mCoreMLPrefill) {
+            return false;
+        }
+#else
+        MNN_ERROR("[CoreML] prefill requires a build with CoreML and Metal\n");
+        return false;
+#endif
     }
     // set speculative decoding params
     setSpeculativeConfig();
@@ -759,7 +781,16 @@ std::vector<Express::VARP> Llm::forwardRaw(Express::VARP hiddenState, Express::V
         extraArgs.push_back(mDeepstackInput);
     }
     inputs.insert(inputs.end(), extraArgs.begin(), extraArgs.end());
-    std::vector<Express::VARP> outputs = selectModule->onForward(inputs);
+    if (mMeta->previous == mMeta->remove) {
+        mMeta->pendingImport.reset();
+    }
+    const bool coremlPrefill = mCoreMLPrefill && seqLen > 0 && mMeta->previous == mMeta->remove;
+    if (coremlPrefill && (mBlockSize != 0 || mMeta->add != seqLen)) {
+        MNN_ERROR("[CoreML] complete-layer prefill does not support chunked or padded input\n");
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return {};
+    }
+    std::vector<Express::VARP> outputs = (coremlPrefill ? mCoreMLPrefill : selectModule)->onForward(inputs);
 
     if (outputs.empty()) {
         MNN_ERROR("[Error]: onForward returned no outputs. seqLen=%d, inDecode=%d, inputs=%zu, moduleKey=(%d,%d)\n",
@@ -774,6 +805,11 @@ std::vector<Express::VARP> Llm::forwardRaw(Express::VARP hiddenState, Express::V
             mContext->status = LlmStatus::INTERNAL_ERROR;
             return outputs;
         }
+    }
+    if (mMeta->pendingImport && !coremlPrefill) {
+        MNN_ERROR("[CoreML] native attention did not consume the complete prefill state\n");
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return {};
     }
     if (!mAsync) {
         ((MNN::Tensor*)(outputs[0]->getTensor()))->wait(Tensor::MAP_TENSOR_READ, true);
@@ -995,6 +1031,7 @@ int Llm::sample(VARP logits, int offset, int size) {
 }
 
 void Llm::reset() {
+    mMeta->pendingImport.reset();
     {
         std::lock_guard<std::mutex> _l(mContext->mutex);
         mContext->output_tokens.clear();
@@ -1561,6 +1598,7 @@ Llm::Llm(std::shared_ptr<LlmConfig> config) : mConfig(config) {
 }
 
 Llm::~Llm() {
+    mCoreMLPrefill.reset();
 #if DEBUG_MODE == 1
     if (nullptr != gTimeTraceInfo) {
         gTimeTraceInfo->dump();

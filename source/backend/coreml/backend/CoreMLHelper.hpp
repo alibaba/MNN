@@ -18,6 +18,9 @@
 #include "Model.pb-c.h"
 
 namespace MNN {
+void dequantizeCoreMLWeightBlock(const int8_t* src, float* dst, size_t start, size_t size, bool int4,
+                                float scale, float offset);
+
 class Tensor;
 // --- Helper to allocate and initialize protobuf-c structs ---
 template <typename T>
@@ -135,7 +138,7 @@ struct MilTypeTraits<bool> {
 };
 
 struct MilTensorInfo {
-    enum class Type { TENSOR, INPUT, OUTPUT, STATE };
+    enum class Type { TENSOR, INPUT, OUTPUT, STATE, GRAYSCALE_INPUT };
     std::string name;
     CoreML__Specification__MILSpec__DataType data_type;
     std::vector<int64_t> shape;

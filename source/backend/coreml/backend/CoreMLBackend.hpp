@@ -37,10 +37,12 @@ struct CoreMLWeights {
     std::map<std::string, std::shared_ptr<Tensor>> tensors;
     std::map<std::string, std::shared_ptr<CoreMLWeightSource>> streamed;
 };
+struct CoreMLProgramContext;
 struct CoreMLProgramGroup {
     std::shared_ptr<CoreMLExecutorWrapper> session;
     std::vector<std::pair<const Tensor*, std::string>> inputs, outputs, staging;
     std::vector<std::shared_ptr<Tensor>> storage;
+    std::shared_ptr<CoreMLProgramContext> weightContext;
 };
 struct CoreMLProgramContext {
     MlModelBuilder builder{9};
@@ -115,6 +117,7 @@ public:
         mPending[execution] = {context, outputs};
     }
     const Runtime* getRuntime() override { return mRuntime; }
+    bool isLLM() { return mRuntime->lowMemory() && getMetaPtr() != nullptr; }
 
     void setProgramContext(CoreMLProgramContext* context) { mContext = context; }
     ErrorCode buildCallbackProgram(Execution* execution, CoreMLProgramContext& context,

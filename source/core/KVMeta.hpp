@@ -13,8 +13,10 @@
 #include <string>
 #include <algorithm>
 #include <limits>
+#include <memory>
 
 namespace MNN {
+struct KVCacheImport;
 
 struct KVMeta {
     enum {
@@ -35,6 +37,7 @@ struct KVMeta {
     int layer_nums = 0;
     size_t prefix_session_id = 0;
     std::vector<int> reserveHost;
+    std::shared_ptr<KVCacheImport> pendingImport;
     // Attention scaling override (gemma4 uses 1.0 instead of 1/sqrt(head_dim))
     float attn_scale = 0.0f; // 0 means use default 1/sqrt(head_dim)
     // Verify block length for this forward; recurrent-state ops must defer their state update

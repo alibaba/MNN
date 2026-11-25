@@ -54,32 +54,6 @@ static std::string weightKey(const Op* op) {
     return std::string(reinterpret_cast<const char*>(digest), sizeof(digest));
 }
 
-static void dequantizeBlock(const int8_t* src, float* dst, size_t start, size_t size, bool int4, float scale,
-                            float offset) {
-    if (!int4) {
-        for (size_t i = 0; i < size; ++i) {
-            dst[i] = src[start + i] * scale + offset;
-        }
-        return;
-    }
-    size_t i = 0;
-    if ((start & 1) && size) {
-        dst[i++] = ((static_cast<uint8_t>(src[start / 2]) & 15) - 8) * scale + offset;
-        ++start;
-    }
-    auto packed = reinterpret_cast<const uint8_t*>(src) + start / 2;
-    auto out = dst + i;
-    size_t pairs = (size - i) / 2;
-    // Decode adjacent nibbles together so the compiler can vectorize the loop.
-    for (size_t j = 0; j < pairs; ++j) {
-        auto value = packed[j];
-        out[2 * j] = ((value >> 4) - 8) * scale + offset;
-        out[2 * j + 1] = ((value & 15) - 8) * scale + offset;
-    }
-    if (i + 2 * pairs < size) {
-        out[2 * pairs] = ((packed[pairs] >> 4) - 8) * scale + offset;
-    }
-}
 
 static Tensor* loadQuantizedWeight(CoreMLBackend* backend, const Op* op, const std::vector<int>& shape,
                                    const std::string& name) {
@@ -124,7 +98,7 @@ static Tensor* loadQuantizedWeight(CoreMLBackend* backend, const Op* op, const s
             for (size_t j = 0; j < blockSize; j += 1024) {
                 size_t size = std::min<size_t>(1024, blockSize - j);
                 size_t start = group * blockSize + j;
-                dequantizeBlock(quant->weight.get(), values, start, size, quant->canUseInt4, scale, offset);
+                dequantizeCoreMLWeightBlock(quant->weight.get(), values, start, size, quant->canUseInt4, scale, offset);
                 MNNQuantizeFP16(values, dst + start, size);
             }
         }
