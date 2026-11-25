@@ -17,7 +17,8 @@ namespace MNN {
 class MetalSharedGather : public MetalExecution {
 public:
     MetalSharedGather(Backend* backend, int oc, std::shared_ptr<Tensor> weight,
-                      std::shared_ptr<Tensor> dequantScaleBias, int dequantBits, float scaleCoef);
+                      std::shared_ptr<Tensor> dequantScaleBias, int dequantBits, float scaleCoef,
+                      bool tiedBitLayout = false);
     virtual ~MetalSharedGather() = default;
 
     virtual ErrorCode onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
@@ -49,6 +50,7 @@ private:
     std::shared_ptr<Tensor> mDequantScaleBias; // scale + bias
     int mDequantBits = 0;                      // 4 or 8
     float mScaleCoef = 1.0f;
+    bool mTiedBitLayout = false;
     // direct int4/int8 quant gather pipeline (preferred path)
     id<MTLComputePipelineState> mQuantPipeline = nil;
     std::pair<MTLSize, MTLSize> mQuantThreads;
