@@ -1712,6 +1712,38 @@ extern "C" size_t MNNSpacemitIme2RunTcmTasks(size_t taskCount, MNNSpacemitIme2Tc
     return completed;
 }
 
+extern "C" size_t MNNSpacemitIme2RunDecodeTasks(size_t taskCount, MNNSpacemitIme2TcmTask task, void* context) {
+    if (task == nullptr || taskCount == 0) {
+        return 0;
+    }
+    const bool spinWorker = MNNSpacemitIme2TcmTaskSpinEnabled();
+    const size_t workerCount = spinWorker ? MNNSpacemitIme2SpinWorker::count() : MNNSpacemitIme2Worker::count();
+    if (taskCount > workerCount) {
+        return 0;
+    }
+    // Spread <=4 decode tasks across both A100 L2 clusters (workers 0,2,4,6 -> CPUs 8,10,12,14).
+    const size_t stride = (taskCount <= 4 && workerCount >= 8) ? 2 : 1;
+    std::unique_lock<std::mutex> dispatchLock(MNNSpacemitIme2DispatchMutex());
+    for (size_t i = 0; i < taskCount; ++i) {
+        MNNSpacemitIme2Job job;
+        job.tcmTask = task;
+        job.tcmTaskContext = context;
+        job.tcmTaskIndex = i;
+        const size_t w = i * stride;
+        if (spinWorker) {
+            MNNSpacemitIme2SpinWorker::get(w).startJob(job);
+        } else {
+            MNNSpacemitIme2Worker::get(w).startJob(job);
+        }
+    }
+    size_t completed = 0;
+    for (size_t i = 0; i < taskCount; ++i) {
+        const size_t w = i * stride;
+        completed += spinWorker ? MNNSpacemitIme2SpinWorker::get(w).wait() : MNNSpacemitIme2Worker::get(w).wait();
+    }
+    return completed;
+}
+
 static inline uint16_t MNNFloatToHalfBits(float value) {
     uint32_t bits = 0;
     std::memcpy(&bits, &value, sizeof(bits));
@@ -2558,35 +2590,30 @@ static void MNNPackIme2B32HpAsymPairAllBlocks(uint8_t* dst, const int8_t* weight
     const size_t srcStride = srcDepthQuad * k16Bytes + 2 * GEMM_INT8_UNIT * sizeof(float);
     auto block = reinterpret_cast<MNNIme2::Block64Weight*>(dst);
     for (size_t bk = 0; bk < blockNum; ++bk, ++block) {
-        for (size_t c = 0; c < 16; ++c) {
+        for (size_t c = 0; c < 32; ++c) {
+            const size_t dz = c / GEMM_INT8_UNIT;
             const size_t lane = c % GEMM_INT8_UNIT;
-            const auto lo = reinterpret_cast<const uint8_t*>(weight) +
-                            ((dzStart + c / GEMM_INT8_UNIT) * blockNum + bk) * srcStride;
-            const auto hi = lo + (16 / GEMM_INT8_UNIT) * blockNum * srcStride;
-            const auto ls = reinterpret_cast<const float*>(lo + srcDepthQuad * k16Bytes);
-            const auto hs = reinterpret_cast<const float*>(hi + srcDepthQuad * k16Bytes);
-            block->decodeScale[c] = MNNFloatToHalfBits(ls[lane]);
-            block->decodeScale[c + 16] = MNNFloatToHalfBits(hs[lane]);
-            block->decodeCorrection[c] = MNNFloatToHalfBits(ls[GEMM_INT8_UNIT + lane] * -0.125f);
-            block->decodeCorrection[c + 16] = MNNFloatToHalfBits(hs[GEMM_INT8_UNIT + lane] * -0.125f);
-            block->scale[c] = static_cast<_Float16>(ls[lane]);
-            block->scale[c + 16] = static_cast<_Float16>(hs[lane]);
-            block->offset[c] = static_cast<_Float16>(ls[GEMM_INT8_UNIT + lane]);
-            block->offset[c + 16] = static_cast<_Float16>(hs[GEMM_INT8_UNIT + lane]);
-            for (size_t k16 = 0; k16 < 4; ++k16) {
-                const size_t at = k16 * k16Bytes + (lane % 2) * 16;
-                auto q0 = __riscv_vle8_v_u8m1(lo + at, 16);
-                auto q1 = __riscv_vle8_v_u8m1(hi + at, 16);
-                if (lane < 2) {
-                    q0 = __riscv_vsrl_vx_u8m1(q0, 4, 16);
-                    q1 = __riscv_vand_vx_u8m1(q1, 240, 16);
-                } else {
-                    q0 = __riscv_vand_vx_u8m1(q0, 15, 16);
-                    q1 = __riscv_vsll_vx_u8m1(q1, 4, 16);
+            const auto src = reinterpret_cast<const uint8_t*>(weight) + ((dzStart + dz) * blockNum + bk) * srcStride;
+            const auto params = reinterpret_cast<const float*>(src + srcDepthQuad * k16Bytes);
+            const float scale = params[lane];
+            const float offset = params[GEMM_INT8_UNIT + lane];
+            const float centeredOffset = offset + 8.0f * scale;
+            block->scales[c] = static_cast<_Float16>(scale);
+            block->centeredOffset[c] = static_cast<_Float16>(centeredOffset);
+            const size_t laneOffset = (lane % 2) * 16;
+            const bool upper = lane < 2;
+            for (size_t k32 = 0; k32 < 2; ++k32) {
+                uint8_t* dstCol = block->quants[k32] + c * 16;
+                for (size_t half = 0; half < 2; ++half) {
+                    const uint8_t* k16Ptr = src + (k32 * 2 + half) * k16Bytes + laneOffset;
+                    for (size_t p = 0; p < 8; ++p) {
+                        const uint8_t raw0 = k16Ptr[2 * p];
+                        const uint8_t raw1 = k16Ptr[2 * p + 1];
+                        const uint8_t q0 = (upper ? (raw0 >> 4) : (raw0 & 15)) ^ 8u;
+                        const uint8_t q1 = (upper ? (raw1 >> 4) : (raw1 & 15)) ^ 8u;
+                        dstCol[half * 8 + p] = static_cast<uint8_t>(q0 | (q1 << 4));
+                    }
                 }
-                auto both = __riscv_vor_vv_u8m1(q0, q1, 16);
-                __riscv_vse8_v_u8m1(block->quants[2 * k16] + c * 8, both, 8);
-                __riscv_vse8_v_u8m1(block->quants[2 * k16 + 1] + c * 8, __riscv_vslidedown_vx_u8m1(both, 8, 16), 8);
             }
         }
     }
@@ -3356,7 +3383,9 @@ static bool MNNGemmInt8AddBiasScale_16x4_w4_Unit_IME2(int8_t* dst, const int8_t*
     } else {
         std::unique_lock<std::mutex> serialDispatchLock;
         const bool spinWorker = MNNSpacemitIme2SpinEnabled();
-        const bool decodeTcmPipelineEnabled = MNNSpacemitIme2TcmDecodePipelineEnabled();
+        const bool directDecode4Core =
+            realCount == 1 && spinWorker && useHpM1AsymPair && MNNSpacemitIme2SpinWorker::count() >= 8;
+        const bool decodeTcmPipelineEnabled = MNNSpacemitIme2TcmDecodePipelineEnabled() && !directDecode4Core;
         // The copy/compute barriers only amortize once packed-B exceeds the cache-friendly working set.
         constexpr size_t decodeTcmMinPackedBBytes = 2 * 1024 * 1024;
         const bool decodeTcmPipelineRequested = decodeTcmPipelineEnabled && spinWorker && useHpM1AsymPair &&
@@ -3370,7 +3399,7 @@ static bool MNNGemmInt8AddBiasScale_16x4_w4_Unit_IME2(int8_t* dst, const int8_t*
             workerCount = 1;
         }
         if (realCount == 1) {
-            const size_t decodeWorkers = useHpM1AsymPair ? 8 : 6;
+            const size_t decodeWorkers = directDecode4Core ? 4 : (useHpM1AsymPair ? 8 : 6);
             workerCount = std::min(workerCount, std::max<size_t>(decodeWorkers, 1));
         }
         constexpr size_t smallN = 384;
@@ -3541,7 +3570,7 @@ static bool MNNGemmInt8AddBiasScale_16x4_w4_Unit_IME2(int8_t* dst, const int8_t*
             }
         } else if (workerCount <= 1) {
             static std::atomic<size_t> workerIndex(0);
-            const size_t index = workerIndex.fetch_add(1, std::memory_order_relaxed);
+            const size_t index = directDecode4Core ? 0 : workerIndex.fetch_add(1, std::memory_order_relaxed);
             if (spinWorker) {
                 handled = MNNSpacemitIme2SpinWorker::get(index).run(
                     gemm, callKernelBlkLen, packedAPtr, packedBase, useZp ? packedBase : nullptr, gemmOutput,
@@ -3557,18 +3586,21 @@ static bool MNNGemmInt8AddBiasScale_16x4_w4_Unit_IME2(int8_t* dst, const int8_t*
             expected = workerCount * realCount;
             const size_t baseGroups = groupCount / workerCount;
             const size_t extraGroups = groupCount % workerCount;
+            // Spread 4-core decode across both A100 L2 clusters (workers 0,2,4,6 -> CPUs 8,10,12,14).
+            const size_t workerStride = directDecode4Core ? 2 : 1;
             size_t groupOffset = 0;
             for (size_t i = 0; i < workerCount; ++i) {
                 const size_t groups = baseGroups + (i < extraGroups ? 1 : 0);
                 const size_t nOffset = groupOffset * 32;
+                const size_t workerIdx = i * workerStride;
                 if (spinWorker) {
-                    MNNSpacemitIme2SpinWorker::get(i).start(
+                    MNNSpacemitIme2SpinWorker::get(workerIdx).start(
                         gemm, callKernelBlkLen, packedAPtr, packedBase + groupOffset * bStride,
                         useZp ? packedBase + groupOffset * bStride : nullptr, gemmOutput + nOffset, realCount,
                         groups * 32, kernelKBlocks, countN, workerPost, dst, dstStep, groupOffset * 8, countN,
                         residualPtr, postForIme2, biasPtr, fp32min, fp32max, skipPostResidual);
                 } else {
-                    MNNSpacemitIme2Worker::get(i).start(
+                    MNNSpacemitIme2Worker::get(workerIdx).start(
                         gemm, callKernelBlkLen, packedAPtr, packedBase + groupOffset * bStride,
                         useZp ? packedBase + groupOffset * bStride : nullptr, gemmOutput + nOffset, realCount,
                         groups * 32, kernelKBlocks, countN, workerPost, dst, dstStep, groupOffset * 8, countN,
@@ -3577,7 +3609,9 @@ static bool MNNGemmInt8AddBiasScale_16x4_w4_Unit_IME2(int8_t* dst, const int8_t*
                 groupOffset += groups;
             }
             for (size_t i = 0; i < workerCount; ++i) {
-                handled += spinWorker ? MNNSpacemitIme2SpinWorker::get(i).wait() : MNNSpacemitIme2Worker::get(i).wait();
+                const size_t workerIdx = i * workerStride;
+                handled += spinWorker ? MNNSpacemitIme2SpinWorker::get(workerIdx).wait()
+                                      : MNNSpacemitIme2Worker::get(workerIdx).wait();
             }
         }
     }
@@ -4107,7 +4141,8 @@ static inline bool MNNIme2QuantFloat32K32RneSingleLoad(int8_t* dst, const float*
     return true;
 }
 
-static bool MNNIme2PackFloatA1HierarchicalHp(uint8_t* dst, const float* src, size_t superBlocks) {
+static bool MNNIme2PackFloatA1HierarchicalHp(uint8_t* dst, const float* src, size_t superBlocks,
+                                             float sumScale = -8.0f) {
     constexpr size_t kSubBlockSize = sizeof(uint16_t) + 32;
     constexpr size_t kSumOffset = 8 * kSubBlockSize;
     const size_t hpBlockSize = MNNIme2Q8HpBlockSize();
@@ -4123,7 +4158,8 @@ static bool MNNIme2PackFloatA1HierarchicalHp(uint8_t* dst, const float* src, siz
                                                      subScales + sub, &sum)) {
                 return false;
             }
-            MNNIme2StoreNativeHalfRne(block + kSumOffset + sub * sizeof(uint16_t), -8.0f * static_cast<float>(sum));
+            MNNIme2StoreNativeHalfRne(block + kSumOffset + sub * sizeof(uint16_t),
+                                      sumScale * static_cast<float>(sum));
         }
         float scaleAverage = 0.0f;
         for (float scale : subScales) {
@@ -4476,6 +4512,75 @@ extern "C" int MNNSpacemitIme2PackFloatAHpStridedRowsRangeDynamicQuant(uint8_t* 
                                                               srcDepthQuad, blockNum, srcRows, rowBegin, rowEnd);
 }
 
+namespace {
+struct DecodePackCache {
+    bool active = false;
+    const float* src = nullptr;
+    size_t superBlocks = 0;
+    bool useAsym = false;
+    std::vector<uint8_t> data;
+};
+static thread_local DecodePackCache gDecodePackCache;
+
+static const uint8_t* MNNIme2GetOrPackDecodeA(const float* src, size_t superBlocks, bool useAsym) {
+    const size_t packedABytes = superBlocks * MNNIme2Q8HpBlockSize();
+    if (gDecodePackCache.active) {
+        if (gDecodePackCache.src == src && gDecodePackCache.superBlocks == superBlocks &&
+            gDecodePackCache.useAsym == useAsym && gDecodePackCache.data.size() >= packedABytes) {
+            return gDecodePackCache.data.data();
+        }
+        if (gDecodePackCache.data.size() < packedABytes) {
+            gDecodePackCache.data.resize(packedABytes);
+        }
+        if (!MNNIme2PackFloatA1HierarchicalHp(gDecodePackCache.data.data(), src, superBlocks, useAsym ? 1.0f : -8.0f)) {
+            gDecodePackCache.src = nullptr;
+            return nullptr;
+        }
+        gDecodePackCache.src = src;
+        gDecodePackCache.superBlocks = superBlocks;
+        gDecodePackCache.useAsym = useAsym;
+        return gDecodePackCache.data.data();
+    }
+    thread_local std::vector<uint8_t> packedA;
+    if (packedA.size() < packedABytes) {
+        packedA.resize(packedABytes);
+    }
+    if (!MNNIme2PackFloatA1HierarchicalHp(packedA.data(), src, superBlocks, useAsym ? 1.0f : -8.0f)) {
+        return nullptr;
+    }
+    return packedA.data();
+}
+} // namespace
+
+extern "C" int MNNSpacemitIme2SetDecodePackCache(int active) {
+    const int prev = gDecodePackCache.active ? 1 : 0;
+    gDecodePackCache.active = (active != 0);
+    gDecodePackCache.src = nullptr;
+    return prev;
+}
+
+extern "C" int MNNSpacemitIme2LinearPackedADecode(int8_t* dst, const uint8_t* packedA, const int8_t* weight,
+                                                  size_t srcDepthQuad, size_t dstStep, size_t dstDepthQuad,
+                                                  const QuanPostTreatParameters* post, void* context) {
+#if defined(MNN_USE_SPACEMIT_IME2)
+    if (context == nullptr || !MNNSpacemitIme2Enabled() || dst == nullptr || packedA == nullptr || weight == nullptr ||
+        post == nullptr || post->useInt8 != 0 || post->blockNum <= 0 || srcDepthQuad != 4 ||
+        post->blockNum % 4 != 0 || dstDepthQuad == 0 || dstDepthQuad % 8 != 0 ||
+        dstStep != GEMM_INT8_UNIT * sizeof(float) || post->inputScale != nullptr || post->inputBias != nullptr ||
+        !MNNSpacemitIme2HpM1AsymPairEnabled()) {
+        return 0;
+    }
+    return MNNGemmInt8AddBiasScale_16x4_w4_Unit_IME2(dst, reinterpret_cast<const int8_t*>(packedA), weight,
+                                                     srcDepthQuad, dstStep, dstDepthQuad, post, 1, true, context)
+               ? 1
+               : 0;
+#else
+    (void)dst; (void)packedA; (void)weight; (void)srcDepthQuad;
+    (void)dstStep; (void)dstDepthQuad; (void)post; (void)context;
+    return 0;
+#endif
+}
+
 extern "C" int MNNSpacemitIme2LinearFloatHpDecode(int8_t* dst, const float* src, const int8_t* weight,
                                                   size_t srcDepthQuad, size_t dstStep, size_t dstDepthQuad,
                                                   const QuanPostTreatParameters* post, void* context) {
@@ -4501,15 +4606,11 @@ extern "C" int MNNSpacemitIme2LinearFloatHpDecode(int8_t* dst, const float* src,
         }
     }
 
-    thread_local std::vector<uint8_t> packedA;
-    const size_t packedABytes = superBlocks * MNNIme2Q8HpBlockSize();
-    if (packedA.size() < packedABytes) {
-        packedA.resize(packedABytes);
-    }
-    if (!MNNIme2PackFloatA1HierarchicalHp(packedA.data(), src, superBlocks)) {
+    const uint8_t* packedA = MNNIme2GetOrPackDecodeA(src, superBlocks, useHpM1AsymPair);
+    if (packedA == nullptr) {
         return 0;
     }
-    return MNNGemmInt8AddBiasScale_16x4_w4_Unit_IME2(dst, reinterpret_cast<const int8_t*>(packedA.data()), weight,
+    return MNNGemmInt8AddBiasScale_16x4_w4_Unit_IME2(dst, reinterpret_cast<const int8_t*>(packedA), weight,
                                                      srcDepthQuad, dstStep, dstDepthQuad, post, 1, true, context)
                ? 1
                : 0;
@@ -4522,6 +4623,310 @@ extern "C" int MNNSpacemitIme2LinearFloatHpDecode(int8_t* dst, const float* src,
     (void)dstDepthQuad;
     (void)post;
     (void)context;
+    return 0;
+#endif
+}
+
+extern "C" int MNNSpacemitIme2LinearFloatHpDecodeFusedGateUp(
+    float* dst, uint8_t* outPackedA, const float* src, const int8_t* wGate, const float* biasGate,
+    const float* clampGate, void* ctxGate, const int8_t* wUp, const float* biasUp, const float* clampUp, void* ctxUp,
+    size_t srcDepthQuad, size_t dstDepthQuad, size_t blockNum) {
+#if defined(MNN_USE_SPACEMIT_IME2)
+    if (!MNNSpacemitIme2Enabled() || !MNNSpacemitIme2HpM1AsymPairEnabled() || dst == nullptr || src == nullptr ||
+        wGate == nullptr || ctxGate == nullptr || wUp == nullptr || ctxUp == nullptr || srcDepthQuad != 4 ||
+        blockNum == 0 || blockNum % 4 != 0 || dstDepthQuad == 0 || dstDepthQuad % 8 != 0 || __riscv_vlenb() != 32) {
+        return 0;
+    }
+    const size_t kBlks = blockNum / 4;
+    const size_t groupCount = dstDepthQuad / 8;
+    const size_t bStride = MNNIme2Q4HpAsymPairSuperBlockSize() * kBlks;
+    const uint8_t* packedA = MNNIme2GetOrPackDecodeA(src, kBlks, true);
+    if (packedA == nullptr) {
+        return 0;
+    }
+    auto packedBGate = MNNGetIme2PackedBHpAsymPairAllBlocks(wGate, srcDepthQuad, dstDepthQuad, blockNum, ctxGate);
+    auto packedBUp = MNNGetIme2PackedBHpAsymPairAllBlocks(wUp, srcDepthQuad, dstDepthQuad, blockNum, ctxUp);
+    if (packedBGate == nullptr || packedBUp == nullptr) {
+        return 0;
+    }
+    const bool needClampG = clampGate != nullptr && !MNNRvvFp32MinMaxIsFullRange(clampGate[0], clampGate[1]);
+    const bool needClampU = clampUp != nullptr && !MNNRvvFp32MinMaxIsFullRange(clampUp[0], clampUp[1]);
+    const size_t workers = std::min<size_t>(4, groupCount);
+    if (outPackedA != nullptr && (groupCount % (workers * 8)) != 0) {
+        return 0;
+    }
+    const size_t aBytes = kBlks * MNNIme2Q8HpBlockSize();
+    struct FusedDecodeCtx {
+        const uint8_t* packedA;
+        size_t aBytes;
+        const uint8_t* bGate;
+        const uint8_t* bUp;
+        const float* biasGate;
+        const float* biasUp;
+        float gMin, gMax, uMin, uMax;
+        bool clampG, clampU;
+        float* dst;
+        uint8_t* outPackedA;
+        size_t groupCount;
+        size_t kBlks;
+        size_t bStride;
+        size_t workers;
+        std::atomic<bool> ok{true};
+    };
+    FusedDecodeCtx fctx;
+    fctx.packedA = packedA;
+    fctx.aBytes = aBytes;
+    fctx.bGate = MNNIme2Block64Data(*packedBGate);
+    fctx.bUp = MNNIme2Block64Data(*packedBUp);
+    fctx.biasGate = biasGate;
+    fctx.biasUp = biasUp;
+    fctx.gMin = needClampG ? clampGate[0] : 0.0f;
+    fctx.gMax = needClampG ? clampGate[1] : 0.0f;
+    fctx.uMin = needClampU ? clampUp[0] : 0.0f;
+    fctx.uMax = needClampU ? clampUp[1] : 0.0f;
+    fctx.clampG = needClampG;
+    fctx.clampU = needClampU;
+    fctx.dst = dst;
+    fctx.outPackedA = outPackedA;
+    fctx.groupCount = groupCount;
+    fctx.kBlks = kBlks;
+    fctx.bStride = bStride;
+    fctx.workers = workers;
+
+    auto task = [](size_t id, void* tcmBuffer, size_t tcmSize, void* user) {
+        auto& p = *static_cast<FusedDecodeCtx*>(user);
+        const size_t base = p.groupCount / p.workers;
+        const size_t rem = p.groupCount % p.workers;
+        const size_t gBegin = id * base + std::min(id, rem);
+        const size_t gEnd = gBegin + base + (id < rem ? 1 : 0);
+        if (gBegin >= gEnd) {
+            return;
+        }
+        const uint8_t* aPtr = p.packedA;
+        if (tcmBuffer != nullptr && tcmSize >= p.aBytes) {
+            MNNSpacemitIme2RvvMemcpy1d(tcmBuffer, p.packedA, p.aBytes);
+            aPtr = static_cast<const uint8_t*>(tcmBuffer);
+        }
+        constexpr size_t kMaxChunkGroups = 64; // 2048 floats = 8 KB per buffer (fits L1D, long uninterrupted stream)
+        alignas(64) float gBuf[kMaxChunkGroups * 32];
+        alignas(64) float uBuf[kMaxChunkGroups * 32];
+        auto siluMul = [](vfloat32m4_t g, vfloat32m4_t u, size_t vl) -> vfloat32m4_t {
+            auto z = __riscv_vfmin_vf_f32m4(__riscv_vfmax_vf_f32m4(__riscv_vfneg_v_f32m4(g, vl), -87.0f, vl), 87.0f, vl);
+            auto n = __riscv_vfcvt_x_f_v_i32m4(__riscv_vfmul_vf_f32m4(z, 1.4426950408889634f, vl), vl);
+            auto r = __riscv_vfnmsac_vf_f32m4(z, 0.6931471805599453f, __riscv_vfcvt_f_x_v_f32m4(n, vl), vl);
+            auto y = __riscv_vfmv_v_f_f32m4(1.0f / 720.0f, vl);
+            y = __riscv_vfmadd_vv_f32m4(y, r, __riscv_vfmv_v_f_f32m4(1.0f / 120.0f, vl), vl);
+            y = __riscv_vfmadd_vv_f32m4(y, r, __riscv_vfmv_v_f_f32m4(1.0f / 24.0f, vl), vl);
+            y = __riscv_vfmadd_vv_f32m4(y, r, __riscv_vfmv_v_f_f32m4(1.0f / 6.0f, vl), vl);
+            y = __riscv_vfmadd_vv_f32m4(y, r, __riscv_vfmv_v_f_f32m4(0.5f, vl), vl);
+            const auto one = __riscv_vfmv_v_f_f32m4(1.0f, vl);
+            y = __riscv_vfmadd_vv_f32m4(y, r, one, vl);
+            y = __riscv_vfmadd_vv_f32m4(y, r, one, vl);
+            auto pw = __riscv_vreinterpret_v_i32m4_f32m4(
+                __riscv_vsll_vx_i32m4(__riscv_vadd_vx_i32m4(n, 127, vl), 23, vl));
+            auto denom = __riscv_vfmacc_vv_f32m4(one, y, pw, vl);
+            auto rcp = __riscv_vfrec7_v_f32m4(denom, vl);
+            rcp = __riscv_vfmul_vv_f32m4(rcp, __riscv_vfnmsac_vv_f32m4(__riscv_vfmv_v_f_f32m4(2.0f, vl), denom, rcp, vl), vl);
+            rcp = __riscv_vfmul_vv_f32m4(rcp, __riscv_vfnmsac_vv_f32m4(__riscv_vfmv_v_f_f32m4(2.0f, vl), denom, rcp, vl), vl);
+            return __riscv_vfmul_vv_f32m4(__riscv_vfmul_vv_f32m4(g, rcp, vl), u, vl);
+        };
+        const size_t hpBlockSize = MNNIme2Q8HpBlockSize();
+        for (size_t g = gBegin; g < gEnd;) {
+            const size_t chunkGroups = std::min<size_t>(kMaxChunkGroups, gEnd - g);
+            const size_t countN = chunkGroups * 32;
+            if (MNNSpacemitIme2GemmI8I4HpM1NativeLocal(MNNIme2::kSharedBlock64Kernel, aPtr, p.bGate + g * p.bStride,
+                                                       nullptr, gBuf, 1, countN, p.kBlks, countN) != 1 ||
+                MNNSpacemitIme2GemmI8I4HpM1NativeLocal(MNNIme2::kSharedBlock64Kernel, aPtr, p.bUp + g * p.bStride,
+                                                       nullptr, uBuf, 1, countN, p.kBlks, countN) != 1) {
+                p.ok.store(false, std::memory_order_relaxed);
+                return;
+            }
+            const size_t colBase = g * 32;
+            float* outPtr = p.dst + colBase;
+            for (size_t off = 0; off < countN;) {
+                const size_t vl = __riscv_vsetvl_e32m4(countN - off);
+                auto gv = __riscv_vle32_v_f32m4(gBuf + off, vl);
+                auto uv = __riscv_vle32_v_f32m4(uBuf + off, vl);
+                if (p.biasGate != nullptr) {
+                    gv = __riscv_vfadd_vv_f32m4(gv, __riscv_vle32_v_f32m4(p.biasGate + colBase + off, vl), vl);
+                }
+                if (p.clampG) {
+                    gv = __riscv_vfmin_vf_f32m4(__riscv_vfmax_vf_f32m4(gv, p.gMin, vl), p.gMax, vl);
+                }
+                if (p.biasUp != nullptr) {
+                    uv = __riscv_vfadd_vv_f32m4(uv, __riscv_vle32_v_f32m4(p.biasUp + colBase + off, vl), vl);
+                }
+                if (p.clampU) {
+                    uv = __riscv_vfmin_vf_f32m4(__riscv_vfmax_vf_f32m4(uv, p.uMin, vl), p.uMax, vl);
+                }
+                __riscv_vse32_v_f32m4(outPtr + off, siluMul(gv, uv, vl), vl);
+                off += vl;
+            }
+            if (p.outPackedA != nullptr && (chunkGroups % 8) == 0 && (g % 8) == 0) {
+                if (!MNNIme2PackFloatA1HierarchicalHp(p.outPackedA + (g / 8) * hpBlockSize, outPtr, chunkGroups / 8,
+                                                      1.0f)) {
+                    p.ok.store(false, std::memory_order_relaxed);
+                    return;
+                }
+            }
+            g += chunkGroups;
+        }
+    };
+    const size_t ran = MNNSpacemitIme2RunDecodeTasks(workers, task, &fctx);
+    return (ran == workers && fctx.ok.load(std::memory_order_relaxed)) ? 1 : 0;
+#else
+    (void)dst; (void)outPackedA; (void)src; (void)wGate; (void)biasGate; (void)clampGate; (void)ctxGate;
+    (void)wUp; (void)biasUp; (void)clampUp; (void)ctxUp; (void)srcDepthQuad; (void)dstDepthQuad; (void)blockNum;
+    return 0;
+#endif
+}
+
+struct MNNSpacemitIme2DecodeProjDesc {
+    float* dst;
+    const int8_t* weight;
+    const float* bias;
+    const float* clamp;
+    void* context;
+    size_t dstDepthQuad;
+    size_t realCols;
+};
+
+extern "C" int MNNSpacemitIme2LinearFloatHpDecodeMultiProj(const float* src, size_t srcDepthQuad, size_t blockNum,
+                                                           const MNNSpacemitIme2DecodeProjDesc* projs,
+                                                           size_t projCount) {
+#if defined(MNN_USE_SPACEMIT_IME2)
+    constexpr size_t kMaxProjs = 8;
+    if (!MNNSpacemitIme2Enabled() || !MNNSpacemitIme2HpM1AsymPairEnabled() || src == nullptr || projs == nullptr ||
+        projCount == 0 || projCount > kMaxProjs || srcDepthQuad != 4 || blockNum == 0 || blockNum % 4 != 0 ||
+        __riscv_vlenb() != 32) {
+        return 0;
+    }
+    const size_t kBlks = blockNum / 4;
+    const size_t bStride = MNNIme2Q4HpAsymPairSuperBlockSize() * kBlks;
+    const uint8_t* packedA = MNNIme2GetOrPackDecodeA(src, kBlks, true);
+    if (packedA == nullptr) {
+        return 0;
+    }
+    std::shared_ptr<std::vector<uint8_t>> packedRefs[kMaxProjs];
+    struct ResolvedProj {
+        float* dst = nullptr;
+        const uint8_t* b = nullptr;
+        const float* bias = nullptr;
+        float cMin = 0.0f, cMax = 0.0f;
+        bool needClamp = false;
+        size_t groups = 0;
+        size_t realCols = 0;
+    };
+    struct MultiCtx {
+        const uint8_t* packedA = nullptr;
+        size_t aBytes = 0;
+        size_t kBlks = 0;
+        size_t bStride = 0;
+        size_t workers = 4;
+        size_t projCount = 0;
+        ResolvedProj projs[kMaxProjs];
+        std::atomic<bool> ok{true};
+    };
+    MultiCtx mctx;
+    mctx.packedA = packedA;
+    mctx.aBytes = kBlks * MNNIme2Q8HpBlockSize();
+    mctx.kBlks = kBlks;
+    mctx.bStride = bStride;
+    mctx.workers = 4;
+    mctx.projCount = projCount;
+    for (size_t j = 0; j < projCount; ++j) {
+        const auto& d = projs[j];
+        if (d.dst == nullptr || d.weight == nullptr || d.context == nullptr || d.dstDepthQuad == 0 ||
+            d.dstDepthQuad % 8 != 0 || d.realCols == 0 || d.realCols > d.dstDepthQuad * 4) {
+            return 0;
+        }
+        packedRefs[j] = MNNGetIme2PackedBHpAsymPairAllBlocks(d.weight, srcDepthQuad, d.dstDepthQuad, blockNum, d.context);
+        if (packedRefs[j] == nullptr) {
+            return 0;
+        }
+        auto& rp = mctx.projs[j];
+        rp.dst = d.dst;
+        rp.b = MNNIme2Block64Data(*packedRefs[j]);
+        rp.bias = d.bias;
+        rp.needClamp = d.clamp != nullptr && !MNNRvvFp32MinMaxIsFullRange(d.clamp[0], d.clamp[1]);
+        rp.cMin = rp.needClamp ? d.clamp[0] : 0.0f;
+        rp.cMax = rp.needClamp ? d.clamp[1] : 0.0f;
+        rp.groups = d.dstDepthQuad / 8;
+        rp.realCols = d.realCols;
+    }
+
+    auto task = [](size_t id, void* tcmBuffer, size_t tcmSize, void* user) {
+        auto& p = *static_cast<MultiCtx*>(user);
+        const uint8_t* aPtr = p.packedA;
+        if (tcmBuffer != nullptr && tcmSize >= p.aBytes) {
+            MNNSpacemitIme2RvvMemcpy1d(tcmBuffer, p.packedA, p.aBytes);
+            aPtr = static_cast<const uint8_t*>(tcmBuffer);
+        }
+        auto applyPost = [](float* out, const float* bias, bool needClamp, float cMin, float cMax, size_t n) {
+            if (bias == nullptr && !needClamp) {
+                return;
+            }
+            for (size_t off = 0; off < n;) {
+                const size_t vl = __riscv_vsetvl_e32m4(n - off);
+                auto v = __riscv_vle32_v_f32m4(out + off, vl);
+                if (bias != nullptr) {
+                    v = __riscv_vfadd_vv_f32m4(v, __riscv_vle32_v_f32m4(bias + off, vl), vl);
+                }
+                if (needClamp) {
+                    v = __riscv_vfmin_vf_f32m4(__riscv_vfmax_vf_f32m4(v, cMin, vl), cMax, vl);
+                }
+                __riscv_vse32_v_f32m4(out + off, v, vl);
+                off += vl;
+            }
+        };
+        size_t smallIdx = 0;
+        for (size_t j = 0; j < p.projCount; ++j) {
+            const auto& rp = p.projs[j];
+            if (rp.groups >= p.workers && rp.realCols == rp.groups * 32) {
+                const size_t base = rp.groups / p.workers;
+                const size_t rem = rp.groups % p.workers;
+                const size_t gBegin = id * base + std::min(id, rem);
+                const size_t gCnt = base + (id < rem ? 1 : 0);
+                const size_t colBase = gBegin * 32;
+                const size_t cols = gCnt * 32;
+                if (MNNSpacemitIme2GemmI8I4HpM1NativeLocal(MNNIme2::kSharedBlock64Kernel, aPtr,
+                                                           rp.b + gBegin * p.bStride, nullptr, rp.dst + colBase, 1,
+                                                           cols, p.kBlks, cols) != 1) {
+                    p.ok.store(false, std::memory_order_relaxed);
+                    return;
+                }
+                applyPost(rp.dst + colBase, rp.bias ? rp.bias + colBase : nullptr, rp.needClamp, rp.cMin, rp.cMax, cols);
+            } else {
+                const size_t owner = (smallIdx++) % p.workers;
+                if (id != owner) {
+                    continue;
+                }
+                const size_t paddedCols = rp.groups * 32;
+                if (rp.realCols == paddedCols) {
+                    if (MNNSpacemitIme2GemmI8I4HpM1NativeLocal(MNNIme2::kSharedBlock64Kernel, aPtr, rp.b, nullptr,
+                                                               rp.dst, 1, paddedCols, p.kBlks, paddedCols) != 1) {
+                        p.ok.store(false, std::memory_order_relaxed);
+                        return;
+                    }
+                    applyPost(rp.dst, rp.bias, rp.needClamp, rp.cMin, rp.cMax, paddedCols);
+                } else {
+                    alignas(64) float tmp[128];
+                    if (paddedCols > 128 ||
+                        MNNSpacemitIme2GemmI8I4HpM1NativeLocal(MNNIme2::kSharedBlock64Kernel, aPtr, rp.b, nullptr, tmp,
+                                                               1, paddedCols, p.kBlks, paddedCols) != 1) {
+                        p.ok.store(false, std::memory_order_relaxed);
+                        return;
+                    }
+                    applyPost(tmp, rp.bias, rp.needClamp, rp.cMin, rp.cMax, rp.realCols);
+                    std::memcpy(rp.dst, tmp, rp.realCols * sizeof(float));
+                }
+            }
+        }
+    };
+    const size_t ran = MNNSpacemitIme2RunDecodeTasks(mctx.workers, task, &mctx);
+    return (ran == mctx.workers && mctx.ok.load(std::memory_order_relaxed)) ? 1 : 0;
+#else
+    (void)src; (void)srcDepthQuad; (void)blockNum; (void)projs; (void)projCount;
     return 0;
 #endif
 }

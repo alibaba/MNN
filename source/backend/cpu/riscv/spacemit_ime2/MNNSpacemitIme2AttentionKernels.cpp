@@ -236,6 +236,22 @@ void MNNIme2MaskedSoftmax(float* row, int valid, int length, float scale) {
     MNNRvvFlashScale(row, 1.0f / sum, valid);
 }
 
+void MNNIme2OnlineSoftmaxBlock(float* row, int valid, int length, float scale, float& runningMax, float& runningSum,
+                               float& alpha) {
+    if (valid <= 0) {
+        std::memset(row, 0, length * sizeof(float));
+        alpha = 1.0f;
+        return;
+    }
+    MNNRvvFlashScale(row, scale, valid);
+    const float blkMax = MNNRvvFlashMax(row, valid);
+    const float newMax = runningSum > 0.0f ? (blkMax > runningMax ? blkMax : runningMax) : blkMax;
+    alpha = runningSum > 0.0f ? (newMax > runningMax ? std::exp(runningMax - newMax) : 1.0f) : 0.0f;
+    const float blkSum = MNNRvvFlashSoftmax(row, valid, length, newMax);
+    runningMax = newMax;
+    runningSum = runningSum * alpha + blkSum;
+}
+
 static inline void MNNRvvFlashPackQ(_Float16* dst, const float* src, int srcStride, int rows, int dim, float scale) {
     for (int row = 0; row < rows; ++row) {
         int offset = 0;

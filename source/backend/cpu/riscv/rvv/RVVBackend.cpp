@@ -10,17 +10,29 @@
 #include "MNNRvvPrefill.hpp"
 #include "backend/cpu/CPURaster.hpp"
 #include "backend/cpu/compute/CommonOptFunction.h"
+#include "core/Command.hpp"
 #include "core/Concurrency.h"
+#include "core/TensorUtils.hpp"
 #if defined(MNN_USE_SPACEMIT_IME2) && defined(MNN_LOW_MEMORY) && defined(MNN_SUPPORT_TRANSFORMER_FUSE)
 #include "backend/cpu/riscv/spacemit_ime2/MNNSpacemitIme2ConvInt8Executor.hpp"
 #endif
 
 namespace MNN {
 namespace {
+thread_local RvvHandoffContext* gRvvHandoff = nullptr;
+thread_local const Backend* gRvvResizeBackend = nullptr;
+thread_local std::unordered_set<const Execution*>* gRvvResizeHalfConvs = nullptr;
+
 class RvvMulSilu final : public Execution {
 public:
     using Execution::Execution;
     ErrorCode onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override {
+#if defined(MNN_USE_SPACEMIT_IME2) && defined(MNN_LOW_MEMORY) && defined(MNN_SUPPORT_TRANSFORMER_FUSE)
+        if (MNNSpacemitIme2TryExecuteFusedGateUp(backend(), inputs[1]->host<void>(), inputs[0]->host<void>(),
+                                                 outputs[0])) {
+            return NO_ERROR;
+        }
+#endif
         const auto cpu = static_cast<CPUBackend*>(backend());
         const int size = cpu->getTensorSize(outputs[0]);
         const auto schedule = cpu->multiThreadDivide(size);
@@ -211,6 +223,173 @@ private:
 
 } // namespace
 
+RvvHandoffContext* MNNRvvGetHandoffContext() {
+    return gRvvHandoff;
+}
+
+void MNNRvvRegisterHalfConv(const Backend* backend, const Execution* exe) {
+    if (backend && exe && gRvvResizeBackend == backend && gRvvResizeHalfConvs) {
+        gRvvResizeHalfConvs->insert(exe);
+    }
+}
+
+bool RVVBackend::onClearBuffer() {
+    mResizeHalfConvs.clear();
+    mHandoff.linearAttnToGatedRms.clear();
+    mHandoff.activeLinearAttn.clear();
+    mHandoff.gateUpToDownProj.clear();
+    mHandoff.activeGateUp.clear();
+    return CPUBackend::onClearBuffer();
+}
+
+void RVVBackend::onResizeBegin() {
+    mResizeHalfConvs.clear();
+    gRvvResizeBackend = this;
+    gRvvResizeHalfConvs = &mResizeHalfConvs;
+    CPUBackend::onResizeBegin();
+}
+
+ErrorCode RVVBackend::onResizeEnd() {
+    if (gRvvResizeBackend == this) {
+        gRvvResizeBackend = nullptr;
+        gRvvResizeHalfConvs = nullptr;
+    }
+    mResizeHalfConvs.clear();
+    return CPUBackend::onResizeEnd();
+}
+
+ErrorCode RVVBackend::onResizeEnd(const std::vector<Command*>& commands) {
+    if (gRvvResizeBackend == this) {
+        gRvvResizeBackend = nullptr;
+        gRvvResizeHalfConvs = nullptr;
+    }
+    ErrorCode code = CPUBackend::onResizeEnd();
+    if (code != NO_ERROR) {
+        mResizeHalfConvs.clear();
+        return code;
+    }
+    mHandoff.backend = this;
+    mHandoff.activeLinearAttn.clear();
+    mHandoff.activeGateUp.clear();
+#if defined(MNN_SUPPORT_TRANSFORMER_FUSE)
+    std::unordered_map<const Tensor*, int> consumerCount;
+    std::unordered_map<const Tensor*, size_t> singleConsumerIdx;
+    for (size_t i = 0; i < commands.size(); ++i) {
+        const Command* cmd = commands[i];
+        if (!cmd || !cmd->op || !cmd->execution) {
+            continue;
+        }
+        // Only invalidate tensors touched by this pipeline so sibling pipelines keep their pairs.
+        for (const Tensor* out : cmd->workOutputs) {
+            if (out) {
+                mHandoff.linearAttnToGatedRms.erase(out);
+                mHandoff.gateUpToDownProj.erase(out);
+            }
+        }
+        for (const Tensor* in : cmd->workInputs) {
+            if (!in) {
+                continue;
+            }
+            mHandoff.linearAttnToGatedRms.erase(in);
+            mHandoff.gateUpToDownProj.erase(in);
+            int& cnt = consumerCount[in];
+            ++cnt;
+            if (cnt == 1) {
+                singleConsumerIdx[in] = i;
+            }
+        }
+    }
+    for (size_t i = 0; i < commands.size(); ++i) {
+        const Command* prod = commands[i];
+        if (!prod || !prod->op || !prod->execution || prod->execution->backend() != this) {
+            continue;
+        }
+#ifdef MNN_GATED_RMS_NORM
+        if (prod->op->type() == OpType_LinearAttention && prod->workOutputs.size() == 1) {
+            const Tensor* mid = prod->workOutputs[0];
+            if (!mid) {
+                continue;
+            }
+            const auto* des = TensorUtils::getDescribe(mid);
+            if (des->usage != Tensor::InsideDescribe::NORMAL ||
+                des->memoryType != Tensor::InsideDescribe::MEMORY_BACKEND || !des->regions.empty() ||
+                des->useCount != 0 || des->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
+                continue;
+            }
+            auto cntIt = consumerCount.find(mid);
+            if (cntIt == consumerCount.end() || cntIt->second != 1) {
+                continue;
+            }
+            const size_t consIdx = singleConsumerIdx[mid];
+            if (consIdx <= i) {
+                continue;
+            }
+            const Command* cons = commands[consIdx];
+            if (cons && cons->op && cons->execution && cons->execution->backend() == this &&
+                cons->op->type() == OpType_GatedRMSNorm && cons->workInputs.size() == 2 &&
+                cons->workInputs[0] == mid) {
+                mHandoff.linearAttnToGatedRms.insert(mid);
+            }
+        }
+#endif
+#if defined(MNN_USE_SPACEMIT_IME2) && defined(MNN_LOW_MEMORY)
+        if (prod->op->type() == OpType_FusedLinear && !prod->workOutputs.empty()) {
+            auto param = prod->op->main_as_FusedLinearParam();
+            if (!param || !param->act_silu_mul()) {
+                continue;
+            }
+            const Tensor* mid = prod->workOutputs[0];
+            if (!mid) {
+                continue;
+            }
+            const auto* des = TensorUtils::getDescribe(mid);
+            if (des->usage != Tensor::InsideDescribe::NORMAL ||
+                des->memoryType != Tensor::InsideDescribe::MEMORY_BACKEND || !des->regions.empty() ||
+                des->useCount != 0 || des->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
+                continue;
+            }
+            auto cntIt = consumerCount.find(mid);
+            if (cntIt == consumerCount.end() || cntIt->second != 1) {
+                continue;
+            }
+            const size_t consIdx = singleConsumerIdx[mid];
+            // Only hand off via the shared FP16 slab when Down runs immediately after GateUp.
+            if (consIdx != i + 1) {
+                continue;
+            }
+            const Command* cons = commands[consIdx];
+            if (cons && cons->op && cons->execution && cons->execution->backend() == this &&
+                cons->op->type() == OpType_Convolution && !cons->workInputs.empty() && cons->workInputs[0] == mid &&
+                mResizeHalfConvs.count(cons->execution.get()) != 0) {
+                mHandoff.gateUpToDownProj.insert(mid);
+            }
+        }
+#endif
+    }
+#else
+    (void)commands;
+#endif
+    mResizeHalfConvs.clear();
+    return NO_ERROR;
+}
+
+void RVVBackend::onExecuteBegin() const {
+    CPUBackend::onExecuteBegin();
+    mHandoff.backend = this;
+    mHandoff.activeLinearAttn.clear();
+    mHandoff.activeGateUp.clear();
+    mPrevHandoff = gRvvHandoff;
+    gRvvHandoff = &mHandoff;
+}
+
+void RVVBackend::onExecuteEnd() const {
+    mHandoff.activeLinearAttn.clear();
+    mHandoff.activeGateUp.clear();
+    gRvvHandoff = mPrevHandoff;
+    mPrevHandoff = nullptr;
+    CPUBackend::onExecuteEnd();
+}
+
 Execution* RVVBackend::onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const Op* op) {
     if (op->type() == OpType_Raster && functions()->pack == 4) {
         return new RvvRaster(this);
@@ -224,17 +403,30 @@ Execution* RVVBackend::onCreate(const std::vector<Tensor*>& inputs, const std::v
             return execution;
         }
     }
+    if (op->type() == OpType_LayerNorm && functions()->pack == 4 && functions()->bytes == 4) {
+        if (auto execution = MNNRvvCreateLayerNorm(this, op)) {
+            return execution;
+        }
+    }
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
     if (op->type() == OpType_LinearAttention) {
         if (auto execution = MNNRvvCreateLinearAttention(this, op, inputs)) {
             return execution;
         }
     }
+#ifdef MNN_GATED_RMS_NORM
+    if (op->type() == OpType_GatedRMSNorm) {
+        if (auto execution = MNNRvvCreateGatedRMSNorm(this, op, inputs, outputs)) {
+            return execution;
+        }
+    }
+#endif
 #endif
     auto exe = CPUBackend::onCreate(inputs, outputs, op);
 #if defined(MNN_USE_SPACEMIT_IME2) && defined(MNN_LOW_MEMORY) && defined(MNN_SUPPORT_TRANSFORMER_FUSE)
     if (op->type() == OpType_FusedLinear && exe) {
-        return MNNSpacemitIme2WrapFusedProjection(exe);
+        auto param = op->main_as_FusedLinearParam();
+        return MNNSpacemitIme2WrapFusedProjection(exe, param != nullptr && param->act_silu_mul());
     }
 #endif
     return exe;
