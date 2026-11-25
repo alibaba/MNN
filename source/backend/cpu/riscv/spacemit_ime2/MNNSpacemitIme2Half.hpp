@@ -11,21 +11,20 @@
 #include <cstdint>
 
 namespace MNNIme2 {
-// One K64 x N32 tile. Each byte stores the same K position for columns c and c+16.
+// One K64 x N32 tile shared by decode and prefill. Weights are centered signed
+// 4-bit values (qW - 8) packed in native IME2 i4 K32 order (two 512-byte panels).
 constexpr size_t kSharedBlock64Kernel = 262;
 struct Block64Weight {
-    // Preserve the integer kernel's FP16 conversion and -bias/8 correction.
-    uint16_t decodeScale[32];
-    uint16_t decodeCorrection[32];
-    // Projection rounds the original bias and scale to native half. In particular
-    // decodeScale rounds midpoint mantissas up, while native RNE rounds ties to even.
-    _Float16 scale[32];
-    _Float16 offset[32];
-    uint8_t quants[8][128]; // K8 panel, column modulo 16, K modulo 8
+    // [0..31] = scale.
+    _Float16 scales[32];
+    // Centered offset: offset + 8 * scale (shared by prefill and decode).
+    _Float16 centeredOffset[32];
+    // Two K32 panels, each 4 column-groups of 8 cols x 16 packed bytes.
+    uint8_t quants[2][512];
 };
-static_assert(sizeof(Block64Weight) == 1280, "unexpected IME2 block64 layout");
-static_assert(offsetof(Block64Weight, quants) == 256 && sizeof(Block64Weight) % 128 == 0,
-              "each K8 quant panel must start on a whole-register boundary");
+static_assert(sizeof(Block64Weight) == 1152, "unexpected IME2 block64 layout");
+static_assert(offsetof(Block64Weight, quants) == 128 && sizeof(Block64Weight) % 128 == 0,
+              "each K32 quant panel must start on a whole-register boundary");
 } // namespace MNNIme2
 
 #if defined(__riscv_zvfh)
@@ -70,14 +69,39 @@ void matmulTile(size_t depth, const _Float16* b, const _Float16* a, void* out, s
 // Borrowed immutable panel. The LinearResource retains its cache entry across
 // clones and outlives the synchronous TCM dispatch that consumes this pointer.
 const uint8_t* MNNIme2GetBlock64Weight(void* context, const int8_t* weight, size_t depth, size_t columns);
+// Optional thread-local cache to reuse packed activations across FusedLinear children.
+struct MNNIme2ActivationCache {
+    const float* src = nullptr;
+    size_t rows = 0;
+    size_t depth = 0;
+    void* data = nullptr;
+};
+MNNIme2ActivationCache* MNNIme2SwapActivationCache(MNNIme2ActivationCache* next);
 size_t MNNIme2HalfProjectionBytes(size_t rows, size_t depth, size_t cols, size_t workers);
 // workspace must hold MNNIme2HalfProjectionBytes() bytes for the same shape and worker count.
 bool MNNIme2HalfProjection(const float* src, float* dst, const float* bias, const float* clamp, const uint8_t* weight,
                            size_t rows, size_t depth, size_t cols, size_t workers, void* workspace);
+bool MNNIme2HalfProjectionFromFp16(const void* srcFp16, float* dst, const float* bias, const float* clamp,
+                                   const uint8_t* weight, size_t rows, size_t depth, size_t cols, size_t workers,
+                                   void* workspace);
+bool MNNIme2HalfFusedGateUp(const float* src, float* dst, const float* biasGate, const float* clampGate,
+                            const uint8_t* weightGate, const float* biasUp, const float* clampUp,
+                            const uint8_t* weightUp, size_t rows, size_t depth, size_t cols, size_t workers,
+                            void* workspace);
+const void* MNNIme2HalfFusedGateUpToFp16(const float* src, const float* biasGate, const float* clampGate,
+                                         const uint8_t* weightGate, const float* biasUp, const float* clampUp,
+                                         const uint8_t* weightUp, size_t rows, size_t depth, size_t cols,
+                                         size_t workers, void* workspace);
+void MNNIme2ConvertTiledFp16ToC4(const void* srcFp16, float* dst, size_t rows, size_t depth);
 bool MNNIme2CausalAttention(const float* q, const float* const* keys, const float* const* values, float* out,
                             size_t len, size_t dim, size_t heads, size_t kv, size_t workers, float scale);
 void MNNIme2MaskedSoftmax(float* scores, int valid, int length, float scale);
+void MNNIme2OnlineSoftmaxBlock(float* row, int valid, int length, float scale, float& runningMax, float& runningSum,
+                               float& alpha);
 #endif
 
 bool MNNIme2GatedPrefill(float* state, const float* q, const float* k, float* v, float* projection, float* output,
                          const float* decay, const float* beta, size_t stride, void* scratch, size_t scratchBytes);
+bool MNNIme2GatedPrefill64(float* state, const float* q, const float* k, const float* v, float* projK, float* output,
+                           const float* decay, const float* beta, size_t stride, void* scratch, size_t scratchBytes,
+                           size_t validCount = 64);

@@ -98,8 +98,8 @@ bool MNNSpacemitIme2Attention::tryExecuteFastPath(const int8_t* query, int8_t* o
     if (MNNIme2::halfPrefillEnabled() && static_cast<CPUBackend*>(backend())->precisionMode() == BackendConfig::Precision_Low && mUseFlashAttention && mKeyQuantMode == KVQuantMode::None && mValueQuantMode == KVQuantMode::None &&
         mBytes == 4 && mPack == 4 && hP == 4 && lP == 1 && mHeadDim == 256 && mQNumHead >= mKvNumHead &&
         mKvNumHead > 0 && mQNumHead % mKvNumHead == 0 && directC4Output && lowerTriangular && !hasSinks &&
-        paddingLength == 0 && qScale == 1.0f && seqLen == kvSeqLen && seqLen >= 64 && seqLen <= 512 &&
-        seqLen % 64 == 0 && mKvBlockSize == 64 && mKVCacheManager->getFlashAttentionBlockKv() == 64 && mThreadNum > 0 &&
+        paddingLength == 0 && qScale == 1.0f && seqLen == kvSeqLen && seqLen >= 16 &&
+        mKvBlockSize == 64 && mKVCacheManager->getFlashAttentionBlockKv() == 64 && mThreadNum > 0 &&
         mThreadNum <= 8 && query && output) {
         const float* localHeads[16];
         std::unique_ptr<const float*[]> extra;
