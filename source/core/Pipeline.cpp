@@ -981,8 +981,9 @@ static inline Tensor* _storageRoot(Tensor* tensor) {
 }
 
 // Non-null only for a Raster planned as a zero-copy view; a root resolves to itself.
+// Must not read cmd.op here: releaseModel() may have freed the buffer before execute.
 static inline Tensor* _viewRoot(const Command& cmd) {
-    if (cmd.op->type() != OpType_Raster || cmd.workOutputs.size() != 1) {
+    if (cmd.workOutputs.size() != 1) {
         return nullptr;
     }
     auto output = cmd.workOutputs[0];
@@ -1379,7 +1380,7 @@ ErrorCode Pipeline::execute() {
                 continue;
             }
 #ifdef MNN_PIPELINE_DEBUG
-            if (info.op->name() != nullptr) {
+            if (cmd.info.get() != nullptr) {
                 std::string groupOfInput = "input group: [";
                 for (int v=0; v<cmd.workInputs.size(); ++v) {
                     groupOfInput = groupOfInput + " " + std::to_string(TensorUtils::getDescribe(cmd.workInputs[v])->group) + " ";
@@ -1395,7 +1396,7 @@ ErrorCode Pipeline::execute() {
                     deviceOfOutput = deviceOfOutput + " " + std::to_string(cmd.workOutputs[v]->deviceId()) + " ";
                 }
                 deviceOfOutput += "]";
-                MNN_PRINT("Group: %d, %s - %d, type=%s, inputs: %s, devices: %s - %s\n", cmd.group, info.op->name()->c_str(), cmdIndex, EnumNameOpType(cmd.op->type()), groupOfInput.c_str(), deviceOfInput.c_str(), deviceOfOutput.c_str());
+                MNN_PRINT("Group: %d, %s - %d, type=%s, inputs: %s, devices: %s - %s\n", cmd.group, cmd.info->name().c_str(), cmdIndex, cmd.info->type().c_str(), groupOfInput.c_str(), deviceOfInput.c_str(), deviceOfOutput.c_str());
             }
 #endif
             auto code = cmd.execution->onExecute(cmd.workInputs, cmd.workOutputs);
