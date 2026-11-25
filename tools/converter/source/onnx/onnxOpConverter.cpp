@@ -341,6 +341,10 @@ MNN::BlobT* onnxOpConverter::convertTensorToBlob(const onnx::TensorProto* consta
         CASE_DATA_TYPE(onnx::TensorProto_DataType_FLOAT, float);
         CASE_DATA_TYPE(onnx::TensorProto_DataType_UINT64, uint64);
         CASE_DATA_TYPE(onnx::TensorProto_DataType_BOOL, int32);
+        CASE_DATA_TYPE(onnx::TensorProto_DataType_INT16, int32);
+        CASE_DATA_TYPE(onnx::TensorProto_DataType_UINT16, int32);
+        CASE_DATA_TYPE(onnx::TensorProto_DataType_FLOAT16, int32);
+        CASE_DATA_TYPE(onnx::TensorProto_DataType_BFLOAT16, int32);
         default:
             break;
     }
@@ -349,6 +353,9 @@ MNN::BlobT* onnxOpConverter::convertTensorToBlob(const onnx::TensorProto* consta
         return constantParam;
     }
 
+    // Narrow types listed in int32_data keep one element per int32, not packed bytes.
+    const bool useInt32Data = constantTp->int32_data_size() > 0;
+    auto int32Source = (const int32_t*)tensor_content;
     if (!tensor_content) {
         DLOG(FATAL) << "Convert no data, "
                        "Please make sure ";
@@ -386,7 +393,7 @@ MNN::BlobT* onnxOpConverter::convertTensorToBlob(const onnx::TensorProto* consta
             auto source = (uint16_t*)tensor_content;
             constantParam->int32s.resize(dataSize);
             for (int i = 0; i < dataSize; ++i) {
-                constantParam->int32s[i] = source[i];
+                constantParam->int32s[i] = useInt32Data ? (uint16_t)int32Source[i] : source[i];
             }
             break;
         }
@@ -394,7 +401,7 @@ MNN::BlobT* onnxOpConverter::convertTensorToBlob(const onnx::TensorProto* consta
             auto source = (int16_t*)tensor_content;
             constantParam->int32s.resize(dataSize);
             for (int i = 0; i < dataSize; ++i) {
-                constantParam->int32s[i] = source[i];
+                constantParam->int32s[i] = useInt32Data ? (int16_t)int32Source[i] : source[i];
             }
             break;
         }
@@ -402,7 +409,7 @@ MNN::BlobT* onnxOpConverter::convertTensorToBlob(const onnx::TensorProto* consta
             auto source = (bool*)tensor_content;
             constantParam->int32s.resize(dataSize);
             for (int i = 0; i < dataSize; ++i) {
-                constantParam->int32s[i] = source[i];
+                constantParam->int32s[i] = useInt32Data ? (int32Source[i] != 0) : source[i];
             }
             break;
         }
@@ -410,7 +417,7 @@ MNN::BlobT* onnxOpConverter::convertTensorToBlob(const onnx::TensorProto* consta
             auto source = (int8_t*)tensor_content;
             constantParam->int8s.resize(dataSize);
             for (int i = 0; i < dataSize; ++i) {
-                constantParam->int8s[i] = source[i];
+                constantParam->int8s[i] = useInt32Data ? (int8_t)int32Source[i] : source[i];
             }
             break;
         }
@@ -426,14 +433,17 @@ MNN::BlobT* onnxOpConverter::convertTensorToBlob(const onnx::TensorProto* consta
             }
             break;
         }
-        case onnx::TensorProto_DataType_FLOAT16: {
-            constantParam->uint8s.resize(dataSize * sizeof(int16_t));
-            ::memcpy(constantParam->uint8s.data(), tensor_content, dataSize * sizeof(int16_t));
-            break;
-        }
+        case onnx::TensorProto_DataType_FLOAT16:
         case onnx::TensorProto_DataType_BFLOAT16: {
             constantParam->uint8s.resize(dataSize * sizeof(int16_t));
-            ::memcpy(constantParam->uint8s.data(), tensor_content, dataSize * sizeof(int16_t));
+            if (useInt32Data) {
+                auto dst = (uint16_t*)constantParam->uint8s.data();
+                for (int i = 0; i < dataSize; ++i) {
+                    dst[i] = (uint16_t)int32Source[i];
+                }
+            } else {
+                ::memcpy(constantParam->uint8s.data(), tensor_content, dataSize * sizeof(int16_t));
+            }
             break;
         }
         case onnx::TensorProto_DataType_FLOAT: {
