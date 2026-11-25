@@ -40,6 +40,9 @@ extern "C" int MNNSpacemitIme2LinearPackedAGemm(int8_t* dst, const uint8_t* pack
 extern "C" int MNNSpacemitIme2LinearFloatHpDecode(int8_t* dst, const float* src, const int8_t* weight,
                                                   size_t srcDepthQuad, size_t dstStep, size_t dstDepthQuad,
                                                   const QuanPostTreatParameters* post, void* context);
+extern "C" int MNNSpacemitIme2LinearTiedBitDecode(int8_t* dst, const float* src, const int8_t* weight,
+                                                  size_t srcDepthQuad, size_t dstStep, size_t dstDepthQuad,
+                                                  const QuanPostTreatParameters* post, void* context);
 extern "C" int MNNSpacemitIme2LinearPackedADecode(int8_t* dst, const uint8_t* packedA, const int8_t* weight,
                                                   size_t srcDepthQuad, size_t dstStep, size_t dstDepthQuad,
                                                   const QuanPostTreatParameters* post, void* context);
@@ -489,11 +492,15 @@ SpacemitIme2ConvInt8Executor::SpacemitIme2ConvInt8Executor(Backend* backend, con
                                       info.blockNum, resource->mOriginBias == nullptr ? nullptr :
                                           resource->mOriginBias->host<float>());
           }),
-      mLinearResource(std::move(linearResource)) {}
+      mLinearResource(std::move(linearResource)),
+      mIsLmHead(op != nullptr && op->name() != nullptr &&
+                std::strcmp(op->name()->c_str(), "/lm/lm_head/Linear") == 0) {}
 
 SpacemitIme2ConvInt8Executor::SpacemitIme2ConvInt8Executor(Backend* backend, const Op* op,
                                                            const SpacemitIme2ConvInt8Executor& exe)
-    : DenseConvInt8TiledExecutor(backend, op, exe), mLinearResource(exe.mLinearResource) {}
+    : DenseConvInt8TiledExecutor(backend, op, exe),
+      mLinearResource(exe.mLinearResource),
+      mIsLmHead(exe.mIsLmHead) {}
 
 SpacemitIme2ConvInt8Executor::~SpacemitIme2ConvInt8Executor() {}
 
@@ -765,6 +772,11 @@ bool SpacemitIme2ConvInt8Executor::tryExecuteFast(const std::vector<Tensor*>& in
             }
         }
 #endif
+        if (mIsLmHead && MNNIme2::tiedBitEnabled() &&
+            MNNSpacemitIme2LinearTiedBitDecode(dst, src, weight, srcDepthQuad, dstStep, dstDepthQuad, &post,
+                                               mLinearResource->context()) != 0) {
+            return true;
+        }
         if (MNNSpacemitIme2LinearFloatHpDecode(dst, src, weight, srcDepthQuad, dstStep, dstDepthQuad, &post,
                                                mLinearResource->context()) != 0) {
             return true;

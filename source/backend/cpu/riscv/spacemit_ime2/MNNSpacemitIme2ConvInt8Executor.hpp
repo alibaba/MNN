@@ -47,6 +47,7 @@ private:
     std::vector<float> mNarrowOutput;
     MemChunk mHalfWorkspace;
     bool mLinear1x1 = false;
+    bool mIsLmHead = false;
     bool mDecodeBiasChecked = false;
     bool mDecodeBiasAllZero = false;
 };
