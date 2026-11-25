@@ -2583,6 +2583,51 @@ static void MNNPackIme2B32HpResidualAllBlocks(uint8_t* dst, const int8_t* weight
     }
 }
 
+static void MNNPackIme2B32Q1AllBlocks(uint8_t* dst, const int8_t* weight, size_t srcDepthQuad, size_t blockNum,
+                                      size_t dzStart) {
+    MNN_ASSERT(srcDepthQuad == 4);
+    const size_t k16Bytes = GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT / 2;
+    const size_t srcStride = srcDepthQuad * k16Bytes + 2 * GEMM_INT8_UNIT * sizeof(float);
+    auto blocks = reinterpret_cast<MNNIme2::Block64Q1Weight*>(dst);
+    for (size_t bk = 0; bk < blockNum; ++bk) {
+        std::memset(blocks[bk].q1, 0, sizeof(blocks[bk].q1));
+    }
+    // Iterate dz outer so each [dz, bk] weight slice is read sequentially once.
+    for (size_t dz = 0; dz < 8; ++dz) {
+        const auto dzBase = reinterpret_cast<const uint8_t*>(weight) + (dzStart + dz) * blockNum * srcStride;
+        const size_t r = dz >> 1;
+        const size_t cBase = dz * 4;
+        const size_t cInRBase = (dz & 1u) * 4;
+        for (size_t bk = 0; bk < blockNum; ++bk) {
+            const uint8_t* src = dzBase + bk * srcStride;
+            const auto params = reinterpret_cast<const float*>(src + srcDepthQuad * k16Bytes);
+            auto& block = blocks[bk];
+            for (size_t lane = 0; lane < 4; ++lane) {
+                const float scale = params[lane];
+                const float offset = params[4 + lane];
+                block.scales[cBase + lane] = static_cast<_Float16>(scale);
+                block.offset35[cBase + lane] = static_cast<_Float16>(offset + 3.5f * scale);
+                const size_t laneOffset = (lane & 1u) * 16;
+                const bool upper = lane < 2;
+                const size_t cInR = cInRBase + lane;
+                for (size_t k32 = 0; k32 < 2; ++k32) {
+                    uint8_t* dstPanel = block.q1[k32] + cInR * 16;
+                    for (size_t half = 0; half < 2; ++half) {
+                        const uint8_t* k16Ptr = src + (k32 * 2 + half) * k16Bytes + laneOffset;
+                        for (size_t p = 0; p < 8; ++p) {
+                            const uint8_t raw0 = k16Ptr[2 * p];
+                            const uint8_t raw1 = k16Ptr[2 * p + 1];
+                            const uint8_t b0 = upper ? ((raw0 >> 7) & 1u) : ((raw0 >> 3) & 1u);
+                            const uint8_t b1 = upper ? ((raw1 >> 7) & 1u) : ((raw1 >> 3) & 1u);
+                            dstPanel[half * 8 + p] |= static_cast<uint8_t>((b0 << r) | (b1 << (r + 4)));
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 static void MNNPackIme2B32HpAsymPairAllBlocks(uint8_t* dst, const int8_t* weight, size_t srcDepthQuad, size_t blockNum,
                                               size_t dzStart) {
     MNN_ASSERT(srcDepthQuad == 4);
@@ -2720,6 +2765,7 @@ struct MNNIme2LinearResource {
     MNNIme2BPackCache<uint8_t> packedBHpAllBlocks;
     MNNIme2BPackCache<uint8_t> packedBHpResidualAllBlocks;
     MNNIme2BPackCache<uint8_t> packedBHpAsymPairAllBlocks;
+    MNNIme2BPackCache<uint8_t> packedBQ1AllBlocks;
     MNNIme2BPackCache<uint8_t> packedBHpSymAllBlocks;
     MNNIme2ResidualCache residualAllBlocks;
     MNNIme2ResidualCache weightBiasResidualAllBlocks;
@@ -5080,6 +5126,62 @@ extern "C" int MNNSpacemitIme2LinearFloatFusedGemm(int8_t* dst, const float* src
         return 0;
     }
     return 1;
+}
+
+static std::shared_ptr<std::vector<uint8_t>> MNNGetIme2PackedBQ1AllBlocks(const int8_t* weight, size_t srcDepthQuad,
+                                                                          size_t dstDepthQuad, size_t blockNum,
+                                                                          void* context = nullptr) {
+    const auto resolved = MNNIme2ResolveLinearResource(context, weight);
+    const MNNIme2BPackKey key = {srcDepthQuad, dstDepthQuad, blockNum, false, true};
+    auto local = MNNIme2FindLocalLinearCache<3, std::vector<uint8_t>>(resolved, key);
+    if (local != nullptr) {
+        return local;
+    }
+    auto value = MNNIme2GetOrCreateLinearCache<uint8_t>(
+        resolved, key, &MNNIme2LinearResource::packedBQ1AllBlocks, [=]() {
+            const size_t groupCount = dstDepthQuad / 8;
+            const size_t tileStride = blockNum * sizeof(MNNIme2::Block64Q1Weight);
+            auto packed = std::make_shared<std::vector<uint8_t>>();
+            packed->resize(groupCount * tileStride + 127);
+            auto data = MNNIme2Block64Data(*packed);
+            struct PackQ1Ctx {
+                uint8_t* data;
+                const int8_t* weight;
+                size_t srcDepthQuad;
+                size_t blockNum;
+                size_t groupCount;
+                size_t tileStride;
+                size_t workers;
+            };
+            const size_t workers = std::min<size_t>(4, groupCount);
+            PackQ1Ctx pctx = {data, weight, srcDepthQuad, blockNum, groupCount, tileStride, workers};
+            auto task = [](size_t id, void*, size_t, void* user) {
+                auto& p = *static_cast<PackQ1Ctx*>(user);
+                const size_t base = p.groupCount / p.workers;
+                const size_t rem = p.groupCount % p.workers;
+                const size_t gBegin = id * base + std::min(id, rem);
+                const size_t gEnd = gBegin + base + (id < rem ? 1 : 0);
+                for (size_t g = gBegin; g < gEnd; ++g) {
+                    MNNPackIme2B32Q1AllBlocks(p.data + g * p.tileStride, p.weight, p.srcDepthQuad, p.blockNum, g * 8);
+                }
+            };
+            if (MNNSpacemitIme2RunDecodeTasks(workers, task, &pctx) != workers) {
+                for (size_t g = 0; g < groupCount; ++g) {
+                    MNNPackIme2B32Q1AllBlocks(data + g * tileStride, weight, srcDepthQuad, blockNum, g * 8);
+                }
+            }
+            return packed;
+        });
+    MNNIme2StoreLocalLinearCache<3, std::vector<uint8_t>>(resolved, key, value);
+    return value;
+}
+
+const uint8_t* MNNIme2GetBlock64Q1Weight(void* context, const int8_t* weight, size_t depth, size_t columns) {
+    if (!depth || !columns || depth % 256 || columns % 32 || !MNNIme2ResolveLinearResource(context, weight).resource) {
+        return nullptr;
+    }
+    auto packed = MNNGetIme2PackedBQ1AllBlocks(weight, 4, columns / 4, depth / 64, context);
+    return packed ? MNNIme2Block64Data(*packed) : nullptr;
 }
 
 const uint8_t* MNNIme2GetBlock64Weight(void* context, const int8_t* weight, size_t depth, size_t columns) {

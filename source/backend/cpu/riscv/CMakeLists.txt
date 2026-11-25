@@ -86,6 +86,7 @@ if (CMAKE_SYSTEM_PROCESSOR MATCHES "^riscv64" OR ARCHS STREQUAL "riscv64")
             ${CMAKE_CURRENT_LIST_DIR}/spacemit_ime2/MNNSpacemitIme2HalfGemm.cpp
             ${CMAKE_CURRENT_LIST_DIR}/spacemit_ime2/MNNSpacemitIme2HalfAttention.cpp
             ${CMAKE_CURRENT_LIST_DIR}/spacemit_ime2/MNNSpacemitIme2HalfProjection.cpp
+            ${CMAKE_CURRENT_LIST_DIR}/spacemit_ime2/MNNSpacemitIme2TiedBit.cpp
         )
         set(MNN_SPACEMIT_IME2_MARCH "${MNN_RVV_BASE_MARCH}_xsmtvdotii")
 
