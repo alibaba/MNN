@@ -66,7 +66,7 @@ struct AttentionSoftmaxParam {
 class AttentionBufExecution : public MetalExecution {
 public:
     AttentionBufExecution(Backend* backend, bool kvCache, bool outputC4,
-                          std::shared_ptr<KVQuantParameter> kvQuantParam);
+                          std::shared_ptr<KVQuantParameter> kvQuantParam, const std::string& opName);
     virtual ~AttentionBufExecution();
     void invalidateReplay() override;
     virtual ErrorCode onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
@@ -88,7 +88,7 @@ public:
             // A private cache would hold the placeholder K/V instead of the owner's.
             return false;
         }
-        auto exe = new AttentionBufExecution(bn, mKVCache, mOutputC4, mKVQuantParameter);
+        auto exe = new AttentionBufExecution(bn, mKVCache, mOutputC4, mKVQuantParameter, mOpName);
         if (canShare) {
             exe->mKVCacheManager->removeReplayUser(exe);
             exe->mKVCacheManager = mKVCacheManager;
@@ -101,6 +101,7 @@ public:
     }
 
 private:
+    std::string mOpName;
     void _init();
     bool compilerShader(const std::vector<Tensor*>& inputs);
     ErrorCode handleKVAllocMemory();

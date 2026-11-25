@@ -12,6 +12,8 @@
 #include "core/OpCommonUtils.hpp"
 #include "core/MNNFileUtils.h"
 #include "core/AttentionMaskConvention.hpp"
+#include "core/KVCacheImport.hpp"
+#include <half.hpp>
 #include "MNNTestSuite.h"
 #include "TestUtils.h"
 #include <stdlib.h>
@@ -37,12 +39,14 @@ static KVMeta gMeta;
 static std::shared_ptr<Module> _makeAttentionModule(int attentionMode = 8, bool outputC4 = false,
                                                     bool forceOpenCLBuffer = false, int numThread = -1,
                                                     KVMeta* meta = &gMeta,
-                                                    const std::string& prefixCacheDir = std::string()) {
+                                                    const std::string& prefixCacheDir = std::string(),
+                                                    const std::string& opName = std::string()) {
     auto Q = _Input();
     auto K = _Input();
     auto V = _Input();
     auto mask = _Input();
     std::shared_ptr<MNN::OpT> attention(new MNN::OpT);
+    attention->name = opName;
     attention->type = MNN::OpType_Attention;
     attention->main.type = MNN::OpParameter_AttentionParam;
     attention->main.value = new MNN::AttentionParamT;
@@ -354,6 +358,90 @@ public:
         return computeAttention(query, mPastKey, mPastValue, mask, seq_len, mPastLen);
     }
 };
+
+// Match imported dense FP16 state to an independent host attention calculation, including
+// KV growth, repeated requests, GQA layouts and a multi-token continuation after import.
+class AttentionImportTest : public MNNTestCase {
+public:
+    bool run(int) override {
+        if (MNNTestSuite::get()->pStaus.forwardType != MNN_FORWARD_METAL) {
+            ++MNNTestSuite::get()->skipped;
+            return true;
+        }
+        const int oldQ = NumHead, oldK = KvNumHead, oldD = HeadDim;
+        bool pass = true;
+        for (auto dims : {std::vector<int>{14, 2, 64}, std::vector<int>{32, 8, 128}}) {
+            NumHead = dims[0]; KvNumHead = dims[1]; HeadDim = dims[2];
+            for (int option : {0, 8}) {
+                KVMeta meta;
+                auto module = _makeAttentionModule(option, false, false, -1, &meta, "", "import_attention");
+                for (int prefix : {63, 129, 5}) {
+                    auto key = generateRandTensor(prefix, KvNumHead, HeadDim, 2);
+                    auto value = generateRandTensor(prefix, KvNumHead, HeadDim, 2);
+                    auto pack = [](std::vector<std::vector<std::vector<float>>>& data) {
+                        std::shared_ptr<MNN::Tensor> t(MNN::Tensor::create(
+                            {int(data.size()), int(data[0].size()), int(data[0][0].size())}, halide_type_t(halide_type_float, 16)));
+                        auto dst = reinterpret_cast<half_float::half*>(t->host<void>());
+                        for (auto& row : data) {
+                            for (auto& head : row) {
+                                for (auto& v : head) {
+                                    *dst = v;
+                                    v = float(*dst++);
+                                }
+                            }
+                        }
+                        return t;
+                    };
+                    meta.pendingImport.reset(new MNN::KVCacheImport);
+                    meta.pendingImport->tokens = prefix;
+                    auto& layer = meta.pendingImport->layers["import_attention"];
+                    layer.key = pack(key); layer.value = pack(value);
+                    NaiveAttention reference;
+                    reference.appendHistory(key, value, prefix);
+                    meta.previous = prefix; meta.remove = 0;
+                    for (int step = 0; step < 70; ++step) {
+                        const int count = step == 0 && prefix == 129 ? 3 : 1;
+                        auto q = generateRandTensor(count, NumHead, HeadDim, 2);
+                        auto k = generateRandTensor(count, KvNumHead, HeadDim, 2);
+                        auto v = generateRandTensor(count, KvNumHead, HeadDim, 2);
+                        pack(q); pack(k); pack(v);
+                        std::vector<std::vector<int>> mask(count, std::vector<int>(meta.previous + count));
+                        for (int row = 0; row < count; ++row) {
+                            std::fill(mask[row].begin(), mask[row].begin() + meta.previous + row + 1, 1);
+                        }
+                        auto expected = reference.onExecute(q, k, v, mask, count);
+                        meta.add = count;
+                        auto result = module->onForward({vector_to_var(q), vector_to_var(k), vector_to_var(v), _Scalar<int>(0)});
+                        auto actual = result.empty() ? nullptr : result[0]->readMap<float>();
+                        if (!actual || meta.pendingImport) {
+                            MNN_PRINT("attention import was not consumed\n");
+                            pass = false;
+                            break;
+                        }
+                        size_t i = 0;
+                        for (auto& row : expected) {
+                            for (auto& head : row) {
+                                for (auto e : head) {
+                                    pass &= std::isfinite(actual[i]) && std::abs(actual[i] - e) < 0.0001f;
+                                    ++i;
+                                }
+                            }
+                        }
+                        meta.sync();
+                    }
+                    if (!pass) {
+                        MNN_PRINT("attention import failed q=%d kv=%d d=%d option=%d prefix=%d\n",
+                                  NumHead, KvNumHead, HeadDim, option, prefix);
+                        break;
+                    }
+                }
+            }
+        }
+        NumHead = oldQ; KvNumHead = oldK; HeadDim = oldD;
+        return pass;
+    }
+};
+MNNTestSuiteRegister(AttentionImportTest, "op/attention_import");
 
 class AttentionTest : public MNNTestCase {
 protected:

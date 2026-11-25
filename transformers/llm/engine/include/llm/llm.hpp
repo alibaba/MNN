@@ -273,6 +273,7 @@ protected:
     std::shared_ptr<Sampler> mSampler;
     std::shared_ptr<Express::Executor::RuntimeManager> mRuntimeManager, mProcessorRuntimeManager;
     std::shared_ptr<Express::Module> mModule;
+    std::shared_ptr<Express::Module> mCoreMLPrefill;
     /**
      key: <seq_len, all_logists>
      value : module

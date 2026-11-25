@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A117C0E00000000000000001 /* CoreMLTransformer.cpp in Sources */ = {isa = PBXBuildFile; fileRef = A117C0E00000000000000002 /* CoreMLTransformer.cpp */; };
 		11A01A06258785EA00745FA7 /* MNNVectorTop1Int32.S in Sources */ = {isa = PBXBuildFile; fileRef = 11A01A04258785EA00745FA7 /* MNNVectorTop1Int32.S */; };
 		11A01A07258785EA00745FA7 /* MNNVectorTop1Float.S in Sources */ = {isa = PBXBuildFile; fileRef = 11A01A05258785EA00745FA7 /* MNNVectorTop1Float.S */; };
 		11A01A0C258785FB00745FA7 /* MNNVectorTop1Float.S in Sources */ = {isa = PBXBuildFile; fileRef = 11A01A0A258785FB00745FA7 /* MNNVectorTop1Float.S */; };
@@ -834,6 +835,8 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		A117C0E00000000000000002 /* CoreMLTransformer.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = CoreMLTransformer.cpp; sourceTree = "<group>"; };
+		A117C0E00000000000000003 /* CoreMLTransformer.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = CoreMLTransformer.hpp; sourceTree = "<group>"; };
 		0F1465B71FA18D1000F9860A /* MNN.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = MNN.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		0F1465BB1FA18D1000F9860A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		0F78AC261FCD495800205A7C /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
@@ -2334,6 +2337,8 @@
 				4DDE2018263809920085AC8F /* CoreMLExecutorWrapper.h */,
 				4DDE2017263809920085AC8F /* CoreMLExecutorWrapper.mm */,
 				4D9A933626255BDA00F9B43C /* CoreMLBackend.cpp */,
+				A117C0E00000000000000002 /* CoreMLTransformer.cpp */,
+				A117C0E00000000000000003 /* CoreMLTransformer.hpp */,
 				A01C04110000000000000001 /* CoreMLHelper.cpp */,
 				A01C04110000000000000009 /* CoreMLHelper.hpp */,
 				A01C04110000000000000003 /* CoreMLFusedFFN.cpp */,
@@ -3692,6 +3697,7 @@
 				48A8A61221D101A700C2B9A7 /* ImageProcess.cpp in Sources */,
 				4D9A936326255BDA00F9B43C /* CoreMLBackend.cpp in Sources */,
 				A01C0411000000000000000E /* CoreMLTensorOps.cpp in Sources */,
+				A117C0E00000000000000001 /* CoreMLTransformer.cpp in Sources */,
 				A01C04110000000000000002 /* CoreMLHelper.cpp in Sources */,
 				A01C04110000000000000004 /* CoreMLFusedFFN.cpp in Sources */,
 				A01C04110000000000000006 /* CoreMLAttention.cpp in Sources */,

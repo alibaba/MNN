@@ -15,14 +15,15 @@
 #import "MetalEnv.hpp"
 #include "core/AttentionMaskConvention.hpp"
 #include "core/TensorUtils.hpp"
+#include "core/KVCacheImport.hpp"
 
 #if MNN_METAL_ENABLED
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 namespace MNN {
 
 AttentionBufExecution::AttentionBufExecution(Backend* backend, bool kvCache, bool outputC4,
-                                             std::shared_ptr<KVQuantParameter> kvQuantParam)
-    : MetalExecution(backend),
+                                             std::shared_ptr<KVQuantParameter> kvQuantParam, const std::string& opName)
+    : MetalExecution(backend), mOpName(opName),
       mKVCache(kvCache),
       mOutputC4(outputC4),
       mKVQuantParameter(kvQuantParam) {
@@ -692,6 +693,68 @@ ErrorCode AttentionBufExecution::handleKVAllocMemory() {
 ErrorCode AttentionBufExecution::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     if (NO_ERROR != mKVAllocError) {
         return mKVAllocError;
+    }
+    if (mMeta && mMeta->pendingImport) {
+        auto pending = mMeta->pendingImport;
+        auto entry = pending->layers.find(mOpName);
+        const size_t count = pending->tokens * mKvNumHead * mHeadDim;
+        auto mtbn = static_cast<MetalBackend*>(backend());
+        if (!mKVCache || mIsKVShared || mKvInDisk || mQuantKey || mQuantValue || mBatch != 1 ||
+            mMeta->previous != pending->tokens || mMeta->remove || mMeta->n_reserve ||
+            entry == pending->layers.end()) {
+            return INPUT_DATA_ERROR;
+        }
+        for (auto tensor : {entry->second.key, entry->second.value}) {
+            if (!tensor || tensor->getType() != halide_type_t(halide_type_float, 16) ||
+                tensor->shape() != std::vector<int>({int(pending->tokens), mKvNumHead, mHeadDim}) || !tensor->host<void>()) {
+                return INPUT_DATA_ERROR;
+            }
+        }
+        // CPU writes must wait for prior GPU work, including a previous request's replay.
+        if (pending->syncedBackend != mtbn) {
+            auto code = mtbn->onSync(Tensor::MAP_TENSOR_READ, true, nullptr);
+            if (code != NO_ERROR) {
+                return static_cast<ErrorCode>(code);
+            }
+            pending->syncedBackend = mtbn;
+        }
+        mKVCacheManager->onClear();
+        auto alloc = mKVCacheManager->onAlloc(nullptr, int(pending->tokens) + mCurrentKvLen);
+        if (alloc != NO_ERROR) {
+            mtbn->runtime()->markResourceAllocFailed();
+            return alloc;
+        }
+        auto copy = [&](Tensor* target, const Tensor* source) {
+            if (!target || !target->deviceId()) {
+                return false;
+            }
+            auto buffer = MetalBackend::getBuffer(target);
+            const size_t bytes = mtbn->useFp16InsteadFp32() ? 2 : 4;
+            if (!buffer.first.contents || buffer.second > buffer.first.length ||
+                count > (buffer.first.length - buffer.second) / bytes) {
+                return false;
+            }
+            auto dest = static_cast<uint8_t*>(buffer.first.contents) + buffer.second;
+            if (bytes == 2) {
+                ::memcpy(dest, source->host<void>(), count * 2);
+            } else {
+                auto src = reinterpret_cast<const __fp16*>(source->host<void>());
+                auto dst = reinterpret_cast<float*>(dest);
+                for (size_t i = 0; i < count; ++i) {
+                    dst[i] = src[i];
+                }
+            }
+            return true;
+        };
+        if (!copy(mKVCacheManager->getKeyTensor(), entry->second.key.get()) ||
+            !copy(mKVCacheManager->getValueTensor(), entry->second.value.get())) {
+            return OUT_OF_MEMORY;
+        }
+        mKVCacheManager->setPastLength(int(pending->tokens));
+        pending->layers.erase(entry);
+        if (pending->layers.empty()) {
+            mMeta->pendingImport.reset();
+        }
     }
     auto code = MetalExecution::onExecute(inputs, outputs);
     if (NO_ERROR != code) {
@@ -1668,7 +1731,8 @@ public:
             quantParam->qkScale = mhqscale[2];
             quantParam->vScale = mhqscale[3];
         }
-        return new AttentionBufExecution(backend, param->kv_cache(), param->output_c4(), quantParam);
+        return new AttentionBufExecution(backend, param->kv_cache(), param->output_c4(), quantParam,
+                                         op->name() ? op->name()->str() : "");
     }
 };
 REGISTER_METAL_OP_TRANSFORMER_CREATOR(AttentionBufCreator, OpType_Attention);

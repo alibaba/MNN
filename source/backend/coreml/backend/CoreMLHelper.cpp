@@ -6,6 +6,33 @@
 
 namespace MNN {
 
+void dequantizeCoreMLWeightBlock(const int8_t* src, float* dst, size_t start, size_t size, bool int4, float scale,
+                                float offset) {
+    if (!int4) {
+        for (size_t i = 0; i < size; ++i) {
+            dst[i] = src[start + i] * scale + offset;
+        }
+        return;
+    }
+    size_t i = 0;
+    if ((start & 1) && size) {
+        dst[i++] = ((static_cast<uint8_t>(src[start / 2]) & 15) - 8) * scale + offset;
+        ++start;
+    }
+    auto packed = reinterpret_cast<const uint8_t*>(src) + start / 2;
+    auto out = dst + i;
+    size_t pairs = (size - i) / 2;
+    // Decode adjacent nibbles together so the compiler can vectorize the loop.
+    for (size_t j = 0; j < pairs; ++j) {
+        auto value = packed[j];
+        out[2 * j] = ((value >> 4) - 8) * scale + offset;
+        out[2 * j + 1] = ((value & 15) - 8) * scale + offset;
+    }
+    if (i + 2 * pairs < size) {
+        out[2 * pairs] = ((packed[pairs] >> 4) - 8) * scale + offset;
+    }
+}
+
 #define DEFINE_CREATE_AND_INIT(ProtoType, InitFunc)             \
     template <>                                                 \
     ProtoType* create_and_init<ProtoType>() {                   \
@@ -673,6 +700,16 @@ CoreML__Specification__FeatureDescription* MlModelBuilder::buildFeatureDescripti
     auto desc                                      = create_and_init<CoreML__Specification__FeatureDescription>();
     desc->name                                     = s_strdup(info->name);
     desc->type                                     = create_and_init<CoreML__Specification__FeatureType>();
+    if (info->type == MilTensorInfo::Type::GRAYSCALE_INPUT) {
+        auto image = create<CoreML__Specification__ImageFeatureType>(1);
+        core_ml__specification__image_feature_type__init(image);
+        image->colorspace = CORE_ML__SPECIFICATION__IMAGE_FEATURE_TYPE__COLOR_SPACE__GRAYSCALE;
+        image->height = info->shape[2];
+        image->width = info->shape[3];
+        desc->type->type_case = CORE_ML__SPECIFICATION__FEATURE_TYPE__TYPE_IMAGE_TYPE;
+        desc->type->imagetype = image;
+        return desc;
+    }
     CoreML__Specification__ArrayFeatureType* array = nullptr;
     if (info->type == MilTensorInfo::Type::STATE) {
         desc->type->type_case            = CORE_ML__SPECIFICATION__FEATURE_TYPE__TYPE_STATE_TYPE;

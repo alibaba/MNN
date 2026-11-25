@@ -679,13 +679,27 @@ static std::vector<CVCase> makeCases() {
         auto input = Op::Pack(fb, net->oplists[0].get());
         auto axes = fb.CreateVector(std::vector<int>{});
         auto param = CreateReductionParam(fb, ReductionType_SUM, axes, 0.f, true);
-        auto op = CreateOp(fb, OpType_Reduction, fb.CreateString("empty_axes"),
-                           fb.CreateVector(std::vector<int>{0}), fb.CreateVector(std::vector<int>{1}),
-                           OpParameter_ReductionParam, param.Union());
+        auto name = fb.CreateString("empty_axes");
+        auto inputs = fb.CreateVector(std::vector<int>{0});
+        auto results = fb.CreateVector(std::vector<int>{1});
+        OpBuilder reduce(fb);
+        reduce.add_type(OpType_Reduction);
+        reduce.add_name(name);
+        reduce.add_inputIndexes(inputs);
+        reduce.add_outputIndexes(results);
+        reduce.add_main_type(OpParameter_ReductionParam);
+        reduce.add_main(param.Union());
+        auto op = reduce.Finish();
         auto ops = fb.CreateVector(std::vector<flatbuffers::Offset<Op>>{input, op});
         auto names = fb.CreateVectorOfStrings(std::vector<std::string>{"input0", "output"});
         auto outputs = fb.CreateVectorOfStrings(std::vector<std::string>{"output"});
-        fb.Finish(CreateNet(fb, ops, names, 0, NetSource_CAFFE, 0, outputs, 2));
+        NetBuilder graph(fb);
+        graph.add_oplists(ops);
+        graph.add_tensorName(names);
+        graph.add_sourceType(NetSource_CAFFE);
+        graph.add_outputName(outputs);
+        graph.add_tensorNumber(2);
+        fb.Finish(graph.Finish());
         CVCase item;
         item.name = "Reduction_empty_axes";
         item.bytes.assign(fb.GetBufferPointer(), fb.GetBufferPointer() + fb.GetSize());
