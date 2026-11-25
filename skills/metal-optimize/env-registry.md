@@ -35,6 +35,13 @@
 |---|---|---|---|
 | `MNN_METAL_QKV_SPLITK_MAX_BLOCKS` | 16 | `=N` 把融合 QKV decode GEMV plain split-K（2 quad/TG、4 simdgroup/128 线程）路由的适用范围限制到 quant block 数 ≤ N（设 0 或非法值回落 16） | 融合 QKV decode GEMV 的 plain split-K（`useOc8Sg4K2`）分支；oc16Sg8K2 与双流体（`oc16Sg2K1`）形态不受此门限制 |
 
+## TiedBit
+
+| Env 变量 | 默认 | 功能 | 生效条件 |
+|---|---|---|---|
+| `MNN_METAL_ENABLE_TIED_BIT` | 关 | 仅当值为字符串 `1` 时启用 Q1 粗筛、Q4 精算。首次读取 Metal 环境配置时生效。创建时不兼容则继续常规卷积选择 | 单向量 `lm_head`，FP16 或 FP32 存储，低内存模式，对称或非对称 INT4，量化组按 16 输入通道对齐，支持 SIMD-group reduce。需要完整 logits 时使用默认配置 |
+| `MNN_METAL_TIED_BIT_TOP_M` | 512 | 全局候选预算 M，正整数，最大为词表大小；非法值回退 512；包含当前存储精度下阈值处所有并列项，实际候选数可能大于 M | TiedBit 路径；进程启动时读取 |
+
 ## Prefill GEMM（量化权重）
 
 | Env 变量 | 默认 | 功能 | 生效条件 |

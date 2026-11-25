@@ -13,6 +13,8 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <cerrno>
+#include <climits>
 
 namespace MNN {
 
@@ -33,6 +35,10 @@ struct MetalEnv {
     // MNN_METAL_LN_TOKENS_PER_TG: tokens per threadgroup in the C4 RMSNorm at
     // prefill. Default 8, auto-on at outside>=256.
     int lnRowParallel;
+    // Set MNN_METAL_ENABLE_TIED_BIT=1 to opt into candidate-filtered logits.
+    bool tiedBit;
+    // Global Top-M (inclusive FP16 threshold); default 512. Read once at startup.
+    int tiedBitTopM;
     // ---- fusion / misc ----
     // MNN_METAL_DECODE_SDPA_KVB: kv tokens per stream-loop iteration in the
     // decode SDPA kernel. 0=auto, 1=serial, 2/4=overlap form; 4 clamps to 2
@@ -71,6 +77,17 @@ struct MetalEnv {
     static const MetalEnv& get() {
         static const MetalEnv env = []{
             MetalEnv e;
+            const char* tiedBit = getenv("MNN_METAL_ENABLE_TIED_BIT");
+            e.tiedBit = tiedBit != nullptr && strcmp(tiedBit, "1") == 0;
+            {
+                const char* value = getenv("MNN_METAL_TIED_BIT_TOP_M");
+                char* end = nullptr;
+                errno = 0;
+                const long n = value ? strtol(value, &end, 10) : 512;
+                e.tiedBitTopM = n >= 1 && n <= INT_MAX && errno != ERANGE && (!value || (end != value && *end == '\0'))
+                                     ? int(n)
+                                     : 512;
+            }
             {
                 const char* v = getenv("MNN_METAL_RESIZE_WAIT");
                 e.resizeWaitMode = (v != nullptr && strcmp(v, "global") == 0) ? 1
