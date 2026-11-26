@@ -254,7 +254,11 @@ __kernel void flash_attention_prefill(
                               // Appended, not inserted: the record path patches args 7 and 9 by index.
                               __private const int mask_q_len,
                               // maskQLen * maskKvLen when the plane is per batch, 0 when it is shared.
-                              __private const int mask_batch_stride) {
+                              __private const int mask_batch_stride
+#ifdef ATTENTION_SINKS
+                              , __global const FLOAT* sinks
+#endif
+                              ) {
     const int lid = get_local_id(0);
     const int q_start = get_group_id(0) * FA_TILE_Q;
     const int z = get_global_id(1); // batch * headNum
@@ -303,7 +307,12 @@ __kernel void flash_attention_prefill(
         lq[(d4 + 3) * FA_TILE_Q + r] = qv.w;
     }
     for (int r = lid; r < FA_TILE_Q; r += FA_WG_SIZE) {
-        ll[r] = 0.0f;
+        ll[r] =
+#ifdef ATTENTION_SINKS
+            1.0f;
+#else
+            0.0f;
+#endif
     }
 
     // phase 3 layout: work-item owns rows [r0, r0+4) and dims [d8, d8+8). Surplus lanes get
@@ -334,6 +343,9 @@ __kernel void flash_attention_prefill(
     // Running row max, kept private: the FA_TPR work-items of a row all reduce the same
     // lred partials, so they derive an identical m_new and never need to exchange it.
     float m_prev = FA_NEG_INF;
+#ifdef ATTENTION_SINKS
+    m_prev = (float)sinks[hn];
+#endif
     const int key_base = ((b * kv_head_num + kv_hn) * FA_HEAD_DIM) * max_len;
     const int value_base = ((b * kv_head_num + kv_hn) * max_len) * FA_HEAD_DIM + d8;
 

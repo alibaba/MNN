@@ -6,7 +6,7 @@
 //  Callers describe the mask (AttentionMaskType + shape); this file decides whether a backend can omit
 //  the materialised plane. When it can, a one-element mask is passed instead -- rank-0 for
 //  Causal, rank-1 for Bidirectional -- and the Attention op derives the masking itself. The
-//  encoding is defined in source/core/AttentionMaskConvention.hpp.
+//  encoding is defined in source/core/AttentionCommon.hpp.
 //
 //  Created by MNN on 2026/10/13.
 //

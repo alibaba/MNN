@@ -10,6 +10,7 @@
 
 #include "LinearAttentionBufExecution.hpp"
 #include "core/TensorUtils.hpp"
+#include "core/AttentionCommon.hpp"
 #include "core/OpCommonUtils.hpp"
 
 namespace MNN {
@@ -54,10 +55,10 @@ static void addLinearAttentionLayoutOptions(const std::vector<Tensor*>& inputs, 
     if (TensorUtils::getDescribe(inputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
         buildOptions.emplace("-DQKV_C4");
     }
-    if (TensorUtils::getDescribe(inputs[1])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+    if (inputs.size() >= 4 && TensorUtils::getDescribe(inputs[1])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
         buildOptions.emplace("-DGATE_C4");
     }
-    if (TensorUtils::getDescribe(inputs[2])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+    if (inputs.size() >= 4 && TensorUtils::getDescribe(inputs[2])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
         buildOptions.emplace("-DBETA_C4");
     }
     if (TensorUtils::getDescribe(outputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
@@ -103,6 +104,10 @@ LinearAttentionBufExecution::LinearAttentionBufExecution(const MNN::Op* op, Back
 
 ErrorCode LinearAttentionBufExecution::onResize(const std::vector<Tensor*>& inputs,
                                                 const std::vector<Tensor*>& outputs) {
+    const int weightIndex = linearAttentionWeightIndex(mAttentionType == "short_conv", inputs.size());
+    if (weightIndex < 0 || outputs.empty()) {
+        return INVALID_VALUE;
+    }
     auto qkv = inputs[0];
     int batch = 0, convDim = 0, seqLen = 0;
     linearAttentionDims(qkv, batch, convDim, seqLen);
@@ -116,7 +121,7 @@ ErrorCode LinearAttentionBufExecution::onResize(const std::vector<Tensor*>& inpu
     int H = mNumVHeads;
     int dk = mHeadKDim;
     int dv = mHeadVDim;
-    int K_conv = inputs[3]->length(2);
+    int K_conv = inputs[weightIndex]->length(2);
     int convStateSize = K_conv - 1;
     int key_dim = mNumKHeads * dk;
     int val_dim = mNumVHeads * dv;
@@ -230,7 +235,7 @@ ErrorCode LinearAttentionBufExecution::onResize(const std::vector<Tensor*>& inpu
         ret |= mKernelShortConv->get().setArg(idx++, total);
         ret |= mKernelShortConv->get().setArg(idx++, openCLBuffer(inputs[0]));
         ret |= mKernelShortConv->get().setArg(idx++, openCLBuffer(mStateCache->mConvState.get()));
-        ret |= mKernelShortConv->get().setArg(idx++, openCLBuffer(inputs[3]));
+        ret |= mKernelShortConv->get().setArg(idx++, openCLBuffer(inputs[weightIndex]));
         ret |= mKernelShortConv->get().setArg(idx++, openCLBuffer(mConvOut.get()));
         ret |= mKernelShortConv->get().setArg(idx++, batch);
         ret |= mKernelShortConv->get().setArg(idx++, convDim);
@@ -1065,7 +1070,7 @@ ErrorCode LinearAttentionBufExecution::onExecute(const std::vector<Tensor*>& inp
     }
 
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
-    int convStateSize = inputs[3]->length(2) - 1;
+    int convStateSize = inputs[linearAttentionWeightIndex(mAttentionType == "short_conv", inputs.size())]->length(2) - 1;
 
     if (mAttentionType == "short_conv") {
 #ifdef ENABLE_OPENCL_TIME_PROFILER

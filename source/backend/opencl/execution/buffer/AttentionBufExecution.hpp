@@ -126,7 +126,11 @@ private:
     // Shared by the real build and the work-group probe that runs before anything is recorded,
     // so the two cannot drift apart and select different program variants.
     std::set<std::string> flashPrefillBuildOptions(int headDim, int groupSize) const;
+    int flashPrefillPrecision() const;
     bool mFlashPrefill = false;
+    bool mHasSinks = false;
+    cl_mem mSinkBuffer = nullptr;
+    cl_uint mSinkArgIndex = 0;
     int mFaTileQ = 0, mFaTileKV = 0, mFaWgSize = 0;
     // Every legal tiling for this shape, preferred one first and the rest by shrinking work
     // group. flashPrefillEligible sizes them against the device limit; flashPrefillResize walks
@@ -165,7 +169,7 @@ private:
     // meta-presence notion KVCacheCLManager is constructed with. Gates the causal default when
     // no dense mask is bound. Same source as CPUAttention::mKVCache / MetalAttention::mKVCache.
     bool mKVCache = true;
-    // Shape-classified per resize (core/AttentionMaskConvention.hpp): causal sentinel (absent
+    // Shape-classified per resize (core/AttentionCommon.hpp): causal sentinel (absent
     // or rank-0 mask) AND kv_cache. Every non-dense case that is not causal -- a mask-less
     // one-shot attention (kv_cache=false) or the bidirectional sentinel -- compiles the flash
     // prefill kernel with -DNO_MASK, i.e. no masking at all.

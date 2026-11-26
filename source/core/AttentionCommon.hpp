@@ -1,12 +1,14 @@
 //
-//  AttentionMaskConvention.hpp
+//  AttentionCommon.hpp
 //  MNN
 //
-//  Mask contract shared by the LLM engine (producer) and every Attention backend (consumer).
+//  Conventions shared by the LLM engine (producer) and every Attention / LinearAttention backend (consumer).
 //
 
-#ifndef MNNAttentionMaskConvention_hpp
-#define MNNAttentionMaskConvention_hpp
+#ifndef MNNAttentionCommon_hpp
+#define MNNAttentionCommon_hpp
+
+#include <cstddef>
 
 namespace MNN {
 
@@ -37,6 +39,17 @@ inline bool IsAttentionMaskCausal(bool hasMask, int dims, bool kvCache) {
     return IsAttentionMaskCausalSentinel(hasMask, dims) && kvCache;
 }
 
+// ---- LinearAttention input layout ----
+// Index of the short-conv weight among LinearAttention inputs; -1 when the variant has none.
+//   inputs.size() >= 4 : index 3
+//   inputs.size() == 2 : index 1 for the short-conv variant, otherwise -1
+inline int linearAttentionWeightIndex(bool shortConv, std::size_t inputCount) {
+    if (inputCount >= 4) {
+        return 3;
+    }
+    return shortConv && inputCount == 2 ? 1 : -1;
+}
+
 } // namespace MNN
 
-#endif /* MNNAttentionMaskConvention_hpp */
+#endif /* MNNAttentionCommon_hpp */

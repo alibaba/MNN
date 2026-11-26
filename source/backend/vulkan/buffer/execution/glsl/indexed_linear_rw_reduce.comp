@@ -1,0 +1,38 @@
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+layout(constant_id = 3) const int ROUTE_WEIGHT = 1;
+layout(set=0, binding=0) readonly buffer Rows { FLOAT data[]; } rows;
+layout(set=0, binding=1) readonly buffer Weights { FLOAT data[]; } weights;
+layout(set=0, binding=2) readonly buffer Ids { int data[]; } ids;
+layout(set=0, binding=3) writeonly buffer Output { FLOAT data[]; } outputData;
+layout(push_constant) uniform Params {
+    int channels; int outputs; int experts; int topk;
+    int inputMode; int groups; int groupSize; int weightStride;
+    int rows; int maxTiles;
+    int tokens; int xC4;
+    float routeEps; float routeScale;
+} p;
+void main() {
+    int c = int(gl_GlobalInvocationID.x);
+    int token = int(gl_WorkGroupID.y);
+    if (c >= ((p.outputs + 3) / 4) * 4) return;
+    float sum = 0.0;
+    if (ROUTE_WEIGHT == 2) {
+        for (int k = 0; k < p.topk; ++k) {
+            int e = ids.data[token * p.topk + k];
+            if (e >= 0 && e < p.experts) sum += float(weights.data[token * p.experts + e]);
+        }
+        sum = float(FLOAT(FLOAT(sum) + FLOAT(p.routeEps)));
+    }
+    float acc = 0.0;
+    if (c < p.outputs) {
+        for (int k = 0; k < p.topk; ++k) {
+            int row = token * p.topk + k;
+            int e = ids.data[row];
+            if (e < 0 || e >= p.experts) continue;
+            float w = ROUTE_WEIGHT == 2 ? float(FLOAT(FLOAT(weights.data[token * p.experts + e] / FLOAT(sum)) * FLOAT(p.routeScale)))
+                                       : float(weights.data[row]);
+            acc += w * float(rows.data[row * p.outputs + c]);
+        }
+    }
+    outputData.data[((c / 4) * p.tokens + token) * 4 + (c & 3)] = FLOAT(acc);
+}

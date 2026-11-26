@@ -186,7 +186,7 @@ cpu_mask_t MNNGetCPUMask(const std::vector<int>& cpuIds) {
 
 // cpuinfo
 // Reference from: https://github.com/pytorch/cpuinfo
-#if (defined(ENABLE_ARMV82) && defined(__arm__)) || (defined(__ANDROID__) && defined(__aarch64__))
+#if defined(__ANDROID__) && defined(__aarch64__)
 
 /* As per include/sys/system_properties.h in Android NDK */
 #define CPUINFO_HARDWARE_VALUE_MAX 64
@@ -1764,7 +1764,7 @@ static void _fillInfo(MNNCPUInfo* cpuinfo_isa) {
 #endif
 
 
-#if (defined(ENABLE_ARMV82) && defined(__arm__)) || (defined(__ANDROID__) && defined(__aarch64__))
+#if defined(__ANDROID__) && defined(__aarch64__)
     _getInfoArm(cpuinfo_isa);
 #endif // #ifdef arm / arm64
 #endif // #ifdef __linux__

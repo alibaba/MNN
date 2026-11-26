@@ -189,6 +189,12 @@ param->q_norm->gamma = std::vector<float>(headDim, gamma);
   真实 e2e 里算子背靠背争带宽 ⇒ 两侧预算都系统性偏低、残差都被抬高。
 - **「相减得到的残差」要标注成未测项**,不要当成已归因。它里面混着 embedding gather、
   RoPE、residual add、final norm、采样,以及每 token 上百次 dispatch 的框架开销。
+- **惰性图框架的桶级归因必须用 e2e 消融差分,不能用孤立镜像差值**:整图编译融合会让
+  孤立镜像之和系统性高于 e2e(折扣集中在 elementwise 链与跨层重叠),此时「单 op 领先」
+  不等于「桶领先」。做法:在真实模型上逐类把算子换成 `x*0` 保活旁路(防 DCE),
+  delta = baseline e2e − 消融臂 e2e,即该类算子的 in-context 成本;先验证 baseline
+  能复现官方 benchmark 数字。消融会同时移除邻居的融合机会,delta 略偏上界,要标注。
+  逐 op dispatch 的框架(如 MNN)op 预算与 e2e 闭合,可直接用 op 和作桶成本。
 
 拿到「MNN 比对手慢一截」这种数字后,**它本身不能转成任何动作**。要先拆。
 

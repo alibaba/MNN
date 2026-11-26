@@ -68,6 +68,15 @@ ErrorCode TopKV2BufExecution::onEncode(const std::vector<Tensor *> &inputs, cons
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
 
     std::set<std::string> buildOptions;
+    int threadNumber = kTopKThreadNumber;
+    if (rowSize <= kTopKThreadNumber) {
+        threadNumber = 1;
+        while (threadNumber < rowSize) {
+            threadNumber *= 2;
+        }
+        buildOptions.insert("-DTHREAD_NUMBER=" + std::to_string(threadNumber));
+        buildOptions.insert("-DLOCAL_K=1");
+    }
     if (mLargest) {
         buildOptions.insert("-DSORT_DESC=1");
     }
@@ -79,7 +88,7 @@ ErrorCode TopKV2BufExecution::onEncode(const std::vector<Tensor *> &inputs, cons
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
 
     mGlobalWorkSize = {
-        static_cast<uint32_t>(kTopKThreadNumber),
+        static_cast<uint32_t>(threadNumber),
         static_cast<uint32_t>(mNumRows),
         static_cast<uint32_t>(1),
     };
@@ -100,7 +109,7 @@ ErrorCode TopKV2BufExecution::onEncode(const std::vector<Tensor *> &inputs, cons
 
     MNN_CHECK_CL_SUCCESS(ret, "setArg TopKV2BufExecution");
 
-    mLocalWorkSize = {kTopKThreadNumber, 1, 1};
+    mLocalWorkSize = {static_cast<uint32_t>(threadNumber), 1, 1};
 
     mOpenCLBackend->recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
 
@@ -118,6 +127,10 @@ public:
             return nullptr;
         }
         if (TensorUtils::getDescribe(inputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+            return nullptr;
+        }
+        auto param = op->main_as_TopKV2();
+        if (param != nullptr && param->routeSigmoid()) {
             return nullptr;
         }
         

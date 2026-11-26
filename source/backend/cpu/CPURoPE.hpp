@@ -28,6 +28,8 @@ private:
     int mNumHead = 0;
     int mKvNumHead = 0;
     int mHeadDim = 0;
+    bool mInterleaved = false;
+    bool mNormAfter = false;
     std::shared_ptr<CPULayerNorm::Resource> mQNorm;
     std::shared_ptr<CPULayerNorm::Resource> mKNorm;
     MemChunk mTmpQC4;

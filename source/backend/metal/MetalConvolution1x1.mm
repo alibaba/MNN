@@ -225,6 +225,28 @@ static void copyTensorBytes(id<MTLBuffer> dst, size_t dstOff, const std::shared_
            (uint8_t *)alloc->getBuffer().contents + TensorUtils::getDescribeOrigin(src.get())->offset, bytes);
 }
 
+static void copyScaleAdjusted(id<MTLBuffer> dst, size_t dstOff, const std::shared_ptr<Tensor>& src,
+                              size_t bytes, float ratio, bool half) {
+    if (ratio == 1.0f) {
+        copyTensorBytes(dst, dstOff, src, bytes);
+        return;
+    }
+    auto alloc = (MetalRuntimeAllocator::MetalBufferAlloc *)src->deviceId();
+    const uint8_t *s = (const uint8_t *)alloc->getBuffer().contents + TensorUtils::getDescribeOrigin(src.get())->offset;
+    uint8_t *d = (uint8_t *)dst.contents + dstOff;
+    if (half) {
+        size_t n = bytes / sizeof(__fp16);
+        for (size_t i = 0; i < n; ++i) {
+            ((__fp16 *)d)[i] = (__fp16)((float)((const __fp16 *)s)[i] * ratio);
+        }
+    } else {
+        size_t n = bytes / sizeof(float);
+        for (size_t i = 0; i < n; ++i) {
+            ((float *)d)[i] = ((const float *)s)[i] * ratio;
+        }
+    }
+}
+
 // SwiGLU K-split factor on top of oc16Sg2K1: picks the widest factor within
 // kMaxPairs whose lanes cover a pair's blocks in one pass, else the narrowest.
 static int gateUpSiluSplitK(int blockCount, int quadsPerBlock) {
@@ -784,6 +806,147 @@ bool MetalConvolution1x1::setupQKVFusion(const Tensor* selfOutput,
     return true;
 }
 
+void MetalConvolution1x1::clearWideFusionFlags() {
+    mIsWideLeader = false;
+    mIsWideFollower = false;
+}
+
+bool MetalConvolution1x1::setupPrefillWideFusion(const std::vector<MetalConvolution1x1*>& members,
+                                                 const std::vector<Tensor*>& outputs) {
+    const int nm = (int)members.size();
+    if (nm < 2 || (int)outputs.size() < nm || nil == mConstBuffer) {
+        return false;
+    }
+    auto leaderParam = (Param *)mConstBuffer.contents;
+    const int inputDepthQuad = leaderParam->inputDepthQuad;
+    const int blockCount     = leaderParam->blockCount;
+    const int activation     = leaderParam->activation;
+    const int area           = leaderParam->inputSize * leaderParam->batch;
+    if (area < 64 || !mFusedQuantM64) {
+        return false;
+    }
+    std::vector<int> padOc(nm);
+    int totalOc = 0, totalOcDiv4 = 0;
+    for (int p = 0; p < nm; ++p) {
+        auto *c = members[p];
+        if (!c->mFusedQuantM64 || c->mIs2sgDecode || c->mDequantBits != 4 ||
+            c->mBlockCount != blockCount || c->mActivationType != activation ||
+            c->mIsGateUpLeader || c->mIsGateUpFollower || c->mHasLNFusion ||
+            c->mPrefillDualOn || c->mPrefillSiluOn || nil == c->mConstBuffer) {
+            return false;
+        }
+        auto *cp = (Param *)c->mConstBuffer.contents;
+        if (cp->inputDepthQuad != inputDepthQuad || cp->outputChannel % 4 != 0) {
+            return false;
+        }
+        padOc[p] = cp->outputChannel < 64 ? 64 : cp->outputChannel;
+        totalOc     += padOc[p];
+        totalOcDiv4 += padOc[p] / 4;
+    }
+
+    auto backend = static_cast<MetalBackend *>(this->backend());
+    const bool half      = backend->useFp16InsteadFp32();
+    const size_t elemBytes = half ? sizeof(__fp16) : sizeof(float);
+    const float coefLeader = mScaleCoef;
+
+    std::vector<size_t> wB(nm), sB(nm), bB(nm), wP(nm), sP(nm), bP(nm);
+    size_t wTotal = 0, sTotal = 0, bTotal = 0;
+    for (int p = 0; p < nm; ++p) {
+        auto wt = members[p]->getWeight();
+        auto st = members[p]->getDequantScale();
+        auto bi = members[p]->getBias();
+        if (!wt || !st || !bi) {
+            return false;
+        }
+        const int oc = ((Param *)members[p]->mConstBuffer.contents)->outputChannel;
+        wB[p] = TensorUtils::getRawSize(wt.get()) * wt->getType().bytes();
+        sB[p] = TensorUtils::getRawSize(st.get()) * st->getType().bytes() - sizeof(float);
+        bB[p] = (size_t)((Param *)members[p]->mConstBuffer.contents)->outputDepthQuad * 4 * elemBytes;
+        wP[p] = wB[p] / oc * padOc[p];
+        sP[p] = sB[p] / oc * padOc[p];
+        bP[p] = bB[p] / oc * padOc[p];
+        wTotal += wP[p];
+        sTotal += sP[p];
+        bTotal += bP[p];
+    }
+    const size_t scaleOff   = (wTotal + 15) & ~(size_t)15;
+    const size_t biasOff    = (scaleOff + sTotal + 15) & ~(size_t)15;
+    const size_t mergedSize = biasOff + bTotal;
+    if (nullptr == mWideMergedTensor || mWideMergedSize < mergedSize) {
+        mWideMergedTensor.reset(Tensor::createDevice<int8_t>({(int)mergedSize}));
+        if (!backend->onAcquireBuffer(mWideMergedTensor.get(), Backend::STATIC)) {
+            mWideMergedTensor = nullptr;
+        }
+        mWideMergedSize = mergedSize;
+    }
+    if (nullptr == mWideMergedTensor) {
+        return false;
+    }
+    const size_t baseOff = TensorUtils::getDescribeOrigin(mWideMergedTensor.get())->offset;
+    mWideMergedBuffer = ((MetalRuntimeAllocator::MetalBufferAlloc *)mWideMergedTensor->deviceId())->getBuffer();
+    if (nil == mWideMergedBuffer) {
+        return false;
+    }
+    mWideWeightOff = baseOff;
+    mWideScaleOff  = baseOff + scaleOff;
+    mWideBiasOff   = baseOff + biasOff;
+    size_t wCur = baseOff, sCur = baseOff + scaleOff, bCur = baseOff + biasOff;
+    for (int p = 0; p < nm; ++p) {
+        const float ratio = coefLeader / members[p]->mScaleCoef;
+        copyTensorBytes(mWideMergedBuffer, wCur, members[p]->getWeight(), wB[p]);
+        copyScaleAdjusted(mWideMergedBuffer, sCur, members[p]->getDequantScale(), sB[p], ratio, half);
+        copyTensorBytes(mWideMergedBuffer, bCur, members[p]->getBias(), bB[p]);
+        if (wP[p] > wB[p]) {
+            memset((char *)mWideMergedBuffer.contents + wCur + wB[p], 0, wP[p] - wB[p]);
+        }
+        if (sP[p] > sB[p]) {
+            memset((char *)mWideMergedBuffer.contents + sCur + sB[p], 0, sP[p] - sB[p]);
+        }
+        if (bP[p] > bB[p]) {
+            memset((char *)mWideMergedBuffer.contents + bCur + bB[p], 0, bP[p] - bB[p]);
+        }
+        wCur += wP[p];
+        sCur += sP[p];
+        bCur += bP[p];
+    }
+
+    if (nil == mWideConstBuffer) {
+        mWideConstBuffer = backend->getConstBuffer(sizeof(Param));
+    }
+    if (nil == mWideConstBuffer) {
+        return false;
+    }
+    *(Param *)mWideConstBuffer.contents = *leaderParam;
+    ((Param *)mWideConstBuffer.contents)->outputDepthQuad = totalOcDiv4;
+    ((Param *)mWideConstBuffer.contents)->outputChannel   = totalOc;
+
+    const size_t outQuadBytes = 4 * elemBytes;
+    const size_t outTotal     = (size_t)totalOcDiv4 * area * outQuadBytes;
+    const size_t holderNeed   = outTotal + 64;
+    if (nullptr == mWideOutHolder || backend->getTensorSizeInBytes(mWideOutHolder.get()) < holderNeed) {
+        mWideOutHolder.reset(Tensor::createDevice<int8_t>({(int)holderNeed}));
+        if (!backend->onAcquireBuffer(mWideOutHolder.get(), Backend::STATIC)) {
+            mWideOutHolder = nullptr;
+        }
+    }
+    if (nullptr == mWideOutHolder) {
+        return false;
+    }
+    size_t outCur = 0;
+    for (int p = 0; p < nm; ++p) {
+        MetalBackend::aliasTensor(outputs[p], mWideOutHolder.get(), outCur);
+        outCur += (size_t)(padOc[p] / 4) * area * outQuadBytes;
+    }
+
+    mWideThreads.first  = MTLSizeMake(mThreads.first.width, (NSUInteger)UP_DIV(totalOc, 64), 1);
+    mWideThreads.second = mThreads.second;
+    mIsWideLeader = true;
+    for (int p = 1; p < nm; ++p) {
+        members[p]->mIsWideFollower = true;
+    }
+    return true;
+}
+
 bool MetalConvolution1x1::setupLNFusion(const Tensor* hiddenInput, const Tensor* residualInput,
                                         const Tensor* residualOutput, std::shared_ptr<Tensor> gamma, float eps) {
     if (!mIs2sgDecode) {
@@ -970,6 +1133,7 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
     // Reset fusion state on each resize; const buffers (mGateUpSegBuffer /
     // mQKVSegBuffer / mLNEpsBuffer) stay alive so recordings keep seeing them.
     mIs2sgDecode = false;
+    mRowScaleFused = false;
     mIsGateUpLeader = false;
     mIsGateUpFollower = false;
     mGateUpPeer = nullptr;
@@ -1164,6 +1328,19 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                                      (rt->supportSimdGroupMatrix() && !blockFitsQuads(2));
             if(rt->supportSimdGroupReduce() && (area <= short_seq || gemvAllArea)) {
                 baseKeys.emplace_back("conv1x1_wquant_sg_reduce");
+                // Every kernel in this section writes the complete output row of one
+                // token, so the MoE shared-expert gate scale folds into their store
+                // (see requestRowScale). The macro and the cache key move together:
+                // without the key a pipeline compiled without the fold would be
+                // reused for this shape and silently drop the scale. The g16 lm_head
+                // route keeps no fold, and claiming the fold there would be wrong, so
+                // it stays outside the offer.
+                if (mRowScaleInput != nullptr && !g16LmHeadRoute) {
+                    [dic setValue:@"1" forKey:@"CONV_ROW_MUL"];
+                    option.preprocessorMacros = dic;
+                    baseKeys.emplace_back("conv_row_mul");
+                    mRowScaleFused = true;
+                }
 
                 std::string sgrWqStr = basicShaderPrefix + sgrWqShader;
                 // memory bound not so seriously, can add more thread to reduce computation in each thread
@@ -1487,6 +1664,7 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
             const char* gemmKernelName = "conv1x1_gemm_32x64_split_k_sg";
             bool sgMatrixM64 = false;
             bool fusedQuantDoubleBuf = false;
+            bool fqPrefetch = false;
             // K-split x4 recovers TG-starved speculative-verify shapes.
             const bool fusedQ4SpecBlock = mTensorApiFusedQuant && mDequantPipeline == nil &&
                                       mDequantBits == 4 && !mFusedQuantM64 && specBlock;
@@ -1516,6 +1694,10 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                     fusedQuantDoubleBuf = backend->useFp16InsteadFp32();
                     if (fusedQuantDoubleBuf) {
                         keys.emplace_back("FQ_DOUBLE_BUF");
+                    }
+                    fqPrefetch = mDequantBits == 4 && fusedQuantDoubleBuf && icDiv4 % 8 == 0;
+                    if (fqPrefetch) {
+                        keys.emplace_back("FQ_PREFETCH");
                     }
                     // Fold the group's MUL_SILU into this epilogue, gated by the
                     // env-adjustable min area.
@@ -1590,6 +1772,9 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
             }
             if (fusedQuantDoubleBuf) {
                 [dic setValue:@"1" forKey:@"FQ_DOUBLE_BUF"];
+            }
+            if (fqPrefetch) {
+                [dic setValue:@"1" forKey:@"FQ_PREFETCH"];
             }
             if (mPrefillSiluOn) {
                 [dic setValue:@"1" forKey:@"FQ4_SILU_MUL"];
@@ -1676,6 +1861,14 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
         auto magic_num = 4.0; // total threads pretty small and loop pretty large
         if(icDiv4 >= 32 && icDiv4 % 2 == 0 && 1.0 * area * ocDiv4 / icDiv4 < magic_num) {
             auto keys = baseKeys;
+            // Same fold as the quantized decode GEMV: one token per threadgroup.
+            // Added before the kernel name so the profile tag keeps naming the kernel.
+            if (mRowScaleInput != nullptr) {
+                [baseDic setValue:@"1" forKey:@"CONV_ROW_MUL"];
+                option.preprocessorMacros = baseDic;
+                keys.emplace_back("conv_row_mul");
+                mRowScaleFused = true;
+            }
             keys.emplace_back("conv1x1_z4_sg");
             auto pipeline = rt->findPipeline(keys);
             if (nil == pipeline) {
@@ -1776,6 +1969,12 @@ void MetalConvolution1x1::onEncode(const std::vector<Tensor *> &inputs, const st
     }
     // QKV follower: the leader already dispatched this projection
     if (mIsQKVFollower) {
+#if MNN_METAL_OP_PROFILE
+        static_cast<MetalBackend *>(backend())->profileDropCurrentSample();
+#endif
+        return;
+    }
+    if (mIsWideFollower) {
 #if MNN_METAL_OP_PROFILE
         static_cast<MetalBackend *>(backend())->profileDropCurrentSample();
 #endif
@@ -1892,6 +2091,19 @@ void MetalConvolution1x1::onEncode(const std::vector<Tensor *> &inputs, const st
         return;
     }
 
+    if (mIsWideLeader && nil != mWideMergedBuffer && nil != mWideConstBuffer && nullptr != mWideOutHolder) {
+        [encoder setComputePipelineState:mPipeline];
+        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribeOrigin(input)->offset atIndex:0];
+        MetalBackend::setTensor(mWideOutHolder.get(), encoder, 1);
+        [encoder setBuffer:mWideConstBuffer offset:0 atIndex:2];
+        [encoder setBuffer:mWideMergedBuffer offset:mWideWeightOff atIndex:3];
+        [encoder setBuffer:mWideMergedBuffer offset:mWideBiasOff atIndex:4];
+        [encoder setBuffer:mWideMergedBuffer offset:mWideScaleOff atIndex:5];
+        [encoder setBuffer:mWideMergedBuffer offset:mWideWeightOff atIndex:6];
+        [encoder dispatchThreadgroups:mWideThreads.first threadsPerThreadgroup:mWideThreads.second];
+        return;
+    }
+
     // Plain single-conv LN fusion: the standalone LN_FUSED kernel computes RMSNorm
     // in-kernel, no leader/follower pairing.
     if (mHasLNFusion && !mIsGateUpLeader && nil != mLNFusedPipeline && mLNHiddenInput != nullptr) {
@@ -1999,6 +2211,10 @@ void MetalConvolution1x1::onEncode(const std::vector<Tensor *> &inputs, const st
         auto dequantScale = getDequantScale();
         if (dequantScale) {
             MetalBackend::setTensor(dequantScale.get(), encoder, 5);
+        }
+        if (mRowScaleFused) {
+            // buffer(24): the MoE shared-expert gate scale the epilogue multiplies in
+            MetalBackend::setTensor(mRowScaleInput, encoder, 24);
         }
         [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
     }

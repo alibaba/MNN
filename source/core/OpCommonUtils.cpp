@@ -520,6 +520,7 @@ bool OpCommonUtils::opCompabilityForLowp(const Op* op, int bytes) {
         case OpType_LinearAttention:
         case OpType_FusedLinear:
         case OpType_RoPE:
+        case OpType_TopKV2:
         case OpType_LayerNorm:
         case OpType_Softmax:
         case OpType_Plugin:

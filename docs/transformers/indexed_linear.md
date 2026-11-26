@@ -85,7 +85,7 @@ FP16/FP32 执行精度转存，源权重为 FP32 不表示 Low 精度执行仍�
 
 | 后端 | Decode / 少量 token | Prefill |
 | --- | --- | --- |
-| CPU | 单 token 直接遍历 K 条路由；共享输入只 pack/动态量化一次；专家与输出通道共同分配线程任务 | 计数、前缀和与重排形成按专家分组的输入块，复用现有 float/W4/W8 pack 和矩阵乘内核，再写回原路由位置 |
+| CPU | 单 token 直接遍历 K 条路由；共享输入只 pack/动态量化一次；专家与输出通道共同分配线程任务。SME2 下按 `CPU_SME2_NEON_DIVISION_RATIO` 的 decode 分量把输出通道拆成 SME（主）+ SDOT（支路）两段，默认 41 等效 SME:SDOT=1:1 单核份额，`=0` 关闭拆分 | 计数、前缀和与重排形成按专家分组的输入块，复用现有 float/W4/W8 pack 和矩阵乘内核，再写回原路由位置；线程数被 `computeThreadNumber` 限制在性能核内 |
 | Metal | 单 token 使用直接读取 ids 的 GEMV，simdgroup 协作归约 | GPU 上完成计数、前缀和、scatter；按专家分块乘法，FP16 且设备支持时使用 simdgroup matrix，否则使用通用 tile 内核 |
 | OpenCL Buffer | T≤4 使用直接读取 ids 的 GEMV，workgroup 归约 | GPU 路由分组和固定上界的 tile dispatch；按路由数选择 8×32 或 32×64 输出 tile，K 块为 16；局部权重使用转置并填充的 `[K, N+1]` 布局 |
 | Vulkan Buffer | T≤4 使用直接读取 ids 的 GEMV，workgroup 归约 | GPU 路由分组与带有效性判断的固定上界 dispatch；量化 tile 乘法，不要求 subgroup 扩展 |

@@ -192,6 +192,7 @@ class FusedLinearAttentionOp(torch.autograd.Function):
     Unified Custom Op for Linear Attention variants.
 
     Inputs (Tensors):
+      short_conv uses only [qkv, conv_weight]; the following layout is for recurrent variants.
       0: qkv          [B, D, L]   - QKV projection output (before conv)
       1: gate         [B, L, H]   - Pre-computed decay factor
       2: beta         [B, L, H]   - Pre-computed learning rate (optional)
@@ -235,7 +236,7 @@ class FusedLinearAttentionOp(torch.autograd.Function):
             kwargs["gate_coef_f"] = list(gate_coef)
         if gate_fold and gate_bias is not None:
             kwargs["gate_bias_f"] = list(gate_bias)
-        inputs = [qkv, gate, beta, conv_weight]
+        inputs = [qkv, conv_weight] if attn_type == "short_conv" else [qkv, gate, beta, conv_weight]
         from torch.onnx.symbolic_helper import _get_tensor_sizes
         qkv_sizes = _get_tensor_sizes(qkv)
         # qkv shape is [Batch, Dim, SeqLen]
@@ -272,7 +273,7 @@ class FusedLinearAttention(torch.nn.Module):
         self.gate_coef = gate_coef
         self.gate_bias = gate_bias
 
-    def forward(self, qkv, gate, beta, conv_weight):
+    def forward(self, qkv, gate=None, beta=None, conv_weight=None):
         return FusedLinearAttentionOp.apply(qkv, gate, beta, conv_weight, self.name,
                                       self.attn_type, self.num_k_heads, self.num_v_heads,
                                       self.head_k_dim, self.head_v_dim, self.use_qk_l2norm,

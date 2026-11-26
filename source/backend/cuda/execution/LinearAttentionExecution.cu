@@ -1,5 +1,6 @@
 #include "LinearAttentionExecution.hpp"
 #include "core/TensorUtils.hpp"
+#include "core/AttentionCommon.hpp"
 #include "MNNCUDADefine.hpp"
 #include <cuda_fp16.h>
 #include <float.h>
@@ -545,10 +546,11 @@ CUDALinearAttention::~CUDALinearAttention() {
 }
 
 ErrorCode CUDALinearAttention::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    if (inputs.size() < 4 || outputs.empty())
+    const int weightIndex = linearAttentionWeightIndex(mAttentionType == "short_conv", inputs.size());
+    if (weightIndex < 0 || outputs.empty())
         return INVALID_VALUE;
     auto qkv = inputs[0];
-    auto convWeight = inputs[3];
+    auto convWeight = inputs[weightIndex];
 
     int batch = 0, convDim = 0, seqLen = 0;
     linearAttentionDims(qkv, batch, convDim, seqLen);
@@ -664,9 +666,10 @@ ErrorCode CUDALinearAttention::onExecute(const std::vector<Tensor*>& inputs, con
     }
 
     auto qkvTensor = inputs[0];
-    auto gateTensor = inputs[1];
-    auto betaTensor = inputs[2];
-    auto convWTensor = inputs[3];
+    const bool shortConv = mAttentionType == "short_conv";
+    auto gateTensor = shortConv ? nullptr : inputs[1];
+    auto betaTensor = shortConv ? nullptr : inputs[2];
+    auto convWTensor = inputs[linearAttentionWeightIndex(shortConv, inputs.size())];
     auto outTensor = outputs[0];
 
     int B = 0, D = 0, L = 0;
@@ -685,8 +688,8 @@ ErrorCode CUDALinearAttention::onExecute(const std::vector<Tensor*>& inputs, con
     cudaStream_t stream = 0;
     bool useFp16 = (mPrecision == 2);
     const bool inputC4 = isC4Tensor(qkvTensor);
-    const bool gateC4 = isC4Tensor(gateTensor);
-    const bool betaC4 = isC4Tensor(betaTensor);
+    const bool gateC4 = !shortConv && isC4Tensor(gateTensor);
+    const bool betaC4 = !shortConv && isC4Tensor(betaTensor);
     const bool outputC4 = isC4Tensor(outTensor);
 
     if (mAttentionType == "short_conv") {

@@ -105,6 +105,10 @@ public:
         if (inputs.size() < 2 || outputs.size() != 2) {
             return nullptr;
         }
+        auto param = op->main_as_TopKV2();
+        if (nullptr != param && param->routeSigmoid()) {
+            return nullptr;
+        }
         if (TensorUtils::getDescribe(inputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
             return nullptr;
         }

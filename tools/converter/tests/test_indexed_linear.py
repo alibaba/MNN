@@ -211,6 +211,42 @@ class IndexedLinearConversionTest(unittest.TestCase):
         self.assertEqual(set(names), {f'bank/linear.{i}' for i in range(3)})
         self.assertEqual(len(names), 3)
 
+    def test_external_float_weight_post_treatment(self):
+        for indexed in (False, True):
+            for treatment in ('quant', 'fp16', 'compression'):
+                with self.subTest(indexed=indexed, treatment=treatment):
+                    graph = copy.deepcopy(self.graph)
+                    linears = graph['oplists'][-1]['main']['linears']
+                    weights = b''.join(struct.pack('<f', (i % 17 - 8) * 0.125) for i in range(3 * 1024))
+                    graph['oplists'][0]['main']['dims'] = [1, 32]
+                    for i, linear in enumerate(linears):
+                        linear.pop('quanParameter')
+                        linear['common'].update(inputCount=32, outputCount=32)
+                        linear['external'] = [i * 4096, 4096, 0]
+                    if not indexed:
+                        graph['oplists'][-1].update(type='Convolution', main_type='Convolution2D',
+                                                   main=linears[0], inputIndexes=[0])
+                        graph['oplists'][0]['main'].update(dims=[1, 32, 1, 1], dformat='NC4HW4')
+                    source = self.source(f'float-{indexed}-{treatment}', graph, weights)
+                    args = ['--weightQuantBits', '4'] if treatment == 'quant' else ['--fp16']
+                    if treatment == 'compression':
+                        guide = self.path / f'float-{indexed}-guide.json'
+                        names = [f'bank/linear.{i}' for i in range(3)] if indexed else ['bank']
+                        guide.write_text(json.dumps({'version': '0.0.0', 'forGuide': True,
+                            'algo': [{'type': 'QUANTIZE', 'quantParams': {
+                                'layer': [{'opName': name, 'weight': [{'name': name, 'bits': 4}]}
+                                          for name in names]}}]}))
+                        args = ['--compressionParamsFile', guide]
+                    self.convert(source, source, '--saveExternalData', *args)
+                    output = Path(str(source) + '.json')
+                    self.run_tool('MNNDump2Json', source, output)
+                    op = next(op for op in json.loads(output.read_text())['oplists'] if op['name'] == 'bank')
+                    converted = op['main']['linears'] if indexed else [op['main']]
+                    self.assertTrue(all(linear.get('quanParameter') for linear in converted))
+                    expected_type = 3 if treatment == 'fp16' else 1
+                    self.assertTrue(all(linear['quanParameter']['type'] == expected_type for linear in converted))
+                    self.assertLess(Path(str(source) + '.weight').stat().st_size, len(weights))
+
     def test_biasfree_bank_skips_sparse_detection(self):
         graph = copy.deepcopy(self.graph)
         for expert in graph['oplists'][2]['main']['linears']:

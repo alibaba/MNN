@@ -12,8 +12,11 @@
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 
 #include "backend/cpu/CPUBackend.hpp"
+#include "backend/cpu/CPUIndexedLinear.hpp"
+#include "backend/cpu/compute/CommonOptFunction.h"
 #include "core/Execution.hpp"
 #include "core/FusedProjCommon.hpp"
+#include "core/IndexedLinearCommon.hpp"
 #include "core/TensorUtils.hpp"
 
 namespace MNN {
@@ -42,6 +45,23 @@ public:
         if (mHasLn) {
             mSubOps->layerNorm = FusedProjCommon::makeLayerNormOp(param->ln(), fmt);
         }
+        int experts, ic, oc;
+        auto cpu = static_cast<CPUBackend*>(backend);
+        const auto& hint = backend->getRuntime()->hint();
+        if (mIsGateUp && cpu->precisionMode() != BackendConfig::Precision_Low_BF16 &&
+            (hint.useCachedMmap == 0 || hint.weightMemoryPath.empty()) &&
+            IndexedLinearCommon::dimensions(op, experts, ic, oc) && ic % cpu->functions()->pack == 0 &&
+            oc / 2 % cpu->functions()->pack == 0) {
+            std::shared_ptr<Execution> fused(new CPUIndexedLinear(backend, op));
+            if (fused->valid()) {
+                mGateUp = std::move(fused);
+                if (mHasLn) {
+                    mLn.reset(backend->onCreate({}, {}, FusedProjCommon::opOf(mSubOps->layerNorm)));
+                    mValid = mLn != nullptr;
+                }
+                return;
+            }
+        }
         mValid = _createWeightedChildren(backend);
     }
     CPUFusedProj(std::shared_ptr<CPUFusedProjSubOps> subOps, const Op* op, Backend* backend) : Execution(backend) {
@@ -53,13 +73,16 @@ public:
     bool valid() const { return mValid; }
 
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override {
-        if (!mValid || (int)mConvs.size() != mNumConvs || (mHasLn && !mLn)) {
+        if (!mValid || (!mGateUp && (int)mConvs.size() != mNumConvs) || (mHasLn && !mLn)) {
             return false;
         }
         // preRearrangeWeights strips the member weights on a positive probe,
         // so the answer must reflect whether every child can really clone.
         if (nullptr == dst) {
-            for (int i = 0; i < mNumConvs; ++i) {
+            if (mGateUp && !mGateUp->onClone(bn, op, nullptr)) {
+                return false;
+            }
+            for (int i = 0; i < (int)mConvs.size(); ++i) {
                 if (!mConvs[i]->onClone(bn, FusedProjCommon::opOf(mSubOps->convs[i]), nullptr)) {
                     return false;
                 }
@@ -70,8 +93,15 @@ public:
         // onResize. LN is cloned, not re-created from op: with a reused mmap
         // weight cache the op's gamma/beta are external and empty.
         std::unique_ptr<CPUFusedProj> clone(new CPUFusedProj(mSubOps, op, bn));
-        clone->mConvs.resize(mNumConvs);
-        for (int i = 0; i < mNumConvs; ++i) {
+        if (mGateUp) {
+            Execution* child = nullptr;
+            if (!mGateUp->onClone(bn, op, &child) || child == nullptr) {
+                return false;
+            }
+            clone->mGateUp.reset(child);
+        }
+        clone->mConvs.resize(mConvs.size());
+        for (int i = 0; i < (int)mConvs.size(); ++i) {
             if (!_cloneChild(mConvs[i], bn, mSubOps->convs[i], clone->mConvs[i])) {
                 return false;
             }
@@ -86,13 +116,23 @@ public:
     virtual ErrorCode onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override {
         auto bn = backend();
         Tensor* hidden = mHasLn ? inputs[1] : inputs[0];
+        mUseGateUp = mGateUp != nullptr && hidden->dimensions() == 4 && outputs[0]->dimensions() == 4 &&
+            hidden->length(2) == 1 && hidden->length(3) == 1 &&
+            outputs[0]->length(2) == 1 && outputs[0]->length(3) == 1 &&
+            hidden->getType() == halide_type_of<float>() && outputs[0]->getType() == halide_type_of<float>() &&
+            !TensorUtils::getDescribe(hidden)->quantAttr && !TensorUtils::getDescribe(outputs[0])->quantAttr &&
+            TensorUtils::getDescribe(hidden)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 &&
+            TensorUtils::getDescribe(outputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4;
+        if (!mUseGateUp && mConvs.empty() && !_createWeightedChildren(bn)) {
+            return NOT_SUPPORT;
+        }
         if (mHasLn) {
             mNormalized = _makeLike(hidden, hidden->length(1));
             if (!bn->onAcquireBuffer(mNormalized.get(), Backend::DYNAMIC)) {
                 return OUT_OF_MEMORY;
             }
         }
-        if (mIsGateUp) {
+        if (mIsGateUp && !mUseGateUp) {
             const int oc = outputs[0]->length(1);
             mGate = _makeLike(hidden, oc);
             mUp = _makeLike(hidden, oc);
@@ -108,7 +148,7 @@ public:
         ErrorCode err = _forEachChild(inputs, outputs,
                                       [](Execution* exe, const std::vector<Tensor*>& in,
                                          const std::vector<Tensor*>& out) { return exe->onResize(in, out); });
-        if (mGate) {
+        if (mGate && !mUseGateUp) {
             bn->onReleaseBuffer(mGate.get(), Backend::DYNAMIC);
             bn->onReleaseBuffer(mUp.get(), Backend::DYNAMIC);
         }
@@ -164,7 +204,7 @@ private:
             }
             mConvs[i].reset(exe);
         }
-        if (mHasLn) {
+        if (mHasLn && !mLn) {
             // The LayerNorm creator reads only the op.
             mLn.reset(backend->onCreate({}, {}, FusedProjCommon::opOf(mSubOps->layerNorm)));
             if (mLn == nullptr) {
@@ -185,7 +225,7 @@ private:
     }
 
     bool _createMulSilu(Backend* backend, const std::vector<Tensor*>& outputs) {
-        if (mIsGateUp && !mMulSilu) {
+        if (mIsGateUp && !mUseGateUp && !mMulSilu) {
             Execution* exe =
                 backend->onCreate({mUp.get(), mGate.get()}, {outputs[0]}, FusedProjCommon::opOf(mSubOps->mulSilu));
             if (exe == nullptr) {
@@ -205,6 +245,9 @@ private:
                 return err;
             }
             projInput = mNormalized.get();
+        }
+        if (mUseGateUp) {
+            return run(mGateUp.get(), {projInput}, {outputs[0]});
         }
         if (!mIsGateUp) {
             for (int i = 0; i < mNumConvs; ++i) {
@@ -231,9 +274,11 @@ private:
     int mNumConvs = 0;
     int mNumProjOut = 0;
     bool mValid = true;
+    bool mUseGateUp = false;
     std::shared_ptr<CPUFusedProjSubOps> mSubOps;
     std::vector<std::shared_ptr<Execution>> mConvs;
     std::shared_ptr<Execution> mMulSilu;
+    std::shared_ptr<Execution> mGateUp;
     std::shared_ptr<Execution> mLn;
     std::shared_ptr<Tensor> mGate;
     std::shared_ptr<Tensor> mUp;

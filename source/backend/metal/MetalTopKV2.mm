@@ -461,6 +461,144 @@ public:
 
 };
 
+static const char* gMoeRouteTemplate = R"metal(
+#include <metal_stdlib>
+#include <simd/simd.h>
+using namespace metal;
+
+struct TopKParam {
+    int4 size;
+};
+
+kernel void moe_route(device T* outProbs [[buffer(0)]],
+                      device int* outIndex [[buffer(1)]],
+                      const device T* inLogits [[buffer(2)]],
+                      const device T* inBias [[buffer(3)]],
+                      constant TopKParam& p [[buffer(4)]],
+                      uint gid [[thread_position_in_grid]]) {
+    const int row = (int)gid;
+    const int rowSize = p.size.x;
+    const int k = p.size.y;
+    if (row >= p.size.z) {
+        return;
+    }
+    const device T* x = inLogits + row * rowSize;
+    device T* probs = outProbs + row * rowSize;
+    T bestVal[LOCAL_K];
+    int bestIdx[LOCAL_K];
+    for (int j = 0; j < k; ++j) {
+#ifdef USE_FP16
+        bestVal[j] = (T)(-65504.0h);
+#else
+        bestVal[j] = (T)(-FLT_MAX);
+#endif
+        bestIdx[j] = -1;
+    }
+    for (int i = 0; i < rowSize; ++i) {
+        const T pr = (T)(1.0f / (1.0f + exp(-(float)x[i])));
+        probs[i] = pr;
+        const T s = pr + inBias[i];
+        if (bestIdx[k - 1] >= 0 && s <= bestVal[k - 1]) {
+            continue;
+        }
+        int pos = k - 1;
+        while (pos > 0 && (bestIdx[pos - 1] < 0 || s > bestVal[pos - 1])) {
+            bestVal[pos] = bestVal[pos - 1];
+            bestIdx[pos] = bestIdx[pos - 1];
+            --pos;
+        }
+        bestVal[pos] = s;
+        bestIdx[pos] = i;
+    }
+    device int* ids = outIndex + row * k;
+    for (int j = 0; j < k; ++j) {
+        ids[j] = bestIdx[j];
+    }
+}
+)metal";
+
+class MetalMoeRoute : public MetalExecution {
+public:
+    static Execution* create(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, Backend* backend) {
+        if (inputs.size() != 4 || inputs[0]->getType().code != halide_type_float) {
+            return nullptr;
+        }
+        const int rowSize = inputs[0]->length(inputs[0]->dimensions() - 1);
+        const int k = outputs[1]->length(outputs[1]->dimensions() - 1);
+        if (rowSize <= 0 || rowSize > 256 || k <= 0 || k > kTopKLocalK || k > rowSize) {
+            return nullptr;
+        }
+        return new MetalMoeRoute(backend);
+    }
+    MetalMoeRoute(Backend* backend) : MetalExecution(backend) {
+        auto mtbn = static_cast<MetalBackend*>(backend);
+        mParam = mtbn->getConstBuffer(sizeof(int) * 4);
+        if (nil == mParam) {
+            mValid = false;
+        }
+    }
+    virtual ~MetalMoeRoute() {
+        auto mtbn = static_cast<MetalBackend*>(backend());
+        mtbn->returnConstBuffer(mParam);
+    }
+    ErrorCode onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override {
+        auto input = inputs[0];
+        const int rowSize = input->length(input->dimensions() - 1);
+        const int numRows = input->elementSize() / rowSize;
+        const int k = outputs[1]->length(outputs[1]->dimensions() - 1);
+        auto mtbn = static_cast<MetalBackend*>(backend());
+        const bool useFp16 = mtbn->useFp16InsteadFp32();
+        NSString* T = MetalCast::getScalarType(input->getType(), useFp16);
+        std::vector<std::string> keys = {
+            "moe_route",
+            std::string([T UTF8String]),
+            std::to_string(k),
+        };
+        auto pipeline = mtbn->runtime()->findPipeline(keys);
+        if (nil == pipeline) {
+            MTLCompileOptions* compileOptions = [[MTLCompileOptions alloc] init];
+            auto dic = [NSMutableDictionary dictionaryWithCapacity:0];
+            [dic setValue:T forKey:@"T"];
+            [dic setValue:[NSString stringWithFormat:@"%d", k] forKey:@"LOCAL_K"];
+            if (useFp16) {
+                [dic setValue:@"1" forKey:@"USE_FP16"];
+            }
+            compileOptions.preprocessorMacros = dic;
+            pipeline = mtbn->makeComputePipelineWithSourceOption(gMoeRouteTemplate, "moe_route", compileOptions);
+            mtbn->runtime()->insertPipeline(keys, pipeline);
+        }
+        if (nil == pipeline) {
+            MNN_ERROR("Create MoE route pipeline error\n");
+            return NOT_SUPPORT;
+        }
+        mPipeline = pipeline;
+        auto p = (int*)mParam.contents;
+        p[0] = rowSize;
+        p[1] = k;
+        p[2] = numRows;
+        p[3] = 0;
+        mRows = numRows;
+        return NO_ERROR;
+    }
+    void onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, id<MTLComputeCommandEncoder> encoder) override {
+        if (mRows <= 0) {
+            return;
+        }
+        [encoder setComputePipelineState:mPipeline];
+        MetalBackend::setTensor(outputs[0], encoder, 0);
+        MetalBackend::setTensor(outputs[1], encoder, 1);
+        MetalBackend::setTensor(inputs[0], encoder, 2);
+        MetalBackend::setTensor(inputs[3], encoder, 3);
+        [encoder setBuffer:mParam offset:0 atIndex:4];
+        [encoder dispatchThreadgroups:MTLSizeMake(UP_DIV(mRows, 64), 1, 1)
+                threadsPerThreadgroup:MTLSizeMake(64, 1, 1)];
+    }
+private:
+    id<MTLBuffer> mParam = nil;
+    id<MTLComputePipelineState> mPipeline = nil;
+    int mRows = 0;
+};
+
 class MetalTopKV2Creator : public MetalBackend::Creator {
 public:
     Execution* onCreate(const std::vector<Tensor*>& inputs, const MNN::Op* op, Backend* backend, const std::vector<Tensor*>& outputs) const override {
@@ -474,6 +612,9 @@ public:
         auto param = op->main_as_TopKV2();
         if (nullptr != param) {
             largest = param->largest();
+        }
+        if (nullptr != param && param->routeSigmoid()) {
+            return MetalMoeRoute::create(inputs, outputs, backend);
         }
         auto output = outputs[0];
         const int k = output->length(output->dimensions() - 1);

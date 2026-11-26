@@ -52,6 +52,12 @@ void MNNDynamicUpdateConvBiasScale(float* newbias, float* oldbias, float* weight
                                    size_t ocQuad);
 #endif // MNN_LOW_MEMORY
 
+void MNNRoPEInterleavedCompute(void* dst, const void* src, const void* cosRow, const void* sinRow, int numHead,
+                               int headDim, int ropeCutHeadDim);
+void MNNRoPECompute(void* dst, const void* src, const void* cosEven, const void* cosOdd, const void* sinEven,
+                    const void* sinOdd, int numHead, int headDim, int ropeCutHeadDim);
+void MNNRouteSigmoid(const float* src, const float* bias, float* probs, float* scores, int rowSize, int numRows);
+
 #ifdef MNN_SME2
 void MNNPackedMatMulRemainFP32_SME2(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
                                     const float* postParameters, const float* bias, const float* k, const float* b);
@@ -586,7 +592,9 @@ struct CoreFunctions {
     void (*MNNQuantAttentionKey)(int8_t* dst, const float* source, float* sumKey, float* maxKey, int32_t* params);
     void (*MNNQuantAttentionValue)(int8_t* dst, const float* source, float* valueQuantInfo, int32_t* params);
     void (*MNNRoPECompute)(void* dst, const void* src, const void* cosEven, const void* cosOdd, const void* sinEven,
-                           const void* sinOdd, int numHead, int headDim, int ropeCutHeadDim);
+                           const void* sinOdd, int numHead, int headDim, int ropeCutHeadDim) = nullptr;
+    void (*MNNRoPEInterleavedCompute)(void* dst, const void* src, const void* cosRow, const void* sinRow, int numHead,
+                                      int headDim, int ropeCutHeadDim) = nullptr;
 
     MatmulRelatedFunctions int8MatmulRelatedFunctions;
     MatmulRelatedFunctions arm82MatmulRelatedFunctions;

@@ -1101,12 +1101,12 @@ class ModelMapper:
         }
         lfm2_moe_mlp = {
             'num_experts': 'experts.num_experts',
-            'top_k': 'top_k',
-            'norm_topk_prob': 'norm_topk_prob',
+            'top_k': ['gate.top_k', 'top_k'],
+            'norm_topk_prob': ['gate.norm_topk_prob', 'norm_topk_prob'],
             'gate': 'gate',
             'experts': 'experts',
             'expert_bias': 'expert_bias',
-            'routed_scaling_factor': 'routed_scaling_factor',
+            'routed_scaling_factor': ['gate.routed_scaling_factor', 'routed_scaling_factor'],
         }
         lfm2_moe_map = {
             'config': lfm2_moe_config,

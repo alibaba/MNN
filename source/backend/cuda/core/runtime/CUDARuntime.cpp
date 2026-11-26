@@ -138,7 +138,12 @@ void CUDARuntime::activate() {
 
 void *CUDARuntime::alloc(size_t size_in_bytes) {
     void *ptr = nullptr;
-    cuda_check(cudaMalloc(&ptr, size_in_bytes));
+    const auto status = cudaMalloc(&ptr, size_in_bytes);
+    if (status == cudaErrorMemoryAllocation) {
+        // The allocator and its callers already propagate a null allocation as OOM.
+        return nullptr;
+    }
+    cuda_check(status);
     MNN_ASSERT(nullptr != ptr);
     checkKernelErrors;
     return ptr;

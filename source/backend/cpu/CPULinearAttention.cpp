@@ -21,6 +21,7 @@
 #include "core/Concurrency.h"
 #include "core/BufferAllocator.hpp"
 #include "core/TensorUtils.hpp"
+#include "core/AttentionCommon.hpp"
 #include "core/OpCommonUtils.hpp"
 #include "core/BufferAllocator.hpp"
 #include "compute/ConvolutionTiledExecutor.hpp"
@@ -91,8 +92,12 @@ static inline void _writeAttentionOutput(int8_t* ptr, bool c4, int b, int l, int
 }
 
 ErrorCode CPULinearAttention::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    const int weightIndex = linearAttentionWeightIndex(mAttentionType == "short_conv", inputs.size());
+    if (weightIndex < 0 || outputs.empty()) {
+        return INVALID_VALUE;
+    }
     auto qkv = inputs[0];
-    auto convWeight = inputs[3];
+    auto convWeight = inputs[weightIndex];
 
     mQKVUnpacked.reset();
     mGateUnpacked.reset();
@@ -1196,7 +1201,7 @@ void CPULinearAttention::gated_delta_rule_decode(const std::vector<Tensor*>& inp
 
 void CPULinearAttention::short_conv(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     auto qkvTensor = inputs[0];
-    auto convWTensor = inputs[3];
+    auto convWTensor = inputs[linearAttentionWeightIndex(true, inputs.size())];
     auto outTensor = outputs[0];
 
     const int8_t* qkvPtr = qkvTensor->host<int8_t>();

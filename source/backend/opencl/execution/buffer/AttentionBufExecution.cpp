@@ -9,7 +9,7 @@
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 
 #include "backend/opencl/execution/buffer/AttentionBufExecution.hpp"
-#include "core/AttentionMaskConvention.hpp"
+#include "core/AttentionCommon.hpp"
 #include "core/MNNFileUtils.h"
 #include <fstream>
 namespace MNN {
@@ -485,6 +485,12 @@ ErrorCode AttentionBufExecution::init() {
 }
 
 ErrorCode AttentionBufExecution::UpdateArgs(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    if (mHasSinks) {
+        mSinkBuffer = openCLBuffer(inputs[4])();
+        auto kernel = mIsDecode ? mKernel_fdPartial : mKernel_fa;
+        auto error = kernel->get().setArg(mSinkArgIndex, openCLBuffer(inputs[4]));
+        MNN_CHECK_CL_SUCCESS(error, "update attention sinks");
+    }
     if (nullptr == mMeta) {
         return NO_ERROR;
     }
@@ -1199,7 +1205,10 @@ bool AttentionBufExecution::flashPrefillEligible(const std::vector<Tensor*>& inp
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
     const int maxWgSize = std::min((int)mMaxWorkGroupSize, 256);
     const uint64_t maxLocal = runtime->getMaxLocalMem();
-    const auto precision = mOpenCLBackend->getPrecision();
+    // lq is FLOAT and ls is COMPUTE_FLOAT, and the two widths only agree outside the Normal
+    // level, which stores in half but computes in float. See the three buildOptionsStr
+    // branches in OpenCLRuntime::buildKernelWithCache.
+    const auto precision = flashPrefillPrecision();
     const int floatBytes =
         (BackendConfig::Precision_Normal == precision || BackendConfig::Precision_Low == precision) ? 2 : 4;
     const int computeBytes = (BackendConfig::Precision_Low == precision) ? 2 : 4;
@@ -1275,6 +1284,11 @@ bool AttentionBufExecution::flashPrefillEligible(const std::vector<Tensor*>& inp
     return true;
 }
 
+int AttentionBufExecution::flashPrefillPrecision() const {
+    const int precision = mOpenCLBackend->getPrecision();
+    return mHasSinks && precision == BackendConfig::Precision_Low ? BackendConfig::Precision_Normal : precision;
+}
+
 std::set<std::string> AttentionBufExecution::flashPrefillBuildOptions(int headDim, int groupSize) const {
     std::set<std::string> buildOption;
     if (mIsAddMask) {
@@ -1287,6 +1301,9 @@ std::set<std::string> AttentionBufExecution::flashPrefillBuildOptions(int headDi
         // -DDEFAULT_MASK, which no kernel ever tested -- the causal branch is the
         // bare #else -- so the no-mask state silently compiled to causal.
         buildOption.emplace("-DNO_MASK");
+    }
+    if (mHasSinks) {
+        buildOption.emplace("-DATTENTION_SINKS");
     }
     buildOption.emplace("-DNUMHEAD_GROUP_SIZE=" + std::to_string(groupSize));
     buildOption.emplace("-DFA_TILE_Q=" + std::to_string(mFaTileQ));
@@ -1348,7 +1365,7 @@ ErrorCode AttentionBufExecution::flashPrefillResize(const std::vector<Tensor*>& 
             mFaTileKV = tiling.tileKV;
             auto probe = runtime->buildKernel("attention_flash_prefill_buf", "flash_attention_prefill",
                                               flashPrefillBuildOptions(headDim, groupSize),
-                                              mOpenCLBackend->getPrecision(), inputs[0], outputs[0]);
+                                              flashPrefillPrecision(), inputs[0], outputs[0]);
             if (nullptr != probe && (int)runtime->getMaxWorkGroupSize(probe) >= mFaWgSize) {
                 accepted = true;
                 break;
@@ -1462,7 +1479,7 @@ ErrorCode AttentionBufExecution::flashPrefillResize(const std::vector<Tensor*>& 
     {
         // fused qk + mask + softmax + qkv
         mKernel_fa = runtime->buildKernel("attention_flash_prefill_buf", "flash_attention_prefill",
-                                          flashPrefillBuildOptions(headDim, groupSize), mOpenCLBackend->getPrecision(),
+                                          flashPrefillBuildOptions(headDim, groupSize), flashPrefillPrecision(),
                                           inputs[0], outputs[0]);
         mGlobalWorkSizeFa = {static_cast<uint32_t>(mFaWgSize * UP_DIV(seqlen, mFaTileQ)),
                              static_cast<uint32_t>(numHead * batch)};
@@ -1485,6 +1502,11 @@ ErrorCode AttentionBufExecution::flashPrefillResize(const std::vector<Tensor*>& 
         ret |= mKernel_fa->get().setArg(index++, batch);
         ret |= mKernel_fa->get().setArg(index++, maskQlen);
         ret |= mKernel_fa->get().setArg(index++, maskBatchStride);
+        if (mHasSinks) {
+            mSinkArgIndex = index;
+            mSinkBuffer = openCLBuffer(inputs[4])();
+            ret |= mKernel_fa->get().setArg(index++, openCLBuffer(inputs[4]));
+        }
         MNN_CHECK_CL_SUCCESS(ret, "setArg flash_attention_prefill");
 
         if (nullptr != mMeta) {
@@ -1493,6 +1515,9 @@ ErrorCode AttentionBufExecution::flashPrefillResize(const std::vector<Tensor*>& 
         }
         mFaUpdateInfo.update_kernel_args.push_back({0, 7, sizeof(mKvSeqlen), &mKvSeqlen});
         mFaUpdateInfo.update_kernel_args.push_back({0, 9, sizeof(mKeyValueMaxlen), &mKeyValueMaxlen});
+        if (mHasSinks) {
+            mFaUpdateInfo.update_kernel_args.push_back({0, mSinkArgIndex, sizeof(cl_mem), &mSinkBuffer});
+        }
         mOpRecordUpdateInfo.emplace_back(&mFaUpdateInfo);
         mOpenCLBackend->recordKernel2d(mKernel_fa, mGlobalWorkSizeFa, mLocalWorkSizeFa, &mFaUpdateInfo);
     }
@@ -1565,6 +1590,9 @@ ErrorCode AttentionBufExecution::flashDecodeResize(const std::vector<Tensor*>& i
         buildOption.emplace("-DFD_HEAD_DIM=" + std::to_string(headDim));
         buildOption.emplace("-DFD_WG_SIZE=" + std::to_string(mFdWgSize));
         buildOption.emplace("-DFD_CHUNK=" + std::to_string(mFdChunk));
+        if (mHasSinks) {
+            buildOption.emplace("-DATTENTION_SINKS");
+        }
         if (runtime->getGpuType() == MALI) {
             buildOption.emplace("-DFD_QK_PAIR=1");
         }
@@ -1609,6 +1637,11 @@ ErrorCode AttentionBufExecution::flashDecodeResize(const std::vector<Tensor*>& i
             ret |= mKernel_fdPartial->get().setArg(index++, openCLBuffer(mask));
             ret |= mKernel_fdPartial->get().setArg(index++, mask->shape()[mask->dimensions() - 1]);
         }
+        if (mHasSinks) {
+            mSinkArgIndex = index;
+            mSinkBuffer = openCLBuffer(inputs[4])();
+            ret |= mKernel_fdPartial->get().setArg(index++, openCLBuffer(inputs[4]));
+        }
         MNN_CHECK_CL_SUCCESS(ret, "setArg flash_decode_partial");
         if (nullptr != mMeta) {
             mFdPartialUpdateInfo.update_kernel_args.push_back({0, 1, sizeof(cl_mem), &(*(mKVCacheCLManager->key()))()});
@@ -1629,6 +1662,9 @@ ErrorCode AttentionBufExecution::flashDecodeResize(const std::vector<Tensor*>& i
         mFdPartialGlobal_size[0] = mGwsFdPartial[0];
         mFdPartialGlobal_size[1] = mGwsFdPartial[1];
         mFdPartialUpdateInfo.update_global_size.push_back({0, mFdPartialGlobal_size});
+        if (mHasSinks) {
+            mFdPartialUpdateInfo.update_kernel_args.push_back({0, mSinkArgIndex, sizeof(cl_mem), &mSinkBuffer});
+        }
         mOpRecordUpdateInfo.emplace_back(&mFdPartialUpdateInfo);
         mOpenCLBackend->recordKernel2d(mKernel_fdPartial, mGwsFdPartial, mLwsFdPartial, &mFdPartialUpdateInfo);
     }
@@ -1685,10 +1721,11 @@ ErrorCode AttentionBufExecution::onResize(const std::vector<Tensor*>& inputs, co
     int numHead = shape[2];
     int headDim = shape[3];
     int kvNumHead = inputs[1]->shape()[2];
-    // Mask classification is by shape only (core/AttentionMaskConvention.hpp): a dense
+    // Mask classification is by shape only (core/AttentionCommon.hpp): a dense
     // per-element plane (dims > 2) is read elementwise; anything of lower rank is a sentinel.
     const bool hasMaskInput = inputs.size() > 3;
     const int maskDims = hasMaskInput ? inputs[3]->dimensions() : 0;
+    mHasSinks = inputs.size() > 4;
     mHasMask = hasMaskInput && maskDims > 2;
     mIsAddMask = mHasMask && inputs[3]->getType() == halide_type_of<float>();
     mCausalLayout = IsAttentionMaskCausal(hasMaskInput, maskDims, mKVCache);
@@ -1704,6 +1741,13 @@ ErrorCode AttentionBufExecution::onResize(const std::vector<Tensor*>& inputs, co
         return flashDecodeResize(inputs, outputs);
     } else {
         const bool flashOk = flashPrefillEligible(inputs, outputs);
+        if (mHasSinks) {
+            if (!flashOk) {
+                return NOT_SUPPORT;
+            }
+            mFlashPrefill = true;
+            return flashPrefillResize(inputs, outputs);
+        }
         // Long prefill treats the mask as a full additive GEMM bias and only lays out incoming KV,
         // so it requires an exact float mask plane and an empty cache. It is also the one path
         // that lays out K and V from the op inputs rather than reading the cache, which a shared
@@ -2039,6 +2083,7 @@ void AttentionBufExecution::prebuildOpenCLPrograms(const std::vector<Tensor*>& i
         runtime->submitPrebuild("attention_kv_rearrange_buf", {"-DVALUE_C4"}, precision, inputs[0], outputs[0], true);
     }
 
+    mHasSinks = inputs.size() > 4;
     // Same shape-only classification as onResize; the prebuild must compile the same kernel
     // variant the real resize will pick.
     const bool hasMaskInput = inputs.size() > 3;
@@ -2047,8 +2092,8 @@ void AttentionBufExecution::prebuildOpenCLPrograms(const std::vector<Tensor*>& i
     mIsAddMask = mHasMask && inputs[3]->getType() == halide_type_of<float>();
     mCausalLayout = IsAttentionMaskCausal(hasMaskInput, maskDims, mKVCache);
     if (flashPrefillEligible(inputs, outputs)) {
-        runtime->submitPrebuild("attention_flash_prefill_buf", flashPrefillBuildOptions(headDim, groupSize), precision,
-                                inputs[0], outputs[0], true);
+        runtime->submitPrebuild("attention_flash_prefill_buf", flashPrefillBuildOptions(headDim, groupSize),
+                                flashPrefillPrecision(), inputs[0], outputs[0], true);
     }
 
     const int fdWgSize = std::min(kFdChunk, static_cast<int>(mMaxWorkGroupSize));
@@ -2058,6 +2103,9 @@ void AttentionBufExecution::prebuildOpenCLPrograms(const std::vector<Tensor*>& i
         "-DFD_WG_SIZE=" + std::to_string(fdWgSize),
         "-DFD_CHUNK=" + std::to_string(kFdChunk),
     };
+    if (mHasSinks) {
+        partialOptions.emplace("-DATTENTION_SINKS");
+    }
     if (runtime->getGpuType() == MALI) {
         partialOptions.emplace("-DFD_QK_PAIR=1");
     }

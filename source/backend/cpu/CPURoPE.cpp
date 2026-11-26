@@ -18,19 +18,19 @@
 
 namespace MNN {
 static std::shared_ptr<CPULayerNorm::Resource> makeRopeNormResource(const LayerNorm* layerNorm, Backend* backend) {
-    if (nullptr == layerNorm || nullptr == layerNorm->gamma()) {
+    if (nullptr == layerNorm) {
         return nullptr;
     }
-    int gammaSize = layerNorm->gamma()->size();
-    if (gammaSize <= 0) {
-        return nullptr;
-    }
+    int gammaSize = (nullptr == layerNorm->gamma()) ? 0 : layerNorm->gamma()->size();
     auto res = std::make_shared<CPULayerNorm::Resource>();
     res->mGroup = layerNorm->group();
     res->mEpsilon = layerNorm->epsilon();
     res->mRMSNorm = layerNorm->useRMSNorm();
     res->mAxis = layerNorm->axis() == nullptr ? 1 : layerNorm->axis()->size();
-    res->mIniGammaBeta = true;
+    res->mIniGammaBeta = gammaSize > 0;
+    if (gammaSize <= 0) {
+        return res;
+    }
     res->mGamma.reset(Tensor::createDevice<uint8_t>({gammaSize * (int)sizeof(float)}));
     res->mBeta.reset(Tensor::createDevice<uint8_t>({gammaSize * (int)sizeof(float)}));
     auto status = backend->onAcquireBuffer(res->mGamma.get(), Backend::STATIC) &&
@@ -68,6 +68,27 @@ static void unpackC4Token(const uint8_t* src, uint8_t* dst, int token, int seqLe
     }
 }
 
+static void applyRopeNorm(uint8_t* dst, const uint8_t* src, int heads, int headDim,
+                          const std::shared_ptr<CPULayerNorm::Resource>& res, const CoreFunctions* core,
+                          uint8_t* scratchBase, int scratchOffset) {
+    const float* gamma = res->mIniGammaBeta ? res->mGamma->host<float>() : nullptr;
+    const float* beta = res->mIniGammaBeta ? res->mBeta->host<float>() : nullptr;
+    if (core->bytes == 4) {
+        for (int h = 0; h < heads; ++h) {
+            MNNNorm(reinterpret_cast<float*>(dst) + h * headDim, reinterpret_cast<const float*>(src) + h * headDim,
+                    gamma, beta, res->mEpsilon, headDim, res->mRMSNorm);
+        }
+    } else {
+        int totalSize = heads * headDim;
+        auto tmp = reinterpret_cast<float*>(scratchBase + scratchOffset);
+        core->MNNLowpToFp32(reinterpret_cast<const int16_t*>(src), tmp, totalSize);
+        for (int h = 0; h < heads; ++h) {
+            MNNNorm(tmp + h * headDim, tmp + h * headDim, gamma, beta, res->mEpsilon, headDim, res->mRMSNorm);
+        }
+        core->MNNFp32ToLowp(tmp, reinterpret_cast<int16_t*>(dst), totalSize);
+    }
+}
+
 static bool validRopeC4Input(const Tensor* q, const Tensor* k, int numHead, int kvNumHead, int headDim) {
     if (q == nullptr || k == nullptr || numHead <= 0 || kvNumHead <= 0 || headDim <= 0) {
         return false;
@@ -90,8 +111,10 @@ CPURoPE::CPURoPE(const Op* op, Backend* bn) : MNN::Execution(bn) {
         mNumHead = param->num_head();
         mKvNumHead = param->kv_num_head();
         mHeadDim = param->head_dim();
+        mInterleaved = param->interleaved();
         mQNorm = makeRopeNormResource(param->q_norm(), bn);
         mKNorm = makeRopeNormResource(param->k_norm(), bn);
+        mNormAfter = param->norm_after();
     }
 }
 
@@ -125,15 +148,19 @@ ErrorCode CPURoPE::onResize(const std::vector<Tensor*>& inputs, const std::vecto
             mTmpKFloat = buf->alloc(threadNumber * mKvNumHead * mHeadDim * sizeof(float));
         }
     }
-    bool valid = !mTmpQC4.invalid() && !mTmpKC4.invalid() &&
-                 (bytes == 4 || !mQNorm || !mTmpQFloat.invalid()) && (bytes == 4 || !mKNorm || !mTmpKFloat.invalid());
+    bool valid = !mTmpQC4.invalid() && !mTmpKC4.invalid();
+    if (bytes != 4) {
+        valid = valid && (!mQNorm || !mTmpQFloat.invalid()) && (!mKNorm || !mTmpKFloat.invalid());
+    }
     buf->free(mTmpQC4);
     buf->free(mTmpKC4);
-    if (bytes != 4 && mQNorm) {
-        buf->free(mTmpQFloat);
-    }
-    if (bytes != 4 && mKNorm) {
-        buf->free(mTmpKFloat);
+    if (bytes != 4) {
+        if (mQNorm) {
+            buf->free(mTmpQFloat);
+        }
+        if (mKNorm) {
+            buf->free(mTmpKFloat);
+        }
     }
     if (!valid) {
         return OUT_OF_MEMORY;
@@ -158,7 +185,7 @@ bool CPURoPE::onClone(Backend* bn, const Op* op, Execution** dst) {
     if (nullptr == dst) {
         return true;
     }
-    if (!backendHasRopeKernel(bn)) {
+    if (!mInterleaved && !backendHasRopeKernel(bn)) {
         return false;
     }
     auto rope = new CPURoPE(bn);
@@ -166,8 +193,10 @@ bool CPURoPE::onClone(Backend* bn, const Op* op, Execution** dst) {
     rope->mNumHead = mNumHead;
     rope->mKvNumHead = mKvNumHead;
     rope->mHeadDim = mHeadDim;
+    rope->mInterleaved = mInterleaved;
     rope->mQNorm = mQNorm;
     rope->mKNorm = mKNorm;
+    rope->mNormAfter = mNormAfter;
     *dst = rope;
     return true;
 }
@@ -198,7 +227,7 @@ ErrorCode CPURoPE::onExecute(const std::vector<Tensor*>& inputs, const std::vect
     int totalWork = batch * seqLen;
     int threadNum = std::min(static_cast<CPUBackend*>(backend())->computeThreadNumber(totalWork), totalWork);
     auto core = static_cast<CPUBackend*>(backend())->functions();
-    MNN_ASSERT(core->MNNRoPECompute != nullptr);
+    MNN_ASSERT(mInterleaved || core->MNNRoPECompute != nullptr);
 
     MNN_CONCURRENCY_BEGIN(tId, threadNum) {
         int start = tId * totalWork / threadNum;
@@ -215,64 +244,46 @@ ErrorCode CPURoPE::onExecute(const std::vector<Tensor*>& inputs, const std::vect
             auto qPtrOut = static_cast<uint8_t*>(QOutput->host<void>()) + i * numHead * headDim * core->bytes;
             unpackC4Token(qInput, qTmp, i, seqLen, numHead * headDim, core->bytes, core->pack);
             auto qPtr = qTmp;
+            int qScratchOffset = tId * numHead * headDim * sizeof(float);
 
-            if (mQNorm) {
-                int size = headDim;
-                const float* gamma = mQNorm->mIniGammaBeta ? mQNorm->mGamma->host<float>() : nullptr;
-                const float* beta = mQNorm->mIniGammaBeta ? mQNorm->mBeta->host<float>() : nullptr;
-                if (core->bytes == 4) {
-                    for (int h = 0; h < numHead; ++h) {
-                        MNNNorm(reinterpret_cast<float*>(qPtrOut) + h * headDim,
-                                reinterpret_cast<const float*>(qPtr) + h * headDim, gamma, beta, mQNorm->mEpsilon, size,
-                                mQNorm->mRMSNorm);
-                    }
-                    qPtr = qPtrOut;
-                } else {
-                    int totalSize = numHead * headDim;
-                    auto tmpQ = reinterpret_cast<float*>(mTmpQFloat.ptr() + tId * totalSize * sizeof(float));
-                    core->MNNLowpToFp32(reinterpret_cast<const int16_t*>(qPtr), tmpQ, totalSize);
-                    for (int h = 0; h < numHead; ++h) {
-                        MNNNorm(tmpQ + h * headDim, tmpQ + h * headDim, gamma, beta, mQNorm->mEpsilon, size,
-                                mQNorm->mRMSNorm);
-                    }
-                    core->MNNFp32ToLowp(tmpQ, reinterpret_cast<int16_t*>(qPtrOut), totalSize);
-                    qPtr = qPtrOut;
-                }
+            if (mQNorm && !mNormAfter) {
+                applyRopeNorm(qPtrOut, qPtr, numHead, headDim, mQNorm, core,
+                              static_cast<uint8_t*>(mTmpQFloat.ptr()), qScratchOffset);
+                qPtr = qPtrOut;
             }
-            core->MNNRoPECompute(qPtrOut, qPtr, cosEvenPtr, cosOddPtr, sinEvenPtr, sinOddPtr, numHead, headDim,
-                                 mRopeCutHeadDim);
+            if (mInterleaved) {
+                core->MNNRoPEInterleavedCompute(qPtrOut, qPtr, cosPtr, sinPtr, numHead, headDim, mRopeCutHeadDim);
+            } else {
+                core->MNNRoPECompute(qPtrOut, qPtr, cosEvenPtr, cosOddPtr, sinEvenPtr, sinOddPtr, numHead, headDim,
+                                     mRopeCutHeadDim);
+            }
+            if (mQNorm && mNormAfter) {
+                applyRopeNorm(qPtrOut, qPtrOut, numHead, headDim, mQNorm, core,
+                              static_cast<uint8_t*>(mTmpQFloat.ptr()), qScratchOffset);
+            }
 
             auto kInput = static_cast<const uint8_t*>(K->host<void>());
             auto kTmp = static_cast<uint8_t*>(mTmpKC4.ptr()) + tId * kvnumHead * headDim * core->bytes;
             auto kPtrOut = static_cast<uint8_t*>(KOutput->host<void>()) + i * kvnumHead * headDim * core->bytes;
             unpackC4Token(kInput, kTmp, i, seqLen, kvnumHead * headDim, core->bytes, core->pack);
             auto kPtr = kTmp;
+            int kScratchOffset = tId * kvnumHead * headDim * sizeof(float);
 
-            if (mKNorm) {
-                int size = headDim;
-                const float* gamma = mKNorm->mIniGammaBeta ? mKNorm->mGamma->host<float>() : nullptr;
-                const float* beta = mKNorm->mIniGammaBeta ? mKNorm->mBeta->host<float>() : nullptr;
-                if (core->bytes == 4) {
-                    for (int h = 0; h < kvnumHead; ++h) {
-                        MNNNorm(reinterpret_cast<float*>(kPtrOut) + h * headDim,
-                                reinterpret_cast<const float*>(kPtr) + h * headDim, gamma, beta, mKNorm->mEpsilon, size,
-                                mKNorm->mRMSNorm);
-                    }
-                    kPtr = kPtrOut;
-                } else {
-                    int totalSize = kvnumHead * headDim;
-                    auto tmpK = reinterpret_cast<float*>(mTmpKFloat.ptr() + tId * totalSize * sizeof(float));
-                    core->MNNLowpToFp32(reinterpret_cast<const int16_t*>(kPtr), tmpK, totalSize);
-                    for (int h = 0; h < kvnumHead; ++h) {
-                        MNNNorm(tmpK + h * headDim, tmpK + h * headDim, gamma, beta, mKNorm->mEpsilon, size,
-                                mKNorm->mRMSNorm);
-                    }
-                    core->MNNFp32ToLowp(tmpK, reinterpret_cast<int16_t*>(kPtrOut), totalSize);
-                    kPtr = kPtrOut;
-                }
+            if (mKNorm && !mNormAfter) {
+                applyRopeNorm(kPtrOut, kPtr, kvnumHead, headDim, mKNorm, core,
+                              static_cast<uint8_t*>(mTmpKFloat.ptr()), kScratchOffset);
+                kPtr = kPtrOut;
             }
-            core->MNNRoPECompute(kPtrOut, kPtr, cosEvenPtr, cosOddPtr, sinEvenPtr, sinOddPtr, kvnumHead, headDim,
-                                 mRopeCutHeadDim);
+            if (mInterleaved) {
+                core->MNNRoPEInterleavedCompute(kPtrOut, kPtr, cosPtr, sinPtr, kvnumHead, headDim, mRopeCutHeadDim);
+            } else {
+                core->MNNRoPECompute(kPtrOut, kPtr, cosEvenPtr, cosOddPtr, sinEvenPtr, sinOddPtr, kvnumHead, headDim,
+                                     mRopeCutHeadDim);
+            }
+            if (mKNorm && mNormAfter) {
+                applyRopeNorm(kPtrOut, kPtrOut, kvnumHead, headDim, mKNorm, core,
+                              static_cast<uint8_t*>(mTmpKFloat.ptr()), kScratchOffset);
+            }
         }
     }
     MNN_CONCURRENCY_END();
@@ -283,7 +294,9 @@ class CPURoPECreator : public CPUBackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override {
-        if (!backendHasRopeKernel(backend)) {
+        auto param = op->main_as_RoPEParam();
+        bool needCoreKernel = param == nullptr || !param->interleaved();
+        if (needCoreKernel && !backendHasRopeKernel(backend)) {
             return nullptr;
         }
         return new CPURoPE(op, backend);

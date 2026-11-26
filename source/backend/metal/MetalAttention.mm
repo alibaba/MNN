@@ -13,7 +13,7 @@
 #import "MetalSoftmaxShader.hpp"
 #import "MetalAttention.hpp"
 #import "MetalEnv.hpp"
-#include "core/AttentionMaskConvention.hpp"
+#include "core/AttentionCommon.hpp"
 #include "core/TensorUtils.hpp"
 
 #if MNN_METAL_ENABLED
@@ -410,17 +410,14 @@ bool AttentionBufExecution::compilerShader(const std::vector<Tensor*>& inputs) {
         // Persistent QK left-input CTs replace the q_reg array.
         keys.emplace_back("FATC_Q_CT");
         keys.emplace_back("FATC_PV_K32");
-        // Head_dim d-split: a slice must stay a whole multiple of the 32-wide
-        // O tile. At head_dim 256 the persistent O accumulator alone occupies
-        // 128 float registers per lane, so split it 2-ways.
-        int faTcDSplit = (mHeadDim == 256) ? 2 : 1;
-        if ((mHeadDim % (32 * faTcDSplit)) != 0) {
-            faTcDSplit = 1;
+        int faTcWN = (mHeadDim == 256) ? 2 : 1;
+        if ((mHeadDim % (32 * faTcWN)) != 0) {
+            faTcWN = 1;
         }
-        mFaTcDSplit = faTcDSplit;
-        std::string dsplit_str = std::to_string(faTcDSplit);
-        if (faTcDSplit > 1) {
-            keys.emplace_back("FATC_DSPLIT_" + dsplit_str);
+        mFaTcWN = faTcWN;
+        std::string wn_str = std::to_string(faTcWN);
+        if (faTcWN > 1) {
+            keys.emplace_back("FATC_WN_" + wn_str);
         }
         auto pipeline = rt->findPipeline(keys);
         if (nil == pipeline) {
@@ -442,8 +439,8 @@ bool AttentionBufExecution::compilerShader(const std::vector<Tensor*>& inputs) {
             [dic setValue:@"1" forKey:@"FATC_QREV"];
             [dic setValue:@"1" forKey:@"FATC_Q_CT"];
             [dic setValue:@"1" forKey:@"FATC_PV_K32"];
-            if (faTcDSplit > 1) {
-                [dic setValue:@(dsplit_str.c_str()) forKey:@"FATC_DSPLIT"];
+            if (faTcWN > 1) {
+                [dic setValue:@(wn_str.c_str()) forKey:@"FATC_WN"];
             }
             option.preprocessorMacros = dic;
             pipeline = mtbn->makeComputePipelineWithSourceOption(gPrefillFlashAttnTc, "prefill_flash_attn_tc", option);
@@ -451,7 +448,7 @@ bool AttentionBufExecution::compilerShader(const std::vector<Tensor*>& inputs) {
                 rt->insertPipeline(keys, pipeline);
             }
         }
-        if (nil == pipeline || (int)pipeline.maxTotalThreadsPerThreadgroup < 128) {
+        if (nil == pipeline || (int)pipeline.maxTotalThreadsPerThreadgroup < 128 * faTcWN) {
             MNN_ERROR("MNN::Metal FA-TC: pipeline unavailable (cap %d), falling back to three-stage prefill\n",
                       pipeline ? (int)pipeline.maxTotalThreadsPerThreadgroup : -1);
             // Sticky, then recompute: the FA-TC early return skipped the scratch
@@ -464,13 +461,6 @@ bool AttentionBufExecution::compilerShader(const std::vector<Tensor*>& inputs) {
             return compilerShader(inputs);
         } else {
             mKernel_faTc = pipeline;
-            static bool _fatc_log_once = false;
-            if (!_fatc_log_once) {
-                _fatc_log_once = true;
-                MNN_PRINT("[MetalAttention] prefill-flash-attn-tc kernel active (seq=%d, head_dim=%d, qk_k=%d, pv_k=%d, dsplit=%d).\n",
-                          mSeqLen, mHeadDim, 32, 32,
-                          faTcDSplit);
-            }
         }
     }
     if (mFaSgPrefill) {
@@ -704,7 +694,7 @@ ErrorCode AttentionBufExecution::onExecute(const std::vector<Tensor*>& inputs, c
 ErrorCode AttentionBufExecution::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     // dims>=2 is a per-element tensor mask; lower-rank inputs are sentinels
     // resolved into mCausalLayout / mBidirectionalMask. See
-    // core/AttentionMaskConvention.hpp -- predicate must stay identical to CPUAttention.
+    // core/AttentionCommon.hpp -- predicate must stay identical to CPUAttention.
     mHasTensorMask = inputs.size() > 3 && inputs[3]->dimensions() >= 2;
     if (mHasTensorMask) {
         mIsAddMask = (inputs[3]->getType() == halide_type_of<float>());
@@ -763,7 +753,7 @@ bool AttentionBufExecution::_computePathFlags(const std::vector<Tensor*>& inputs
     // heads split evenly over the kv heads. GROUP_SIZE is just a pipeline cache key.
     const bool groupDivides = mKvNumHead > 0 && group_size * mKvNumHead == mNumHead;
 
-    // Shape-only classification (see core/AttentionMaskConvention.hpp). mCausalLayout
+    // Shape-only classification (see core/AttentionCommon.hpp). mCausalLayout
     // implies mKVCache. Do not inspect mask buffer contents: the h2d blit is queued,
     // so stale pool data may still sit there at encode time.
     const bool hasMaskInput = inputs.size() > 3;
@@ -937,12 +927,6 @@ bool AttentionBufExecution::_computePathFlags(const std::vector<Tensor*>& inputs
         if (autoM4 && sgCommon && !mFaTcPrefill && !mFaSgUnavailable) {
             mFaSgPrefill = true;
             mFlashAttnPrefill = false;
-        }
-        static bool _fasg_log_once = false;
-        if (mFaSgPrefill && !_fasg_log_once) {
-            _fasg_log_once = true;
-            MNN_PRINT("[MetalAttention] prefill-flash-attn-sg kernel active (seq=%d, head_dim=%d, group=%d, outC4=%d).\n",
-                      mSeqLen, mHeadDim, group_size, (int)mOutputC4);
         }
     }
 
@@ -1232,8 +1216,8 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
             if (mHasTensorMask) {
                 MetalBackend::setTensor(inputs[3], encoder, 8);
             }
-            [encoder dispatchThreadgroups:MTLSizeMake(UP_DIV(seqLenPiece, 64), mBatch * mNumHead, mFaTcDSplit)
-                    threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
+            [encoder dispatchThreadgroups:MTLSizeMake(UP_DIV(seqLenPiece, 64), mBatch * mNumHead, 1)
+                    threadsPerThreadgroup:MTLSizeMake(128 * mFaTcWN, 1, 1)];
 #if MNN_METAL_OP_PROFILE
             {
                 auto* mtbn2 = static_cast<MetalBackend*>(backend());

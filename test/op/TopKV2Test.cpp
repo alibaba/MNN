@@ -12,6 +12,8 @@
 #include <MNN/expr/NeuralNetWorkOp.hpp>
 #include "MNNTestSuite.h"
 #include "TestUtils.h"
+#include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <memory>
 #include <random>
@@ -135,6 +137,108 @@ static std::vector<VARP> _TopKV2WithLargest(VARP input, VARP k, bool largest) {
     return {values, indices};
 }
 
+static std::vector<VARP> _MoeRoute(VARP logits, VARP k, VARP axis, VARP bias) {
+    std::unique_ptr<MNN::TopKV2T> topk(new MNN::TopKV2T);
+    topk->largest = true;
+    topk->routeSigmoid = true;
+
+    std::unique_ptr<MNN::OpT> op(new MNN::OpT);
+    op->type = MNN::OpType_TopKV2;
+    op->main.type = MNN::OpParameter_TopKV2;
+    op->main.value = topk.release();
+
+    auto expr = Expr::create(op.get(), {logits, k, axis, bias}, 2);
+    return {Variable::create(expr, 0), Variable::create(expr, 1)};
+}
+
+static bool runRouteSigmoid(int precision) {
+    const float tol = precision == 2 ? 0.002f : 1e-5f;
+    std::mt19937 rng(7);
+    std::uniform_real_distribution<float> dist(-6.0f, 6.0f);
+    for (int width : {8, 60, 64, 129}) {
+        for (int rows : {1, 3, 17}) {
+            for (int k : {1, std::min(width, 4), std::min(width, 16)}) {
+                for (bool constBias : {false, true}) {
+                auto logits = _Input({rows, width}, NCHW, halide_type_of<float>());
+                std::vector<float> biasData(width);
+                for (int i = 0; i < width; ++i) {
+                    biasData[i] = dist(rng) * 0.5f;
+                }
+                VARP bias;
+                if (constBias) {
+                    bias = _Const(biasData.data(), {width}, NCHW);
+                } else {
+                    bias = _Input({width}, NCHW, halide_type_of<float>());
+                    ::memcpy(bias->writeMap<float>(), biasData.data(), width * sizeof(float));
+                }
+                const float* biasPtr = biasData.data();
+                auto x = logits->writeMap<float>();
+                for (int i = 0; i < rows * width; ++i) {
+                    x[i] = dist(rng);
+                }
+                auto outputs = _MoeRoute(logits, _Scalar<int>(k), _Scalar<int>(-1), bias);
+                auto probs = outputs[0]->readMap<float>();
+                auto ids = outputs[1]->readMap<int>();
+                if (probs == nullptr || ids == nullptr) {
+                    MNN_ERROR("MoeRoute map failed: width=%d rows=%d k=%d\n", width, rows, k);
+                    return false;
+                }
+                for (int r = 0; r < rows; ++r) {
+                    std::vector<float> refP(width), refS(width);
+                    std::vector<int> order(width);
+                    for (int i = 0; i < width; ++i) {
+                        refP[i] = 1.0f / (1.0f + expf(-x[r * width + i]));
+                        refS[i] = refP[i] + biasPtr[i];
+                        order[i] = i;
+                        if (fabsf(probs[r * width + i] - refP[i]) > tol) {
+                            MNN_ERROR("MoeRoute prob mismatch: width=%d rows=%d k=%d [%d,%d] %f vs %f\n",
+                                      width, rows, k, r, i, probs[r * width + i], refP[i]);
+                            return false;
+                        }
+                    }
+                    std::sort(order.begin(), order.end(), [&](int a, int b) {
+                        return refS[a] > refS[b] || (refS[a] == refS[b] && a < b);
+                    });
+                    std::vector<bool> seen(width, false);
+                    for (int j = 0; j < k; ++j) {
+                        int idx = ids[r * k + j];
+                        if (idx < 0 || idx >= width || seen[idx]) {
+                            MNN_ERROR("MoeRoute bad index: width=%d rows=%d k=%d idx=%d\n", width, rows, k, idx);
+                            return false;
+                        }
+                        seen[idx] = true;
+                        if (fabsf(refS[idx] - refS[order[j]]) > tol) {
+                            MNN_ERROR("MoeRoute selection mismatch: width=%d rows=%d k=%d row=%d j=%d\n",
+                                      width, rows, k, r, j);
+                            return false;
+                        }
+                    }
+                }
+                }
+            }
+        }
+    }
+    {
+        const int width = 60, k = 4;
+        auto logits = _Input({1, width}, NCHW, halide_type_of<float>());
+        auto x = logits->writeMap<float>();
+        for (int i = 0; i < width; ++i) {
+            x[i] = 0.0f;
+        }
+        auto zeroBias = _Input({width}, NCHW, halide_type_of<float>());
+        ::memset(zeroBias->writeMap<float>(), 0, width * sizeof(float));
+        auto outputs = _MoeRoute(logits, _Scalar<int>(k), _Scalar<int>(-1), zeroBias);
+        auto ids = outputs[1]->readMap<int>();
+        for (int j = 0; j < k; ++j) {
+            if (ids[j] != j) {
+                MNN_ERROR("MoeRoute tie-break failed: j=%d idx=%d\n", j, ids[j]);
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 bool checkIndicesHalf(const float* input, const float* expectedOutput0, const int* gotOutput1, const int K,
                       const int numRow, const int lengthRow) {
     for (int i = 0; i < numRow; i++) {
@@ -180,6 +284,49 @@ void printTimeCost(uint64_t timeCost) {
 class TopKV2Test : public MNNTestCase {
 public:
     virtual ~TopKV2Test() = default;
+
+    template <typename T>
+    bool runSmallRows() {
+        for (int width : {1, 3, 31, 32, 60, 64, 65, 127, 128, 129}) {
+            for (int rows : {1, 3}) {
+                for (int k : {1, std::min(width, 4), std::min(width, 16)}) {
+                    for (bool largest : {false, true}) {
+                        auto input = _Input({rows, width}, NCHW, halide_type_of<T>());
+                        std::vector<T> data(rows * width);
+                        for (int i = 0; i < data.size(); ++i) {
+                            data[i] = static_cast<T>((i * 17) % 11 - 5);
+                        }
+                        ::memcpy(input->template writeMap<T>(), data.data(), data.size() * sizeof(T));
+                        auto outputs = _TopKV2WithLargest(input, _Scalar<int>(k), largest);
+                        auto values = outputs[0]->template readMap<T>();
+                        auto indices = outputs[1]->template readMap<int>();
+                        if (values == nullptr || indices == nullptr) {
+                            return false;
+                        }
+                        for (int row = 0; row < rows; ++row) {
+                            std::vector<T> expected(data.begin() + row * width, data.begin() + (row + 1) * width);
+                            std::sort(expected.begin(), expected.end());
+                            if (largest) {
+                                std::reverse(expected.begin(), expected.end());
+                            }
+                            std::vector<bool> seen(width, false);
+                            for (int j = 0; j < k; ++j) {
+                                int index = indices[row * k + j];
+                                if (index < 0 || index >= width || seen[index] || values[row * k + j] != expected[j] ||
+                                    values[row * k + j] != data[row * width + index]) {
+                                    MNN_ERROR("TopKV2 small row failed: width=%d rows=%d k=%d largest=%d\n", width,
+                                              rows, k, largest);
+                                    return false;
+                                }
+                                seen[index] = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return true;
+    }
 
     bool runLargestFlagCase() {
         const int rowCount = 1;
@@ -240,6 +387,12 @@ public:
     }
 
     virtual bool run(int precision) {
+        if (!runRouteSigmoid(precision)) {
+            return false;
+        }
+        if (!runSmallRows<float>() || !runSmallRows<int>()) {
+            return false;
+        }
         if (!runLargestFlagCase()) {
             return false;
         }

@@ -186,6 +186,8 @@ public:
         mPoint = std::move(points);
         mAllocator = allocator;
     }
+    CUDAMemObj(std::shared_ptr<BufferAllocator> allocator, MemChunk points)
+        : mPoint(std::move(points)), mAllocator(allocator.get()), mHoldAllocator(std::move(allocator)) {}
     virtual ~ CUDAMemObj() {
         mAllocator->free(mPoint);
     }
@@ -195,6 +197,7 @@ public:
 private:
     BufferAllocator* mAllocator;
     MemChunk mPoint;
+    std::shared_ptr<BufferAllocator> mHoldAllocator;
 };
 size_t CUDABackend::getBytes(const Tensor* tensor) const {
     size_t bytes = tensor->getType().bytes();
@@ -241,6 +244,7 @@ Backend::MemObj* CUDABackend::onAcquire(const Tensor* nativeTensor, StorageType 
     ((Tensor*)nativeTensor)->buffer().device = (uint64_t)host;
     auto des = TensorUtils::getDescribeOrigin(nativeTensor);
     des->offset = buffer.second;
+    if (storageType == STATIC) return new CUDAMemObj(mStaticBufferPool, buffer);
     return new CUDAMemObj(allocator, buffer);
 }
 
@@ -251,6 +255,7 @@ bool CUDABackend::onClearBuffer() {
     mBufferPool->release(true);
     return true;
 }
+
 size_t CUDABackend::realSize(const Tensor* tensor) {
     auto dim = TensorUtils::getDescribe(tensor)->dimensionFormat;
     int pack = 1;
