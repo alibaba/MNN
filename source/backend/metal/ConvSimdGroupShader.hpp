@@ -190,6 +190,17 @@ typedef half4x4 FLOAT4x4;
 #endif
 
 #define SIMD_GROUP_WIDTH 32
+
+// MoE shared-expert gate scale folded into the epilogue: the row of token `token`
+// is multiplied by rowScale[token].x before it reaches memory. Only the kernels
+// that declare the rowScale argument take part, and MetalConvolution1x1::onResize
+// compiles them with CONV_ROW_MUL when a row scale is offered; every other route
+// leaves the definition empty and the caller applies the scale itself.
+#ifdef CONV_ROW_MUL
+#define CONV_ROW_SCALE(value, token) ((value) = ftype4(float4(value) * float(rowScale[token].x)))
+#else
+#define CONV_ROW_SCALE(value, token)
+#endif
 #define CONV_UNROLL (4)
 #define CONV_UNROLL_L (8)
 
@@ -2673,6 +2684,10 @@ kernel void conv1x1_fused_q4_gemm_stage_m64(
 #ifdef FQ_DOUBLE_BUF
     int it = 0;                        // global K8-window counter -> buffer phase
 #endif
+#ifdef FQ_PREFETCH
+    const device uint2 *wq_pf = (const device uint2 *)wtBase;
+    uint2 w2_pf = wq_pf[idx_n4 * cst.inputDepthQuad + (tiitg % 8)];
+#endif
     for (int bi = 0; bi < cst.blockCount; ++bi) {
         FLOAT scale0        = FLOAT(dqs[((idx_n4 * cst.blockCount + bi) * 2 + 0) * 4 + nl]) / sCoef;
         FLOAT dequant_bias0 = FLOAT(dqs[((idx_n4 * cst.blockCount + bi) * 2 + 1) * 4 + nl]) / sCoef;
@@ -2696,7 +2711,14 @@ kernel void conv1x1_fused_q4_gemm_stage_m64(
                 FLOAT4 sc4 = FLOAT4(*(const device ftype4*)(dqs + ((idx_n4 * cst.blockCount + bi) * 2 + 0) * 4)) / sCoef;
                 FLOAT4 db4 = FLOAT4(*(const device ftype4*)(dqs + ((idx_n4 * cst.blockCount + bi) * 2 + 1) * 4)) / sCoef;
                 const device uint2 *wq = (const device uint2 *)wtBase;
+#ifdef FQ_PREFETCH
+                uint2 w2 = w2_pf;
+                if (z + 8 < cst.inputDepthQuad) {
+                    w2_pf = wq_pf[idx_n4 * cst.inputDepthQuad + (z + 8) + k4p];
+                }
+#else
                 uint2 w2 = wq[idx_n4 * cst.inputDepthQuad + z + k4p];
+#endif
                 FLOAT4 hi0 = FLOAT4(unpack_unorm4x8_to_float(w2.x & 0xF0F0F0F0u));
                 FLOAT4 lo0 = FLOAT4(unpack_unorm4x8_to_float(w2.x & 0x0F0F0F0Fu));
                 FLOAT4 hi1 = FLOAT4(unpack_unorm4x8_to_float(w2.y & 0xF0F0F0F0u));
@@ -3090,6 +3112,9 @@ kernel void conv1x1_z4_sg(const device ftype4 *in            [[buffer(0)]],
                          constant conv1x1_constants& cst    [[buffer(2)]],
                          const device ftype4x4 *wt          [[buffer(3)]],
                          const device ftype4 *biasTerms     [[buffer(4)]],
+                        #ifdef CONV_ROW_MUL
+                            const device ftype4 *rowScale    [[buffer(24)]],
+                        #endif
                          uint3 gid[[threadgroup_position_in_grid]],
                          uint  tiisg[[thread_index_in_simdgroup]],
                          uint  sgitg[[simdgroup_index_in_threadgroup]]) {
@@ -3112,7 +3137,9 @@ kernel void conv1x1_z4_sg(const device ftype4 *in            [[buffer(0)]],
     }
     result0 = simd_sum(result0);
 
-    *xy_out = activate(ftype4(result0 + biasValue), cst.activation);
+    ftype4 value = activate(ftype4(result0 + biasValue), cst.activation);
+    CONV_ROW_SCALE(value, (int)gid.z * cst.outputSize + rx);
+    *xy_out = value;
 }
 )metal";
 
@@ -3134,6 +3161,9 @@ kernel void conv1x1_gemv_g4mx_wquant_sg(const device ftype4 *in            [[buf
                         #endif
                             const device ftype4 *biasTerms     [[buffer(4)]],
                             const device ftype4 *dequantScale  [[buffer(5)]],
+                        #ifdef CONV_ROW_MUL
+                            const device ftype4 *rowScale       [[buffer(24)]],
+                        #endif
                             uint3 gid[[threadgroup_position_in_grid]],
                             uint  tiisg[[thread_index_in_simdgroup]],
                             uint  sgitg[[simdgroup_index_in_threadgroup]]) {
@@ -3332,7 +3362,9 @@ kernel void conv1x1_gemv_g4mx_wquant_sg(const device ftype4 *in            [[buf
     // result store
     for(uint i = 0; i < AREA_THREAD; i++) {
         if (tiisg == i && (rx + (int)i) < area_size) {
-            xy_out[i] = activate(ftype4(result[i] + biasValue), cst.activation);
+            ftype4 value = activate(ftype4(result[i] + biasValue), cst.activation);
+            CONV_ROW_SCALE(value, rx + (int)i);
+            xy_out[i] = value;
         }
     }
 }
@@ -3439,6 +3471,9 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
                             const device float4 *ln_gamma                    [[buffer(21)]],
                             device ftype4 *ln_residual_out                  [[buffer(22)]],
                             constant float *ln_eps                          [[buffer(23)]],
+                        #endif
+                        #ifdef CONV_ROW_MUL
+                            const device ftype4 *rowScale                    [[buffer(24)]],
                         #endif
                             uint3 gid[[threadgroup_position_in_grid]],
                             uint  tiisg[[thread_index_in_simdgroup]],
@@ -3905,9 +3940,13 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
     }
 #else
     if (ds_write) {
-        GEMV_OUT[GEMV_OUT_BASE + uz * area_size] = activate(ftype4(result0 + biasValue0), cst.activation);
+        ftype4 value0 = activate(ftype4(result0 + biasValue0), cst.activation);
+        CONV_ROW_SCALE(value0, 0);
+        GEMV_OUT[GEMV_OUT_BASE + uz * area_size] = value0;
         if (stream1_valid) {
-            GEMV_OUT[GEMV_OUT_BASE + uz1 * area_size] = activate(ftype4(result1 + biasValue1), cst.activation);
+            ftype4 value1 = activate(ftype4(result1 + biasValue1), cst.activation);
+            CONV_ROW_SCALE(value1, 0);
+            GEMV_OUT[GEMV_OUT_BASE + uz1 * area_size] = value1;
         }
     }
 #endif
@@ -4084,11 +4123,15 @@ kernel void conv1x1_gemv_g4m1_2sg_wquant_sg(const device ftype4 *in       [[buff
     threadgroup_barrier(mem_flags::mem_threadgroup);
     if (sk_half == 0 && tiisg == 0) {
         result += sk_partial[(int)sgitg % tgQuads];
-        GEMV_OUT[GEMV_OUT_BASE + uz * area_size] = activate(ftype4(result + biasValue), cst.activation);
+        ftype4 value = activate(ftype4(result + biasValue), cst.activation);
+        CONV_ROW_SCALE(value, 0);
+        GEMV_OUT[GEMV_OUT_BASE + uz * area_size] = value;
     }
 #else
     if (tiisg == 0) {
-        GEMV_OUT[GEMV_OUT_BASE + uz * area_size] = activate(ftype4(result + biasValue), cst.activation);
+        ftype4 value = activate(ftype4(result + biasValue), cst.activation);
+        CONV_ROW_SCALE(value, 0);
+        GEMV_OUT[GEMV_OUT_BASE + uz * area_size] = value;
     }
 #endif
 #endif // GEMV_SG_OC_QUADS_2
@@ -4111,6 +4154,9 @@ kernel void conv1x1_gemv_g8_wquant_sg(const device ftype4 *in            [[buffe
                         #endif
                             const device ftype4 *biasTerms     [[buffer(4)]],
                             const device ftype4 *dequantScale  [[buffer(5)]],
+                        #ifdef CONV_ROW_MUL
+                            const device ftype4 *rowScale       [[buffer(24)]],
+                        #endif
                             uint3 gid[[threadgroup_position_in_grid]],
                             uint3 threadsPerThreadgroup [[threads_per_threadgroup]],
                             uint  tiisg[[thread_index_in_simdgroup]],
@@ -4294,7 +4340,9 @@ kernel void conv1x1_gemv_g8_wquant_sg(const device ftype4 *in            [[buffe
             for (int i=0; i<simdgroupIc; ++i) {
                 res += localSum[i + o_sgitg * simdgroupIc];
             }
-            xy_out[0] = activate(ftype4(res), cst.activation);
+            ftype4 value = activate(ftype4(res), cst.activation);
+            CONV_ROW_SCALE(value, rx);
+            xy_out[0] = value;
         }
     }
 }

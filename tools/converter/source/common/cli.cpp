@@ -680,12 +680,15 @@ bool Cli::convertModel(modelConfig& modelPath) {
     if (1 == modelPath.optimizeLevel && modelPath.model == modelConfig::MNN) {
         expectedPass = {
             "TranslateJsonOp",
-            "FuseDupOp",
             "RemoveInvalidCast",
+            "FuseDupOp",
+            "FuseDecomposedRoPE",
             "RemoveDeadShapeOp",
         };
         if (modelPath.transformerFuseC4) {
-            expectedPass.insert(expectedPass.begin() + 1, "FuseTransformerC4");
+            expectedPass.insert(expectedPass.begin() + 4, "FuseTransformerC4");
+            expectedPass.insert(expectedPass.begin() + 5, "FuseMoeRouteSoftmax");
+            expectedPass.insert(expectedPass.begin() + 6, "FuseMoeRouteSigmoid");
         }
     }
     if (modelPath.splitQuantBlock) {

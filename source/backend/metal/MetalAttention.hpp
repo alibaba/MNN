@@ -184,10 +184,7 @@ private:
     // the whole KV sweep; causal-only.
     bool mFaTcPrefill = false;
     bool mFaTcUnavailable = false;
-    // Head_dim slices spread over the dispatch grid's z axis (1 = whole head_dim
-    // in one threadgroup). Splitting shrinks the persistent O register footprint
-    // at the cost of recomputing QK per slice (2 at head_dim 256, 1 otherwise).
-    int mFaTcDSplit = 1;
+    int mFaTcWN = 1;
     id<MTLComputePipelineState> mKernel_faTc = nil;
     // Simdgroup-matrix fused prefill (prefill_flash_attn_sg): Q=32 / KV=16@D>=128 tiling,
     // S/O in simdgroup fragments, no mTempQK.
@@ -215,7 +212,7 @@ private:
 private:
     // Dense mask (dims >= 2), bound at buffer 7 for QK/softmax kernels and buffer 8 for
     // flash-attn. Lower ranks are one-element masks, classified by shape only (see
-    // core/AttentionMaskConvention.hpp).
+    // core/AttentionCommon.hpp).
     bool mHasTensorMask = false;
     bool mIsAddMask = false;
     // Rank-1 one-element mask: fully visible, suppresses DEFAULT_MASK. Exclusive with mCausalLayout.

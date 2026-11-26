@@ -9,6 +9,41 @@ namespace CUDA {
 
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 
+template <typename T>
+__global__ void attention_softmax_sinks(const T* scores, T* probabilities, const T* sinks,
+                                       int keys, int queries, int heads) {
+    const int row = blockIdx.x;
+    const int lane = threadIdx.x;
+    const float sink = static_cast<float>(sinks[(row / queries) % heads]);
+    __shared__ float reduce[256];
+    float maximum = sink;
+    for (int k = lane; k < keys; k += 256) {
+        maximum = fmaxf(maximum, static_cast<float>(scores[(size_t)row * keys + k]));
+    }
+    reduce[lane] = maximum;
+    __syncthreads();
+    for (int step = 128; step > 0; step >>= 1) {
+        if (lane < step) reduce[lane] = fmaxf(reduce[lane], reduce[lane + step]);
+        __syncthreads();
+    }
+    maximum = reduce[0];
+    float sum = lane == 0 ? expf(sink - maximum) : 0.0f;
+    for (int k = lane; k < keys; k += 256) {
+        sum += expf(static_cast<float>(scores[(size_t)row * keys + k]) - maximum);
+    }
+    __syncthreads();
+    reduce[lane] = sum;
+    __syncthreads();
+    for (int step = 128; step > 0; step >>= 1) {
+        if (lane < step) reduce[lane] += reduce[lane + step];
+        __syncthreads();
+    }
+    for (int k = lane; k < keys; k += 256) {
+        probabilities[(size_t)row * keys + k] = static_cast<T>(
+            expf(static_cast<float>(scores[(size_t)row * keys + k]) - maximum) / reduce[0]);
+    }
+}
+
 // 从 MNN Tensor 获取 CUDA 设备指针的辅助函数
 template<typename T = void> // 默认为 void*
 static inline T* getTensorDevicePtr(const Tensor* tensor) {
@@ -1344,7 +1379,7 @@ ErrorCode AttentionExecution::onExecute(const std::vector<Tensor *> &inputs, con
     // P0/OPT-2: Flash Decoding path for decode stage (seq_len == 1, with KV cache)
     // OPT-2: Use split-K when SM utilization is low
     // =====================================================================
-    if (mQuerySeqLen == 1 && mIsKVCacheEnabled && !mHasMask) {
+    if (inputs.size() < 5 && mQuerySeqLen == 1 && mIsKVCacheEnabled && !mHasMask) {
         const int num_threads = 128;
         const int num_warps = num_threads / 32;
         const int smem_size = num_warps * sizeof(float); // just for QK reduction
@@ -1464,7 +1499,7 @@ ErrorCode AttentionExecution::onExecute(const std::vector<Tensor *> &inputs, con
     // Small seq_len (<=32) with KV cache and additive mask
     // Uses per-query flash decode with online softmax (1-pass, no temp buffers)
     // =====================================================================
-    if (mQuerySeqLen <= 32 && mIsKVCacheEnabled && mHasMask && mIsAddMask) {
+    if (inputs.size() < 5 && mQuerySeqLen <= 32 && mIsKVCacheEnabled && mHasMask && mIsAddMask) {
         const int num_threads = 128;
         const int num_warps = num_threads / 32;
         const int smem_size = num_warps * sizeof(float);
@@ -1552,7 +1587,17 @@ ErrorCode AttentionExecution::onExecute(const std::vector<Tensor *> &inputs, con
         const void* qk_scores_ptr = getTensorDevicePtr(mTempQK.get());
         void* softmax_result_ptr = getTensorDevicePtr(mTempSoftmax.get());
 
-        if (mPrecision == 4) {
+        if (inputs.size() > 4) {
+            if (mPrecision == 4) {
+                attention_softmax_sinks<float><<<outside, 256, 0, stream>>>(
+                    static_cast<const float*>(qk_scores_ptr), static_cast<float*>(softmax_result_ptr),
+                    getTensorDevicePtr<float>(inputs[4]), axis, current_piece_actual_len, mNumHead);
+            } else {
+                attention_softmax_sinks<__half><<<outside, 256, 0, stream>>>(
+                    static_cast<const __half*>(qk_scores_ptr), static_cast<__half*>(softmax_result_ptr),
+                    getTensorDevicePtr<__half>(inputs[4]), axis, current_piece_actual_len, mNumHead);
+            }
+        } else if (mPrecision == 4) {
             const auto* input_ptr = static_cast<const float*>(qk_scores_ptr);
             auto* output_ptr = static_cast<float*>(softmax_result_ptr);
             if (axis <= 32) {

@@ -187,7 +187,7 @@ queued blit，此刻目标 buffer 还是回收池的旧内容。原代码里这�
 错误结果。
 
 **修复**：**取消读值**，改成纯形状判据（rank 0 = 因果，rank 1 且 `elementSize()==1` = 双向，
-rank ≥2 = dense），CPU 与 Metal 共用 `core/AttentionMaskConvention.hpp` 里的同一对 helper。
+rank ≥2 = dense），CPU 与 Metal 共用 `core/AttentionCommon.hpp` 里的同一对 helper。
 形状元数据在 resize 期固定、不可能脏，于是 `mBidirectionalMask` 变得可信，`DEFAULT_MASK` 的门控
 也就安全了。附带修掉了 `mCausalLayout` 的性能非确定性。
 
@@ -221,5 +221,5 @@ rank ≥2 = dense），CPU 与 Metal 共用 `core/AttentionMaskConvention.hpp` �
 | `source/backend/metal/MetalEnv.hpp` | `MNN_METAL_H2D_QUEUED` 等开关的解析与默认值 |
 | `source/backend/metal/MetalReplay.hpp` | replay 的安全模型、`bytesArgs`、`metalReplayValidate` 只校验 tensor-backed 绑定 |
 | `source/backend/metal/MetalAttention.mm` | `_makeCopyParam`/`_makeQKVParam`/`_makeSoftmaxParam`（setBytes 范式）、`_computePathFlags`（形状判据）、`onReplayUpdate`（bytesArgs patch 范式） |
-| `source/core/AttentionMaskConvention.hpp` | mask 三分类契约，以及"为什么按形状不按值"的完整论证 |
+| `source/core/AttentionCommon.hpp` | mask 三分类契约，以及"为什么按形状不按值"的完整论证 |
 | `test/op/AttentionTest.cpp` | `op/attention_decode` 的 chunked 子用例（11.1 的回归测试）、`op/attention_cache_bidirectional`（11.2 的回归测试，自证式：两种哨兵必须可分离） |

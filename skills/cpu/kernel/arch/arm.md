@@ -45,7 +45,6 @@
 | `arm82/asm/arm64/` | 15 | **fp16** matmul / pack / activation | `MNN_Arm82` | `MNN_USE_ARMV82`（`arm82/CMakeLists.txt`） |
 | `arm82/asm/arm64/low_memory/` | 17 | **fp16** 低 bit gemm + 动态量化 | 同上 | `MNN_LOW_MEMORY` |
 | `arm82/asm/arm64/sme2_asm/` | **1** | 只有 `MNNPackedMatMulRemainFP16_SME2.S` | 同上 | `MNN_SME2` |
-| `arm82/asm/arm32/` | 10 | AArch32 fp16 | 同上 | `^armv7` |
 
 > `cpu/arm/CMakeLists.txt` 与 `arm82/CMakeLists.txt` 都是被 `include()`（不是 `add_subdirectory()`）
 > 拉进来的（都在 `cpu/CMakeLists.txt` 里 `add_subdirectory`），**共享变量作用域**，且 arm 在前、arm82 在后。
@@ -103,7 +102,7 @@
 
 - **没有** `_ARMV82_` / `_ARMV86_` / `SME2` 任何文件 —— arm32 侧无 SDOT / I8MM / SME2 asm 路径。
 - **没有** `low_memory/` 子目录，低 bit 只有 `MNNGemmInt8AddBiasScale_16x4_w4_Unit.S` 一个（w4，无 w2/w3）。
-- fp16 在 `arm82/asm/arm32/`（10 个），用 `-mfpu=neon-fp-armv8 -mfloat-abi=softfp`（`arm82/CMakeLists.txt`）。
+- arm82 后端**只在 aarch64 存在**：`arm82/CMakeLists.txt` 与 `cpu/CMakeLists.txt` 都不再匹配 `^armv7`，`Macro.h` 的 `MNN_USE_ARMV82` 也要求 `__aarch64__`。arm32 上 precision Low 直接落回 fp32 CPU 后端（`CPUBackend.cpp` 的 Arm82Backend 分支被编译掉）。
 - arm32 的 `GEMM_INT8_DST_XUNIT` 是 **2**，不是 4（`compute/Int8FunctionsOpt.h` 的 `#else` 分支）。
 
 ## 二、`asm_function` 与文件骨架

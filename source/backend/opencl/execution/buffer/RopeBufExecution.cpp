@@ -60,14 +60,22 @@ static bool validRopeC4Input(const Tensor* q, const Tensor* k, int numHead, int 
     return q->length(1) == numHead * headDim && k->length(1) == kvNumHead * headDim;
 }
 
-static std::set<std::string> ropeBuildOptions(const std::shared_ptr<cl::Buffer>& qGamma,
-                                              const std::shared_ptr<cl::Buffer>& kGamma) {
+static std::set<std::string> ropeBuildOptions(bool qNorm, bool qGamma, bool kNorm, bool kGamma, bool interleaved) {
     std::set<std::string> buildOptions;
-    if (qGamma) {
+    if (qNorm) {
         buildOptions.emplace("-DQ_NORM");
+        if (qGamma) {
+            buildOptions.emplace("-DQ_GAMMA");
+        }
     }
-    if (kGamma) {
+    if (kNorm) {
         buildOptions.emplace("-DK_NORM");
+        if (kGamma) {
+            buildOptions.emplace("-DK_GAMMA");
+        }
+    }
+    if (interleaved) {
+        buildOptions.emplace("-DINTERLEAVED");
     }
     return buildOptions;
 }
@@ -81,8 +89,11 @@ RopeBufExecution::RopeBufExecution(const MNN::Op* op, Backend* backend) : Common
         mNumHead = param->num_head();
         mKvNumHead = param->kv_num_head();
         mHeadDim = param->head_dim();
+        mInterleaved = param->interleaved();
         auto qNorm = param->q_norm();
         auto kNorm = param->k_norm();
+        mQNorm = (qNorm != nullptr);
+        mKNorm = (kNorm != nullptr);
         if (qNorm != nullptr) {
             mQEps = qNorm->epsilon();
             mQGamma = makeRopeNormGamma(mOpenCLBackend, qNorm);
@@ -95,13 +106,16 @@ RopeBufExecution::RopeBufExecution(const MNN::Op* op, Backend* backend) : Common
 }
 
 RopeBufExecution::RopeBufExecution(const MNN::Op* op, Backend* backend, int ropeCutHeadDim, int numHead, int kvNumHead,
-                                   int headDim, std::shared_ptr<cl::Buffer> qGamma, float qEps,
-                                   std::shared_ptr<cl::Buffer> kGamma, float kEps)
+                                   int headDim, bool qNorm, std::shared_ptr<cl::Buffer> qGamma, float qEps,
+                                   bool kNorm, std::shared_ptr<cl::Buffer> kGamma, float kEps, bool interleaved)
     : CommonExecution(backend, op),
       mRopeCutHeadDim(ropeCutHeadDim),
       mNumHead(numHead),
       mKvNumHead(kvNumHead),
       mHeadDim(headDim),
+      mQNorm(qNorm),
+      mKNorm(kNorm),
+      mInterleaved(interleaved),
       mQGamma(qGamma),
       mKGamma(kGamma),
       mQEps(qEps),
@@ -112,16 +126,17 @@ RopeBufExecution::RopeBufExecution(const MNN::Op* op, Backend* backend, int rope
 
 void RopeBufExecution::prebuildOpenCLPrograms(const std::vector<Tensor*>&, const std::vector<Tensor*>&) {
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
-    runtime->submitPrebuild("rope_buf", ropeBuildOptions(mQGamma, mKGamma), mOpenCLBackend->getPrecision(), nullptr,
-                            nullptr, true, true);
+    runtime->submitPrebuild("rope_buf", ropeBuildOptions(mQNorm, mQGamma != nullptr, mKNorm, mKGamma != nullptr,
+                                                         mInterleaved),
+                            mOpenCLBackend->getPrecision(), nullptr, nullptr, true, true);
 }
 
 bool RopeBufExecution::onClone(Backend* bn, const Op* op, Execution** dst) {
     if (nullptr == dst) {
         return true;
     }
-    *dst =
-        new RopeBufExecution(op, bn, mRopeCutHeadDim, mNumHead, mKvNumHead, mHeadDim, mQGamma, mQEps, mKGamma, mKEps);
+    *dst = new RopeBufExecution(op, bn, mRopeCutHeadDim, mNumHead, mKvNumHead, mHeadDim, mQNorm, mQGamma, mQEps, mKNorm,
+                                mKGamma, mKEps, mInterleaved);
     return true;
 }
 
@@ -164,14 +179,15 @@ ErrorCode RopeBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
     // Split the head dimension when the grid is small; prefill keeps the
     // old shape so the split machinery costs nothing there.
     int normSplit = 1;
-    if ((mQGamma || mKGamma) && outerSize * fullHead < 2048) {
+    if ((mQNorm || mKNorm) && outerSize * fullHead < 2048) {
         // Upper bound of the head-dim split; must stay <= NORM_SPLIT_MAX in
         // rope_buf.cl (the sNorm local-memory capacity).
         static constexpr int kRopeNormSplitMax = 16;
         normSplit = std::min(kRopeNormSplitMax, std::max(ropeHalfD, 1));
     }
 
-    auto buildOptions = ropeBuildOptions(mQGamma, mKGamma);
+    auto buildOptions =
+        ropeBuildOptions(mQNorm, mQGamma != nullptr, mKNorm, mKGamma != nullptr, mInterleaved);
     if (normSplit > 1) {
         buildOptions.emplace("-DNORM_SPLIT_REDUCE");
     }
@@ -179,7 +195,7 @@ ErrorCode RopeBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
     OPENCL_CHECK_KERNEL(unit.kernel);
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
 
-    if (mQGamma || mKGamma) {
+    if (mQNorm || mKNorm) {
         mGlobalWorkSize = {static_cast<uint32_t>(normSplit), static_cast<uint32_t>(outerSize),
                            static_cast<uint32_t>(fullHead)};
     } else {
@@ -204,13 +220,17 @@ ErrorCode RopeBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
     ret |= unit.kernel->get().setArg(idx++, headDim);
     ret |= unit.kernel->get().setArg(idx++, numHead);
     ret |= unit.kernel->get().setArg(idx++, kvNumHead);
-    if (mQGamma) {
-        ret |= unit.kernel->get().setArg(idx++, *mQGamma);
+    if (mQNorm) {
         ret |= unit.kernel->get().setArg(idx++, mQEps);
+        if (mQGamma) {
+            ret |= unit.kernel->get().setArg(idx++, *mQGamma);
+        }
     }
-    if (mKGamma) {
-        ret |= unit.kernel->get().setArg(idx++, *mKGamma);
+    if (mKNorm) {
         ret |= unit.kernel->get().setArg(idx++, mKEps);
+        if (mKGamma) {
+            ret |= unit.kernel->get().setArg(idx++, *mKGamma);
+        }
     }
     MNN_CHECK_CL_SUCCESS(ret, "setArg RopeBufExecution");
 
@@ -242,6 +262,10 @@ public:
         }
         for (int i = 0; i < outputs.size(); ++i) {
             TensorUtils::setTensorSupportPack(outputs[i], false);
+        }
+        auto param = op == nullptr ? nullptr : op->main_as_RoPEParam();
+        if (param != nullptr && param->norm_after()) {
+            return nullptr;
         }
         OPENCL_CREATOR_CHECK(new RopeBufExecution(op, backend));
     }

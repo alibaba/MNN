@@ -13,6 +13,7 @@
 #include "core/TensorUtils.hpp"
 #include <cuda_fp16.h>
 #include <mma.h>
+#include "MNNCUDADefine.hpp"
 #include <climits>
 
 namespace MNN {
@@ -22,6 +23,9 @@ namespace {
 struct IndexedLinearParams {
     int inputChannels, outputChannels, experts, topK, routes, inputMode, fuseSwiGLU;
     int blockSize, blockCount, weightStride;
+    int tokens, xC4;
+    int routeWeight;
+    float routeEps, routeScale;
 };
 
 struct IndexedLinearResource {
@@ -53,6 +57,9 @@ static std::shared_ptr<IndexedLinearResource> loadIndexedResource(const Op* op, 
     res->staticAllocator = backend->getStaticBufferPool();
     p.inputMode = op->main_as_IndexedLinearParam()->inputMode();
     p.fuseSwiGLU = (op->main_as_IndexedLinearParam()->fusedActivation() == UnaryOpOperation_SILU);
+    p.routeWeight = op->main_as_IndexedLinearParam()->routeWeight();
+    p.routeEps = op->main_as_IndexedLinearParam()->routeEps();
+    p.routeScale = op->main_as_IndexedLinearParam()->routeScale();
     const size_t elements = static_cast<size_t>(p.inputChannels) * p.outputChannels;
     if (elements > INT_MAX)
         return nullptr;
@@ -165,7 +172,7 @@ __global__ void indexedGemv(const T* input, const int* ids, T* output, IndexedLi
     const int expert = ids[route];
     const bool valid = expert >= 0 && expert < p.experts;
     const int sourceRow = p.inputMode == 0 ? route / p.topK : route;
-    const T* row = input + static_cast<size_t>(sourceRow) * p.inputChannels;
+    const T* row = input + static_cast<size_t>(sourceRow) * (p.xC4 ? UP_DIV(p.inputChannels, PACK_NUMBER) * PACK_NUMBER : p.inputChannels);
     float sum[4] = {}, upSum[4] = {};
     if (valid) {
         for (int i = lane * 4; i < p.inputChannels; i += 128) {
@@ -202,6 +209,119 @@ __global__ void indexedGemv(const T* input, const int* ids, T* output, IndexedLi
                       : static_cast<T>(sum[o] + b);
         }
     }
+}
+
+template <typename T>
+__device__ __forceinline__ float indexedRouteWeight(T probability, float denominator, float scale) {
+    T normalized = static_cast<T>(static_cast<float>(probability) / denominator);
+    return static_cast<float>(static_cast<T>(static_cast<float>(normalized) *
+                                             static_cast<float>(static_cast<T>(scale))));
+}
+
+template <typename T, int Bits>
+__global__ void indexedGemvRW(const T* input, const int* ids, const T* routeW, T* output,
+                              IndexedLinearParams p, const uint8_t* weights, const float2* scales,
+                              const float* bias, int outputTiles) {
+    const int token = blockIdx.x / outputTiles;
+    const int lane = threadIdx.x & 31;
+    const int firstOutput = ((blockIdx.x % outputTiles) * 4 + threadIdx.x / 32) * 4;
+    const int outputStride = UP_DIV(p.outputChannels, PACK_NUMBER) * PACK_NUMBER;
+    if (token >= p.tokens || firstOutput >= outputStride)
+        return;
+    float acc[4] = {};
+    float rsum = 0.0f;
+    if (p.routeWeight == 2) {
+        rsum = 0.0f;
+        for (int kk = 0; kk < p.topK; ++kk) {
+            const int e = ids[token * p.topK + kk];
+            if (e >= 0 && e < p.experts) {
+                rsum += static_cast<float>(routeW[static_cast<size_t>(token) * p.experts + e]);
+            }
+        }
+        rsum = static_cast<float>(static_cast<T>(static_cast<float>(static_cast<T>(rsum)) +
+                                               static_cast<float>(static_cast<T>(p.routeEps))));
+    }
+    for (int k = 0; k < p.topK; ++k) {
+        const int route = token * p.topK + k;
+        const int expert = ids[route];
+        if (expert < 0 || expert >= p.experts)
+            continue;
+        const float w = p.routeWeight == 2
+                            ? indexedRouteWeight(routeW[static_cast<size_t>(token) * p.experts + expert], rsum, p.routeScale)
+                            : static_cast<float>(routeW[route]);
+        const T* row = input + static_cast<size_t>(route) * p.inputChannels;
+        float sum[4] = {};
+        for (int i = lane * 4; i < p.inputChannels; i += 128) {
+#pragma unroll
+            for (int j = 0; j < 4; ++j) {
+                if (i + j >= p.inputChannels)
+                    break;
+                const float x = static_cast<float>(row[i + j]);
+#pragma unroll
+                for (int o = 0; o < 4; ++o) {
+                    if (firstOutput + o < p.outputChannels) {
+                        sum[o] += x * indexedWeight<T, Bits>(weights, scales, p, expert, firstOutput + o, i + j);
+                    }
+                }
+            }
+        }
+#pragma unroll
+        for (int o = 0; o < 4; ++o) {
+#pragma unroll
+            for (int delta = 16; delta > 0; delta /= 2) {
+                sum[o] += __shfl_down_sync(0xffffffff, sum[o], delta);
+            }
+            if (lane == 0 && firstOutput + o < p.outputChannels) {
+                const size_t channel = static_cast<size_t>(expert) * p.outputChannels + firstOutput + o;
+                acc[o] += w * (sum[o] + bias[channel]);
+            }
+        }
+    }
+    if (lane == 0) {
+#pragma unroll
+        for (int o = 0; o < 4 && firstOutput + o < outputStride; ++o) {
+            output[static_cast<size_t>(token) * outputStride + firstOutput + o] = static_cast<T>(acc[o]);
+        }
+    }
+}
+
+template <typename T>
+__global__ void indexedRWReduce(const T* tmp, const T* routeW, const int* ids, T* output, IndexedLinearParams p) {
+    const int c = blockIdx.x * blockDim.x + threadIdx.x;
+    const int token = blockIdx.y;
+    const int outputStride = UP_DIV(p.outputChannels, PACK_NUMBER) * PACK_NUMBER;
+    if (c >= outputStride || token >= p.tokens) return;
+    if (c >= p.outputChannels) {
+        output[static_cast<size_t>(token) * outputStride + c] = static_cast<T>(0.0f);
+        return;
+    }
+    float rsum = 0.0f;
+    if (p.routeWeight == 2) {
+        rsum = 0.0f;
+        for (int kk = 0; kk < p.topK; ++kk) {
+            const int e = ids[token * p.topK + kk];
+            if (e >= 0 && e < p.experts) {
+                rsum += static_cast<float>(routeW[static_cast<size_t>(token) * p.experts + e]);
+            }
+        }
+        rsum = static_cast<float>(static_cast<T>(static_cast<float>(static_cast<T>(rsum)) +
+                                               static_cast<float>(static_cast<T>(p.routeEps))));
+    }
+    float acc = 0.0f;
+    for (int k = 0; k < p.topK; ++k) {
+        float w;
+        if (p.routeWeight == 2) {
+            const int e = ids[token * p.topK + k];
+            if (e < 0 || e >= p.experts) {
+                continue;
+            }
+            w = indexedRouteWeight(routeW[static_cast<size_t>(token) * p.experts + e], rsum, p.routeScale);
+        } else {
+            w = static_cast<float>(routeW[token * p.topK + k]);
+        }
+        acc += w * static_cast<float>(tmp[static_cast<size_t>(token * p.topK + k) * p.outputChannels + c]);
+    }
+    output[static_cast<size_t>(token) * UP_DIV(p.outputChannels, PACK_NUMBER) * PACK_NUMBER + c] = static_cast<T>(acc);
 }
 
 __global__ void indexedClear(int* counts, int experts) {
@@ -284,7 +404,8 @@ __global__ void indexedGrouped(const T* input, T* output, IndexedLinearParams p,
             if (rowIndex < endRow && k < p.inputChannels) {
                 const int route = order[rowIndex];
                 const int sourceRow = p.inputMode == 0 ? route / p.topK : route;
-                a = input[static_cast<size_t>(sourceRow) * p.inputChannels + k];
+                a = p.xC4 ? input[static_cast<size_t>(sourceRow) * UP_DIV(p.inputChannels, PACK_NUMBER) * PACK_NUMBER + k]
+                          : input[static_cast<size_t>(sourceRow) * p.inputChannels + k];
             }
             aTile[i] = a;
             const int o = firstOutput + i / 32;
@@ -383,7 +504,10 @@ public:
             outputChannels != mResource->params.outputChannels ||
             op->main_as_IndexedLinearParam()->inputMode() != mResource->params.inputMode ||
             (op->main_as_IndexedLinearParam()->fusedActivation() == UnaryOpOperation_SILU) !=
-                bool(mResource->params.fuseSwiGLU))
+                bool(mResource->params.fuseSwiGLU) ||
+            op->main_as_IndexedLinearParam()->routeWeight() != mResource->params.routeWeight ||
+            op->main_as_IndexedLinearParam()->routeEps() != mResource->params.routeEps ||
+            op->main_as_IndexedLinearParam()->routeScale() != mResource->params.routeScale)
             return false;
         auto cuda = static_cast<CUDABackend*>(backend);
         if (cuda->getPrecision() == 3 || cuda->useFp16() != mResource->fp16 ||
@@ -395,11 +519,45 @@ public:
     }
 
     ErrorCode onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override {
-        if (inputs.size() != 2 || outputs.size() != 1 || inputs[1]->dimensions() != 2 ||
+        mRouteWeight = mParams.routeWeight != 0;
+        if ((int)inputs.size() != (mRouteWeight ? 3 : 2) || outputs.size() != 1 || inputs[1]->dimensions() != 2 ||
             inputs[1]->getType() != halide_type_of<int32_t>() || inputs[0]->getType() != halide_type_of<float>() ||
             outputs[0]->getType() != halide_type_of<float>())
             return NOT_SUPPORT;
-        for (auto t : {inputs[0], inputs[1], outputs[0]}) {
+        if (mRouteWeight) {
+            auto yDes = TensorUtils::getDescribe(outputs[0]);
+            auto w = inputs[2];
+            const bool wOk = mParams.routeWeight == 2
+                                 ? (w->elementSize() == (int64_t)inputs[1]->length(0) * mParams.experts &&
+                                    w->length(w->dimensions() - 1) == mParams.experts)
+                                 : (w->dimensions() == 2 && w->length(0) == inputs[1]->length(0) &&
+                                    w->length(1) == inputs[1]->length(1));
+            if (mParams.inputMode != 1 || mParams.fuseSwiGLU ||
+                yDes->dimensionFormat != MNN_DATA_FORMAT_NC4HW4 || outputs[0]->dimensions() != 4 ||
+                outputs[0]->length(1) != mParams.outputChannels || outputs[0]->length(2) != 1 ||
+                outputs[0]->length(3) != 1 ||
+                w->getType() != halide_type_of<float>() || !wOk)
+                return NOT_SUPPORT;
+        }
+        auto x    = inputs[0];
+        auto xDes = TensorUtils::getDescribe(x);
+        int xChannels = 0;
+        if (xDes->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+            if (mParams.inputMode != 0 || x->dimensions() != 4 || x->length(2) != 1 || x->length(3) != 1)
+                return NOT_SUPPORT;
+            xChannels = x->length(1);
+        } else {
+            if (xDes->dimensionFormat != MNN_DATA_FORMAT_NCHW || x->dimensions() != (mParams.inputMode == 0 ? 2 : 3))
+                return NOT_SUPPORT;
+            xChannels = x->length(x->dimensions() - 1);
+        }
+        std::vector<const Tensor*> plainTensors = {inputs[1]};
+        if (!mRouteWeight) {
+            plainTensors.push_back(outputs[0]);
+        } else {
+            plainTensors.push_back(inputs[2]);
+        }
+        for (auto t : plainTensors) {
             if (TensorUtils::getDescribe(t)->dimensionFormat != MNN_DATA_FORMAT_NCHW)
                 return NOT_SUPPORT;
             int64_t stride = 1;
@@ -414,25 +572,36 @@ public:
         auto cuda = static_cast<CUDABackend*>(backend());
         const int bytes = mResource->fp16 ? 2 : 4;
         if (cuda->getBytes(inputs[0]) != bytes || cuda->getBytes(outputs[0]) != bytes ||
-            cuda->getBytes(inputs[1]) != sizeof(int32_t))
+            cuda->getBytes(inputs[1]) != sizeof(int32_t) ||
+            (mRouteWeight && cuda->getBytes(inputs[2]) != bytes))
             return NOT_SUPPORT;
         const int tokens = inputs[1]->length(0), topK = inputs[1]->length(1);
         if (tokens <= 0 || topK <= 0 || static_cast<int64_t>(tokens) * topK > INT_MAX)
             return INPUT_DATA_ERROR;
         mParams.topK = topK;
         mParams.routes = tokens * topK;
-        if (inputs[0]->dimensions() != (mParams.inputMode == 0 ? 2 : 3) || inputs[0]->length(0) != tokens ||
-            (mParams.inputMode == 1 && inputs[0]->length(1) != topK) ||
-            inputs[0]->length(inputs[0]->dimensions() - 1) != mParams.inputChannels || outputs[0]->dimensions() != 3 ||
-            outputs[0]->length(0) != tokens || outputs[0]->length(1) != topK ||
-            outputs[0]->length(2) != mParams.outputChannels / (mParams.fuseSwiGLU ? 2 : 1))
+        mParams.tokens = tokens;
+        mParams.xC4 = xDes->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ? 1 : 0;
+        if (inputs[0]->length(0) != tokens || (mParams.inputMode == 1 && inputs[0]->length(1) != topK) ||
+            xChannels != mParams.inputChannels ||
+            (!mRouteWeight && (outputs[0]->dimensions() != 3 || outputs[0]->length(1) != topK ||
+                               outputs[0]->length(2) != mParams.outputChannels / (mParams.fuseSwiGLU ? 2 : 1))) ||
+            outputs[0]->length(0) != tokens)
             return INPUT_DATA_ERROR;
         mGrouped = tokens > 1;
         const int tile = mGrouped ? 32 : 16;
         const int gridChannels = mParams.outputChannels / (!mGrouped && mParams.fuseSwiGLU ? 2 : 1);
         mOutputTiles = (static_cast<int64_t>(gridChannels) + tile - 1) / tile;
+        if (mRouteWeight && mGrouped) {
+            mRouteTmp = allocIndexedBytes(backend(),
+                                          static_cast<size_t>(mParams.routes) * mParams.outputChannels * bytes,
+                                          Backend::DYNAMIC);
+            if (!mRouteTmp)
+                return OUT_OF_MEMORY;
+        }
         const int64_t routeTiles =
-            mGrouped ? (static_cast<int64_t>(mParams.routes) + 31) / 32 + mParams.experts : mParams.routes;
+            mGrouped ? (static_cast<int64_t>(mParams.routes) + 31) / 32 + mParams.experts
+                     : (mRouteWeight ? mParams.tokens : mParams.routes);
         const int64_t blocks = routeTiles * mOutputTiles;
         if (blocks > INT_MAX || blocks > cuda->getCUDARuntime()->prop().maxGridSize[0])
             return NOT_SUPPORT;
@@ -448,6 +617,7 @@ public:
             }
             for (auto& work : mWork)
                 backend()->onReleaseBuffer(work.get(), Backend::DYNAMIC);
+            if (mRouteWeight) backend()->onReleaseBuffer(mRouteTmp.get(), Backend::DYNAMIC);
         }
         return NO_ERROR;
     }
@@ -488,11 +658,30 @@ private:
         const uint8_t* weights = reinterpret_cast<const uint8_t*>(mResource->weight->deviceId());
         const float2* scales = reinterpret_cast<const float2*>(mResource->scale->deviceId());
         const float* bias = reinterpret_cast<const float*>(mResource->bias->deviceId());
+        if (mRouteWeight) {
+            const T* routeW = reinterpret_cast<const T*>(inputs[2]->deviceId());
+            if (!mGrouped) {
+                indexedGemvRW<T, Bits>
+                    <<<mBlocks, 128>>>(input, ids, routeW, output, mParams, weights, scales, bias, mOutputTiles);
+                return;
+            }
+            T* tmp = reinterpret_cast<T*>(mRouteTmp->deviceId());
+            runGrouped<T, Bits>(input, ids, tmp, weights, scales, bias);
+            indexedRWReduce<T><<<dim3(UP_DIV(mParams.outputChannels, 128), mParams.tokens), 128>>>(
+                tmp, routeW, ids, output, mParams);
+            return;
+        }
         if (!mGrouped) {
             indexedGemv<T, Bits, Fused>
                 <<<mBlocks, 128>>>(input, ids, output, mParams, weights, scales, bias, mOutputTiles);
             return;
         }
+        runGrouped<T, Bits, Fused>(input, ids, output, weights, scales, bias);
+    }
+
+    template <typename T, int Bits, bool Fused = false>
+    void runGrouped(const T* input, const int* ids, T* output, const uint8_t* weights, const float2* scales,
+                    const float* bias) {
         int* work[5];
         for (int i = 0; i < 5; ++i)
             work[i] = reinterpret_cast<int*>(mWork[i]->deviceId());
@@ -515,9 +704,11 @@ private:
     std::shared_ptr<IndexedLinearResource> mResource;
     IndexedLinearParams mParams;
     std::shared_ptr<Tensor> mWork[5];
+    std::shared_ptr<Tensor> mRouteTmp;
     int mBlocks = 0;
     int mOutputTiles = 0;
     bool mGrouped = false;
+    bool mRouteWeight = false;
 };
 
 class IndexedLinearCreator : public CUDABackend::Creator {
@@ -527,6 +718,8 @@ public:
         auto cuda = static_cast<CUDABackend*>(backend);
         if (cuda->getPrecision() == 3)
             return nullptr; // BF16 needs its own typed kernel.
+        if (op->main_as_IndexedLinearParam()->routeWeight() == 3)
+            return nullptr;
         auto resource = loadIndexedResource(op, cuda);
         if (!resource)
             return nullptr;

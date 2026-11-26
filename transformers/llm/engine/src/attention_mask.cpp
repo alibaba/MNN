@@ -15,7 +15,7 @@
 
 #include <MNN/expr/ExprCreator.hpp>
 
-#include "core/AttentionMaskConvention.hpp"
+#include "core/AttentionCommon.hpp"
 
 namespace MNN {
 namespace Transformer {
@@ -23,7 +23,7 @@ namespace Transformer {
 const size_t MaskCache::kMaxEntries;
 
 bool canOmitMaskPlane(AttentionMaskType type, const std::string& backendType) {
-    // Keep in sync with source/core/AttentionMaskConvention.hpp.
+    // Keep in sync with source/core/AttentionCommon.hpp.
     // cuda / vulkan read an absent or rank-0 mask as fully visible regardless of kv_cache, and
     // index a rank-1 mask as a dense plane, so they always need the plane.
     if (type == AttentionMaskType::Causal) {

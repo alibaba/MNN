@@ -11,9 +11,9 @@
 #include <cstdint>
 #include <fstream>
 
-
 template <typename T>
-static void storeWeight(std::ofstream* fs, std::vector<T>& weight, std::vector<int64_t>& external, int64_t& offset, bool check = true) {
+static void storeWeight(std::ofstream* fs, std::vector<T>& weight, std::vector<int64_t>& external, int64_t& offset,
+                        bool check = true) {
     if (weight.empty() && check) {
         return;
     }
@@ -35,8 +35,29 @@ void RemoveAndStoreParam(std::unique_ptr<MNN::OpT>& op, std::ofstream* fs, int64
     }
     const auto opType = op->main.type;
     switch (opType) {
-        case MNN::OpParameter_IndexedLinearParam:
-        {
+        case MNN::OpParameter_FusedLinearParam: {
+            auto param = op->main.AsFusedLinearParam();
+            if (nullptr == param) {
+                break;
+            }
+            for (auto& conv : param->convs) {
+                if (!conv) {
+                    continue;
+                }
+                std::unique_ptr<MNN::OpT> member(new MNN::OpT);
+                member->type = MNN::OpType_Convolution;
+                member->name = op->name + "/conv";
+                member->inputIndexes = {0};
+                member->main.type = MNN::OpParameter_Convolution2D;
+                member->main.value = conv.release();
+                RemoveAndStoreParam(member, fs, offset);
+                conv.reset(member->main.AsConvolution2D());
+                member->main.value = nullptr;
+                member->main.type = MNN::OpParameter_NONE;
+            }
+            break;
+        }
+        case MNN::OpParameter_IndexedLinearParam: {
             forEachIndexedLinearWeight(op, [&](std::unique_ptr<MNN::OpT>& member) {
                 auto expert = member->main.AsConvolution2D();
                 if (!expert->quanParameter) {
@@ -49,8 +70,7 @@ void RemoveAndStoreParam(std::unique_ptr<MNN::OpT>& op, std::ofstream* fs, int64
             });
             break;
         }
-        case MNN::OpParameter_Convolution2D:
-        {
+        case MNN::OpParameter_Convolution2D: {
             if (op->inputIndexes.size() > 1) {
                 break;
             }
@@ -215,8 +235,7 @@ bool loadExternalParam(std::unique_ptr<MNN::OpT>& op, MNN::FileLoader* fl) {
     }
     const auto opType = op->type;
     switch (opType) {
-        case MNN::OpType_IndexedLinear:
-        {
+        case MNN::OpType_IndexedLinear: {
             if (!validateIndexedLinearExternal(op.get(), fl)) {
                 return false;
             }
@@ -258,16 +277,22 @@ bool loadExternalParam(std::unique_ptr<MNN::OpT>& op, MNN::FileLoader* fl) {
         }
         case MNN::OpType_Convolution:
         case MNN::OpType_Deconvolution:
-        case MNN::OpType_ConvolutionDepthwise:
-        {
+        case MNN::OpType_ConvolutionDepthwise: {
             auto param = op->main.AsConvolution2D();
-            if (param->external.size() != 3) {
+            if (param->external.size() < 3) {
                 return true;
             }
-            fl->offset(param->external[0]);
+            if (nullptr == fl || fl->offset(param->external[0]) != 0 || !fl->valid()) {
+                MNN_ERROR("Convolution %s: cannot open/seek external weights\n", op->name.c_str());
+                return false;
+            }
             if (param->quanParameter) {
                 loadExternalData<int8_t>(fl, param->quanParameter->buffer, param->external[1]);
-                loadExternalData<float>(fl, param->quanParameter->alpha, param->external[2]);
+                if (param->quanParameter->scaleStorage == MNN::ScaleStorageType_FP16) {
+                    loadExternalData<uint16_t>(fl, param->quanParameter->alphaFp16, param->external[2]);
+                } else {
+                    loadExternalData<float>(fl, param->quanParameter->alpha, param->external[2]);
+                }
                 if (param->external.size() > 3) {
                     loadExternalData<float>(fl, param->bias, param->external[3]);
                 }
@@ -287,6 +312,41 @@ bool loadExternalParam(std::unique_ptr<MNN::OpT>& op, MNN::FileLoader* fl) {
         }
         case MNN::OpType_LayerNorm: {
             auto param = op->main.AsLayerNorm();
+            if (param->external.size() < 3) {
+                return true;
+            }
+            if (nullptr == fl || fl->offset(param->external[0]) != 0 || !fl->valid()) {
+                MNN_ERROR("LayerNorm %s: cannot open/seek external weights\n", op->name.c_str());
+                return false;
+            }
+            loadExternalData<float>(fl, param->gamma, param->external[1]);
+            loadExternalData<float>(fl, param->beta, param->external[2]);
+            param->external.clear();
+            break;
+        }
+        case MNN::OpType_FusedLinear: {
+            auto param = op->main.AsFusedLinearParam();
+            if (nullptr == param) {
+                return true;
+            }
+            for (auto& conv : param->convs) {
+                if (!conv || conv->external.empty()) {
+                    continue;
+                }
+                std::unique_ptr<MNN::OpT> member(new MNN::OpT);
+                member->type = MNN::OpType_Convolution;
+                member->name = op->name + "/conv";
+                member->inputIndexes = {0};
+                member->main.type = MNN::OpParameter_Convolution2D;
+                member->main.value = conv.release();
+                bool loaded = loadExternalParam(member, fl);
+                conv.reset(member->main.AsConvolution2D());
+                member->main.value = nullptr;
+                member->main.type = MNN::OpParameter_NONE;
+                if (!loaded) {
+                    return false;
+                }
+            }
             break;
         }
         case MNN::OpType_TrainableParam:

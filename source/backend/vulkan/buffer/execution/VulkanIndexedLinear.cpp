@@ -20,7 +20,10 @@ namespace MNN {
 VulkanIndexedLinear::VulkanIndexedLinear(const Op* op, Backend* backend)
     : VulkanBasicExecution(backend),
       mInputMode(op->main_as_IndexedLinearParam()->inputMode()),
-      mFuseSwiGLU(op->main_as_IndexedLinearParam()->fusedActivation() == UnaryOpOperation_SILU) {
+      mFuseSwiGLU(op->main_as_IndexedLinearParam()->fusedActivation() == UnaryOpOperation_SILU),
+      mRouteWeight(op->main_as_IndexedLinearParam()->routeWeight()),
+      mRouteEps(op->main_as_IndexedLinearParam()->routeEps()),
+      mRouteScale(op->main_as_IndexedLinearParam()->routeScale()) {
     mValid = initResource(op) && initPipelines();
 }
 
@@ -28,17 +31,22 @@ VulkanIndexedLinear::VulkanIndexedLinear(const Op* op, Backend* backend, std::sh
     : VulkanBasicExecution(backend),
       mResource(std::move(resource)),
       mInputMode(op->main_as_IndexedLinearParam()->inputMode()),
-      mFuseSwiGLU(op->main_as_IndexedLinearParam()->fusedActivation() == UnaryOpOperation_SILU) {
+      mFuseSwiGLU(op->main_as_IndexedLinearParam()->fusedActivation() == UnaryOpOperation_SILU),
+      mRouteWeight(op->main_as_IndexedLinearParam()->routeWeight()),
+      mRouteEps(op->main_as_IndexedLinearParam()->routeEps()),
+      mRouteScale(op->main_as_IndexedLinearParam()->routeScale()) {
     mValid = initPipelines();
 }
 
 bool VulkanIndexedLinear::initResource(const Op* op) {
     mResource.reset(new Resource);
     auto& r = *mResource;
-    if (!IndexedLinearCommon::dimensions(op, r.experts, r.inputChannels, r.outputChannels)) return false;
+    if (!IndexedLinearCommon::dimensions(op, r.experts, r.inputChannels, r.outputChannels))
+        return false;
     auto backend = static_cast<VulkanBackend*>(this->backend());
     const int64_t elements = (int64_t)r.inputChannels * r.outputChannels;
-    if (elements > INT_MAX / 4 || backend->proty().limits.maxPerStageDescriptorStorageBuffers < 7) return false;
+    if (elements > INT_MAX / 4 || backend->proty().limits.maxPerStageDescriptorStorageBuffers < 7)
+        return false;
     auto allocate = [&](std::shared_ptr<VulkanBuffer>& buffer, size_t bytes) {
         if (bytes > backend->proty().limits.maxStorageBufferRange)
             return false;
@@ -64,10 +72,10 @@ bool VulkanIndexedLinear::initResource(const Op* op) {
     for (int e = 0; e < r.experts; ++e) {
         auto data = IndexedLinearCommon::loadLinear(op, e, this->backend());
         std::vector<float> bias;
-        if (!data || !IndexedLinearCommon::loadBias(op, e, bias)) return false;
+        if (!data || !IndexedLinearCommon::loadBias(op, e, bias))
+            return false;
         const bool floating = data->weightFloat.get() != nullptr;
-        const int bits = floating ? (data->quan && data->quan->type() == 3 ? 16 : 32) :
-                         (data->canUseInt4 ? 4 : 8);
+        const int bits = floating ? (data->quan && data->quan->type() == 3 ? 16 : 32) : (data->canUseInt4 ? 4 : 8);
         const int alphaComponents = !floating && data->asymmetric ? 2 : 1;
         const float* sourceAlpha = floating ? nullptr : data->getAlphaFloat();
         const int groups = floating ? 1 : data->alphaSize / (r.outputChannels * alphaComponents);
@@ -83,7 +91,8 @@ bool VulkanIndexedLinear::initResource(const Op* op) {
             r.weightStride = ROUND_UP(bytes, 4);
             if (!allocate(r.weights, (size_t)r.experts * r.weightStride) ||
                 !allocate(r.alpha, (size_t)r.experts * r.outputChannels * r.groups * 2 * sizeof(float)) ||
-                !allocate(r.bias, (size_t)r.experts * r.outputChannels * sizeof(float))) return false;
+                !allocate(r.bias, (size_t)r.experts * r.outputChannels * sizeof(float)))
+                return false;
             const size_t expertBytes = r.weightStride + (size_t)r.outputChannels * (2 * r.groups + 1) * sizeof(float);
             const size_t capacity = std::min(expertBytes * r.experts, std::max<size_t>(16 * 1024 * 1024, expertBytes));
             if (capacity > INT_MAX)
@@ -146,13 +155,15 @@ bool VulkanIndexedLinear::initResource(const Op* op) {
 bool VulkanIndexedLinear::initPipelines() {
     auto backend = static_cast<VulkanBackend*>(this->backend());
     const std::string suffix = backend->useFP16() ? "_FP16_comp" : "_comp";
-    std::vector<VkDescriptorType> types(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-    const std::vector<uint32_t> constants{(uint32_t)mResource->weightBits, (uint32_t)mFuseSwiGLU};
+    std::vector<VkDescriptorType> types(7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+    const std::vector<uint32_t> constants{(uint32_t)mResource->weightBits, (uint32_t)mFuseSwiGLU,
+                                          (uint32_t)mRouteWeight};
     mGemv = backend->getPipeline("glsl_indexed_linear_gemv" + suffix, types, {}, constants);
-    if (!mGemv) return false;
+    if (!mGemv)
+        return false;
     mGemvSet.reset(mGemv->createSet());
-    if (!mGemvSet) return false;
-    types.push_back(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+    if (!mGemvSet)
+        return false;
     const auto& r = *mResource;
     for (int tile = 0; tile < 2; ++tile) {
         const uint32_t tileRows = tile == 0 ? 8 : 32;
@@ -167,68 +178,117 @@ bool VulkanIndexedLinear::initPipelines() {
                                                   tileRows,
                                                   tileOutputs,
                                                   (uint32_t)mFuseSwiGLU};
-        mGemm[tile] = backend->getPipeline("glsl_indexed_linear_gemm" + suffix, types,
-                                           {tileOutputs / 4, 8, 1}, gemmConstants);
-        if (!mGemm[tile]) return false;
+        mGemm[tile] =
+            backend->getPipeline("glsl_indexed_linear_gemm" + suffix, types, {tileOutputs / 4, 8, 1}, gemmConstants);
+        if (!mGemm[tile])
+            return false;
         mGemmSet[tile].reset(mGemm[tile]->createSet());
-        if (!mGemmSet[tile]) return false;
+        if (!mGemmSet[tile])
+            return false;
+    }
+    if (mRouteWeight) {
+        mReduce = backend->getPipeline("glsl_indexed_linear_rw_reduce" + suffix,
+                                       std::vector<VkDescriptorType>(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER), {},
+                                       {(uint32_t)mRouteWeight});
+        if (!mReduce)
+            return false;
+        mReduceSet.reset(mReduce->createSet());
+        if (!mReduceSet)
+            return false;
     }
     types.resize(2);
     for (int phase = 0; phase < 4; ++phase) {
         mRoute[phase] = backend->getPipeline("glsl_indexed_linear_route_comp", types, {}, {(uint32_t)phase});
-        if (!mRoute[phase]) return false;
+        if (!mRoute[phase])
+            return false;
         mRouteSet[phase].reset(mRoute[phase]->createSet());
-        if (!mRouteSet[phase]) return false;
+        if (!mRouteSet[phase])
+            return false;
     }
     mLargePrefix = backend->getPipeline("glsl_indexed_linear_route_comp", types, {}, {2, 32});
-    if (!mLargePrefix) return false;
+    if (!mLargePrefix)
+        return false;
     mLargePrefixSet.reset(mLargePrefix->createSet());
-    if (!mLargePrefixSet) return false;
+    if (!mLargePrefixSet)
+        return false;
     return true;
 }
 
 bool VulkanIndexedLinear::onClone(Backend* backend, const Op* op, VulkanBasicExecution** dst) {
-    if (!dst) return mValid;
+    if (!dst)
+        return mValid;
     int experts, channels, outputs;
     if (!IndexedLinearCommon::dimensions(op, experts, channels, outputs) || experts != mResource->experts ||
         channels != mResource->inputChannels || outputs != mResource->outputChannels ||
         op->main_as_IndexedLinearParam()->inputMode() != mInputMode ||
-        (op->main_as_IndexedLinearParam()->fusedActivation() == UnaryOpOperation_SILU) != mFuseSwiGLU)
+        (op->main_as_IndexedLinearParam()->fusedActivation() == UnaryOpOperation_SILU) != mFuseSwiGLU ||
+        op->main_as_IndexedLinearParam()->routeWeight() != mRouteWeight ||
+        op->main_as_IndexedLinearParam()->routeEps() != mRouteEps ||
+        op->main_as_IndexedLinearParam()->routeScale() != mRouteScale)
         return false;
     if (!backend || backend->type() != MNN_FORWARD_VULKAN ||
-        &static_cast<VulkanBackend*>(backend)->getDevice() != &static_cast<VulkanBackend*>(this->backend())->getDevice()) {
+        &static_cast<VulkanBackend*>(backend)->getDevice() !=
+            &static_cast<VulkanBackend*>(this->backend())->getDevice()) {
         return false;
     }
     auto clone = new VulkanIndexedLinear(op, backend, mResource);
-    if (!clone->valid()) { delete clone; return false; }
+    if (!clone->valid()) {
+        delete clone;
+        return false;
+    }
     *dst = clone;
     return true;
 }
 
 ErrorCode VulkanIndexedLinear::onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                         const VulkanCommandPool::Buffer* command) {
-    if (!mValid || inputs.size() != 2 || outputs.size() != 1 || inputs[1]->dimensions() != 2 ||
-        inputs[0]->getType() != halide_type_of<float>() || outputs[0]->getType() != halide_type_of<float>() ||
-        inputs[1]->getType() != halide_type_of<int32_t>()) return NOT_SUPPORT;
+    if (!mValid || mRouteWeight < 0 || mRouteWeight > 2 || inputs.size() != (mRouteWeight ? 3 : 2) ||
+        outputs.size() != 1 || inputs[1]->dimensions() != 2 || inputs[0]->getType() != halide_type_of<float>() ||
+        outputs[0]->getType() != halide_type_of<float>() || inputs[1]->getType() != halide_type_of<int32_t>())
+        return NOT_SUPPORT;
     const auto& r = *mResource;
     const int tokens = inputs[1]->length(0), topk = inputs[1]->length(1);
-    if (tokens <= 0 || topk <= 0 || (int64_t)tokens * topk > INT_MAX) return NOT_SUPPORT;
-    for (auto tensor : {inputs[0], inputs[1], outputs[0]}) {
-        if (TensorUtils::getDescribe(tensor)->dimensionFormat != MNN_DATA_FORMAT_NCHW) return NOT_SUPPORT;
+    if (tokens <= 0 || topk <= 0 || (int64_t)tokens * topk > INT_MAX)
+        return NOT_SUPPORT;
+    const auto x = inputs[0];
+    const bool xC4 = TensorUtils::getDescribe(x)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4;
+    for (auto tensor : inputs) {
+        if (tensor == x && xC4)
+            continue;
+        if (TensorUtils::getDescribe(tensor)->dimensionFormat != MNN_DATA_FORMAT_NCHW)
+            return NOT_SUPPORT;
         int64_t stride = 1;
         for (int dimension = tensor->dimensions() - 1; dimension >= 0; --dimension) {
-            if (tensor->length(dimension) < 0 || tensor->stride(dimension) != stride) return INPUT_DATA_ERROR;
+            if (tensor->length(dimension) < 0 || tensor->stride(dimension) != stride)
+                return INPUT_DATA_ERROR;
             stride *= tensor->length(dimension);
-            if (stride > INT_MAX) return INPUT_DATA_ERROR;
+            if (stride > INT_MAX)
+                return INPUT_DATA_ERROR;
         }
     }
     const int rows = tokens * topk;
-    if (inputs[0]->dimensions() != (mInputMode == 0 ? 2 : 3) || inputs[0]->length(0) != tokens ||
-        (mInputMode == 1 && inputs[0]->length(1) != topk) ||
-        inputs[0]->length(inputs[0]->dimensions() - 1) != r.inputChannels || outputs[0]->dimensions() != 3 ||
-        outputs[0]->length(0) != tokens || outputs[0]->length(1) != topk ||
-        outputs[0]->length(2) != r.outputChannels / (mFuseSwiGLU ? 2 : 1))
+    const bool xOk = xC4 ? (mInputMode == 0 && x->dimensions() == 4 && x->length(2) == 1 && x->length(3) == 1 &&
+                            x->length(1) == r.inputChannels)
+                         : (x->dimensions() == (mInputMode == 0 ? 2 : 3) && (mInputMode == 0 || x->length(1) == topk) &&
+                            x->length(x->dimensions() - 1) == r.inputChannels);
+    if (!xOk || x->length(0) != tokens)
         return INPUT_DATA_ERROR;
+    auto y = outputs[0];
+    if (mRouteWeight) {
+        auto w = inputs[2];
+        const bool wOk = mRouteWeight == 1 ? (w->dimensions() == 2 && w->length(0) == tokens && w->length(1) == topk)
+                                           : ((w->dimensions() == 2 || (w->dimensions() == 3 && w->length(0) == 1)) &&
+                                              w->length(w->dimensions() - 1) == r.experts &&
+                                              w->elementSize() == (int64_t)tokens * r.experts);
+        if (mInputMode != 1 || mFuseSwiGLU || !wOk || w->getType() != halide_type_of<float>() ||
+            TensorUtils::getDescribe(y)->dimensionFormat != MNN_DATA_FORMAT_NC4HW4 || y->dimensions() != 4 ||
+            y->length(0) != tokens || y->length(1) != r.outputChannels || y->length(2) != 1 || y->length(3) != 1)
+            return INPUT_DATA_ERROR;
+    } else if (TensorUtils::getDescribe(y)->dimensionFormat != MNN_DATA_FORMAT_NCHW || y->dimensions() != 3 ||
+               y->length(0) != tokens || y->length(1) != topk ||
+               y->length(2) != r.outputChannels / (mFuseSwiGLU ? 2 : 1)) {
+        return INPUT_DATA_ERROR;
+    }
     auto backend = static_cast<VulkanBackend*>(this->backend());
     // Small expert batches avoid the padding cost of the larger register tile.
     const int tile = (int64_t)rows >= 8LL * r.experts ? 1 : 0;
@@ -241,21 +301,26 @@ ErrorCode VulkanIndexedLinear::onEncode(const std::vector<Tensor*>& inputs, cons
     const int gemmGroups = UP_DIV((int64_t)r.outputChannels, tileOutputs);
     const int expertGroups = UP_DIV((int64_t)r.experts, 64);
     const int rowGroups = UP_DIV((int64_t)rows, 64);
-    Parameters parameters{r.inputChannels, r.outputChannels, r.experts,      topk, mInputMode,
-                          r.groups,        r.groupSize,      r.weightStride, rows, static_cast<int>(maxTiles)};
+    Parameters parameters{r.inputChannels, r.outputChannels, r.experts,      topk,       mInputMode,
+                          r.groups,        r.groupSize,      r.weightStride, rows,       static_cast<int>(maxTiles),
+                          tokens,          xC4 ? 1 : 0,      mRouteEps,      mRouteScale};
     auto bindLinear = [&](VulkanLayout::DescriptorSet* descriptors) {
         descriptors->writeBuffer(backend->getBuffer(inputs[0]), 0);
         descriptors->writeBuffer(backend->getBuffer(inputs[1]), 1);
         descriptors->writeBuffer(r.weights->buffer(), 2, r.weights->size());
         descriptors->writeBuffer(r.alpha->buffer(), 3, r.alpha->size());
         descriptors->writeBuffer(r.bias->buffer(), 4, r.bias->size());
-        descriptors->writeBuffer(backend->getBuffer(outputs[0]), 5);
+        if (mRouteWeight && tokens > 4) {
+            descriptors->writeBuffer(mRouteTmp->buffer(), 5, mRouteTmp->size());
+        } else {
+            descriptors->writeBuffer(backend->getBuffer(outputs[0]), 5);
+        }
     };
-    auto dispatch = [&](const VulkanPipeline* pipeline, VulkanLayout::DescriptorSet* descriptors,
-                        uint32_t x, uint32_t y) {
+    auto dispatch = [&](const VulkanPipeline* pipeline, VulkanLayout::DescriptorSet* descriptors, uint32_t x,
+                        uint32_t y) {
         pipeline->bind(command->get(), descriptors->get());
-        vkCmdPushConstants(command->get(), pipeline->layout(), VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                           sizeof(Parameters), &parameters);
+        vkCmdPushConstants(command->get(), pipeline->layout(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(Parameters),
+                           &parameters);
         vkCmdDispatch(command->get(), x, y, 1);
     };
     if (tokens <= 4) {
@@ -263,7 +328,8 @@ ErrorCode VulkanIndexedLinear::onEncode(const std::vector<Tensor*>& inputs, cons
             (uint32_t)gemvGroups > limits.maxComputeWorkGroupCount[0])
             return NOT_SUPPORT;
         bindLinear(mGemvSet.get());
-        dispatch(mGemv, mGemvSet.get(), gemvGroups, rows);
+        mGemvSet->writeBuffer(backend->getBuffer(inputs[mRouteWeight ? 2 : 0]), 6);
+        dispatch(mGemv, mGemvSet.get(), gemvGroups, mRouteWeight ? tokens : rows);
         return NO_ERROR;
     }
     const int64_t workspaceElements = 2LL * r.experts + 1 + rows + 2LL * parameters.maxTiles;
@@ -278,8 +344,19 @@ ErrorCode VulkanIndexedLinear::onEncode(const std::vector<Tensor*>& inputs, cons
     // entries. Track the actual buffer capacity rather than only the row count.
     if (!mRouting || !mRouting->valid() || mRouting->size() < workspaceElements * sizeof(int)) {
         mRouting.reset(new VulkanBuffer(backend->getMemoryPool(), false, workspaceElements * sizeof(int), nullptr,
-                                       VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_SHARING_MODE_EXCLUSIVE, 0));
+                                        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_SHARING_MODE_EXCLUSIVE, 0));
         if (!mRouting->valid())
+            return OUT_OF_MEMORY;
+    }
+    if (mRouteWeight) {
+        const int64_t bytes = (int64_t)rows * r.outputChannels * (backend->useFP16() ? 2 : 4);
+        if (bytes > limits.maxStorageBufferRange)
+            return NOT_SUPPORT;
+        if (!mRouteTmp || mRouteTmp->size() < bytes) {
+            mRouteTmp.reset(new VulkanBuffer(backend->getMemoryPool(), false, bytes, nullptr,
+                                             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_SHARING_MODE_EXCLUSIVE, 0));
+        }
+        if (!mRouteTmp->valid())
             return OUT_OF_MEMORY;
     }
     for (int phase = 0; phase < 4; ++phase) {
@@ -294,6 +371,14 @@ ErrorCode VulkanIndexedLinear::onEncode(const std::vector<Tensor*>& inputs, cons
     bindLinear(mGemmSet[tile].get());
     mGemmSet[tile]->writeBuffer(mRouting->buffer(), 6, mRouting->size());
     dispatch(mGemm[tile], mGemmSet[tile].get(), gemmGroups, parameters.maxTiles);
+    if (mRouteWeight) {
+        command->barrierSource(mRouteTmp->buffer(), 0, mRouteTmp->size());
+        mReduceSet->writeBuffer(mRouteTmp->buffer(), 0, mRouteTmp->size());
+        mReduceSet->writeBuffer(backend->getBuffer(inputs[2]), 1);
+        mReduceSet->writeBuffer(backend->getBuffer(inputs[1]), 2);
+        mReduceSet->writeBuffer(backend->getBuffer(outputs[0]), 3);
+        dispatch(mReduce, mReduceSet.get(), UP_DIV(r.outputChannels, 64), tokens);
+    }
     return NO_ERROR;
 }
 
@@ -301,10 +386,16 @@ class VulkanIndexedLinearCreator : public VulkanBackend::Creator {
 public:
     VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                    const Op* op, Backend* backend) const override {
+        if (op->main_as_IndexedLinearParam()->routeWeight() == 3) {
+            return nullptr;
+        }
         // StaticModule creates the weight resource before input shape/type and
         // layout inference. Dynamic input validation belongs to onEncode.
         auto execution = new VulkanIndexedLinear(op, backend);
-        if (!execution->valid()) { delete execution; return nullptr; }
+        if (!execution->valid()) {
+            delete execution;
+            return nullptr;
+        }
         return execution;
     }
 };

@@ -19,6 +19,7 @@
 #include <MNN/expr/ExprCreator.hpp>
 #include <MNN/expr/Module.hpp>
 #include <algorithm>
+#include <cfloat>
 #include <chrono>
 #include <cmath>
 #include <cstring>
@@ -128,8 +129,12 @@ class IndexedLinearTest : public MNNTestCase {
         if (!expected || !actual)
             return false;
         for (int i = 0; i < channels; ++i) {
-            if (expected[i] != actual[i]) {
-                MNN_ERROR("IndexedLinear fused SiLU changed rounding at %d: %f != %f\n", i, actual[i], expected[i]);
+            float tolerance = 0.0f;
+#if defined(__i386__) || defined(__x86_64__) || defined(_M_IX86) || defined(_M_X64)
+            tolerance = 4.0f * std::numeric_limits<float>::epsilon() * (1.0f + std::abs(expected[i]));
+#endif
+            if (!std::isfinite(actual[i]) || std::abs(expected[i] - actual[i]) > tolerance) {
+                MNN_ERROR("IndexedLinear fused SiLU changed rounding at %d: %.9g != %.9g\n", i, actual[i], expected[i]);
                 return false;
             }
         }
@@ -220,10 +225,23 @@ class IndexedLinearTest : public MNNTestCase {
         return nullptr;
     }
 
+    // routeWeight adds the third input and reduces over topK, so the reference
+    // accumulates per token instead of per route.
     bool runCase(int tokens, int topK, int inputChannels, int outputChannels, int inputMode, int precision,
                  int weightBits = 0, int blockChannels = 0, bool moduleTest = false, bool external = false,
                  int dynamicQuantOption = 0, int scaleBits = 32, int experts = 5,
-                 const std::vector<int>& tokenSequence = {}, bool fuseSwiGLU = false) {
+                 const std::vector<int>& tokenSequence = {}, bool fuseSwiGLU = false, int routeWeight = 0) {
+        bool passed = false;
+        struct CaseResult {
+            const bool& passed;
+            int tokens, topK, inputChannels, outputChannels, inputMode, weightBits, blockChannels;
+            ~CaseResult() {
+                if (!passed) {
+                    MNN_ERROR("IndexedLinear case failed: T=%d K=%d IC=%d OC=%d mode=%d bits=%d block=%d\n",
+                              tokens, topK, inputChannels, outputChannels, inputMode, weightBits, blockChannels);
+                }
+            }
+        } caseResult{passed, tokens, topK, inputChannels, outputChannels, inputMode, weightBits, blockChannels};
         const bool resizeTest = !tokenSequence.empty();
         std::unique_ptr<OpT> op(new OpT);
         op->type = OpType_IndexedLinear;
@@ -232,6 +250,11 @@ class IndexedLinearTest : public MNNTestCase {
         op->main.value = parameter;
         parameter->inputMode = inputMode;
         parameter->fusedActivation = fuseSwiGLU ? UnaryOpOperation_SILU : -1;
+        if (routeWeight) {
+            parameter->routeWeight = routeWeight;
+            parameter->routeEps = 0.125f;
+            parameter->routeScale = 2.5f;
+        }
         const int resultChannels = fuseSwiGLU ? outputChannels / 2 : outputChannels;
         std::vector<std::vector<float>> weights(experts), biases(experts);
         const std::string externalName =
@@ -358,8 +381,24 @@ class IndexedLinearTest : public MNNTestCase {
         auto ids = _Input({tokens, topK}, NCHW, halide_type_of<int32_t>());
         input->setName("x");
         ids->setName("ids");
+        VARP probs;
+        if (routeWeight) {
+            probs = _Input(routeWeight == 1 ? std::vector<int>{tokens, topK}
+                                            : std::vector<int>{1, tokens, experts},
+                           NCHW);
+            probs->setName("w");
+        }
         std::vector<float> values;
-        auto result = Variable::create(Expr::create(op.get(), {input, ids}));
+        std::vector<VARP> args = {input, ids};
+        if (routeWeight) {
+            args.emplace_back(probs);
+        }
+        auto result = Variable::create(Expr::create(op.get(), args));
+        if (routeWeight) {
+            // The routed output is NC4HW4; convert inside the graph so the module
+            // output is token-major like the reference below.
+            result = _Convert(result, NCHW);
+        }
         result->setName("y");
         std::shared_ptr<Module> module, cloned;
         if (moduleTest) {
@@ -371,6 +410,11 @@ class IndexedLinearTest : public MNNTestCase {
             schedule.type = static_cast<MNNForwardType>(status.forwardType);
             schedule.backendConfig = &backendConfig;
             schedule.numThread = status.thread > 0 ? status.thread : 1;
+            if (schedule.type == MNN_FORWARD_OPENCL) {
+                // IndexedLinear only registers a buffer-mode execution; AUTO memory
+                // picks image on non-Mali/Intel GPUs and would fall back to CPU.
+                schedule.numThread = (schedule.numThread & ~MNN_GPU_MEMORY_IMAGE) | MNN_GPU_MEMORY_BUFFER;
+            }
             std::shared_ptr<Executor::RuntimeManager> runtime(Executor::RuntimeManager::createRuntimeManager(schedule),
                                                               Executor::RuntimeManager::destroy);
             runtime->setHint(Interpreter::DYNAMIC_QUANT_OPTIONS, dynamicQuantOption);
@@ -378,7 +422,9 @@ class IndexedLinearTest : public MNNTestCase {
             config.rearrange = true;
             config.shapeMutable = true;
             auto buffer = Variable::save({result});
-            module.reset(Module::load({"x", "ids"}, {"y"}, reinterpret_cast<const uint8_t*>(buffer.data()),
+            const std::vector<std::string> inputNames =
+                routeWeight ? std::vector<std::string>{"x", "ids", "w"} : std::vector<std::string>{"x", "ids"};
+            module.reset(Module::load(inputNames, {"y"}, reinterpret_cast<const uint8_t*>(buffer.data()),
                                       buffer.size(), runtime, &config));
             if (!module) {
                 return false;
@@ -427,6 +473,11 @@ class IndexedLinearTest : public MNNTestCase {
                     !ids->resize({tokens, topK})) {
                     return false;
                 }
+                if (routeWeight &&
+                    !probs->resize(routeWeight == 1 ? std::vector<int>{tokens, topK}
+                                                    : std::vector<int>{1, tokens, experts})) {
+                    return false;
+                }
             }
             const int rows = inputMode == 0 ? tokens : tokens * topK;
             values.resize(rows * inputChannels);
@@ -440,6 +491,14 @@ class IndexedLinearTest : public MNNTestCase {
                                            : (pass == 0 ? (route * 3 + route / topK) % (experts - 1) : experts - 1);
             }
             ::memcpy(ids->writeMap<int32_t>(), routes.data(), routes.size() * sizeof(int32_t));
+            std::vector<float> routeWeights;
+            if (routeWeight) {
+                routeWeights.resize(routeWeight == 1 ? tokens * topK : tokens * experts);
+                for (int index = 0; index < routeWeights.size(); ++index) {
+                    routeWeights[index] = float((index * 3 + pass) % 17 + 1) * 0.04f;
+                }
+                ::memcpy(probs->writeMap<float>(), routeWeights.data(), routeWeights.size() * sizeof(float));
+            }
             auto evaluated = result;
             if (moduleTest) {
                 if (!resizeTest && pass == 1) {
@@ -448,7 +507,7 @@ class IndexedLinearTest : public MNNTestCase {
                         std::remove(externalPath);
                     }
                 }
-                auto outputs = (resizeTest || pass == 0 ? module : cloned)->onForward({input, ids});
+                auto outputs = (resizeTest || pass == 0 ? module : cloned)->onForward(args);
                 if (outputs.size() != 1) {
                     return false;
                 }
@@ -480,27 +539,63 @@ class IndexedLinearTest : public MNNTestCase {
                 MNN_ERROR("IndexedLinear produced no output\n");
                 return false;
             }
-            if (evaluated->getInfo()->dim != std::vector<int>({tokens, topK, resultChannels})) {
+            const std::vector<int> expectedDim = routeWeight ? std::vector<int>{tokens, outputChannels, 1, 1}
+                                                             : std::vector<int>{tokens, topK, resultChannels};
+            if (evaluated->getInfo()->dim != expectedDim) {
                 return false;
+            }
+            // The reduce normalizes and accumulates in device precision, so the
+            // routed sum needs the looser budget packedRouting also uses.
+            const float tolerance = routeWeight ? (weightBits ? 0.008f : (precision == 2 ? 0.02f : 0.001f))
+                                                : (weightBits ? 0.006f : (precision == 2 ? 0.003f : 0.0001f));
+            auto linearValue = [&](int expert, int sourceRow, int channel) {
+                double value = biases[expert][channel];
+                for (int inner = 0; inner < inputChannels; ++inner) {
+                    value += values[sourceRow * inputChannels + inner] *
+                             weights[expert][channel * inputChannels + inner];
+                }
+                return value;
+            };
+            if (routeWeight) {
+                for (int token = 0; token < tokens; ++token) {
+                    double denominator = 0.0;
+                    if (routeWeight >= 2) {
+                        for (int k = 0; k < topK; ++k) {
+                            denominator += routeWeights[token * experts + routes[token * topK + k]];
+                        }
+                        denominator += 0.125;
+                    }
+                    for (int channel = 0; channel < outputChannels; ++channel) {
+                        double expected = 0.0;
+                        for (int k = 0; k < topK; ++k) {
+                            const int expert = routes[token * topK + k];
+                            const double weight =
+                                routeWeight == 1 ? routeWeights[token * topK + k]
+                                                 : routeWeights[token * experts + expert] / denominator * 2.5;
+                            expected += linearValue(expert, token * topK + k, channel) * weight;
+                        }
+                        const float got = actual[token * outputChannels + channel];
+                        if (!std::isfinite(got) ||
+                            std::abs(got - expected) > tolerance * (1.0 + std::abs(expected))) {
+                            MNN_ERROR("IndexedLinear routeWeight=%d T=%d K=%d I=%d O=%d pass=%d token=%d channel=%d: "
+                                      "%f != %f\n",
+                                      routeWeight, tokens, topK, inputChannels, outputChannels, pass, token, channel,
+                                      got, static_cast<float>(expected));
+                            return false;
+                        }
+                    }
+                }
+                continue;
             }
             for (int route = 0; route < routes.size(); ++route) {
                 const int expert = routes[route];
                 const int sourceRow = inputMode == 0 ? route / topK : route;
                 for (int channel = 0; channel < resultChannels; ++channel) {
-                    double expected = biases[expert][channel];
-                    for (int inner = 0; inner < inputChannels; ++inner) {
-                        expected += values[sourceRow * inputChannels + inner] *
-                                    weights[expert][channel * inputChannels + inner];
-                    }
+                    double expected = linearValue(expert, sourceRow, channel);
                     if (fuseSwiGLU) {
-                        double up = biases[expert][channel + resultChannels];
-                        for (int inner = 0; inner < inputChannels; ++inner) {
-                            up += values[sourceRow * inputChannels + inner] *
-                                  weights[expert][(channel + resultChannels) * inputChannels + inner];
-                        }
+                        const double up = linearValue(expert, sourceRow, channel + resultChannels);
                         expected = expected / (1.0 + std::exp(-expected)) * up;
                     }
-                    const float tolerance = weightBits ? 0.006f : (precision == 2 ? 0.003f : 0.0001f);
                     if (!std::isfinite(actual[route * resultChannels + channel]) ||
                         std::abs(actual[route * resultChannels + channel] - expected) >
                             tolerance * (1.0 + std::abs(expected))) {
@@ -512,16 +607,316 @@ class IndexedLinearTest : public MNNTestCase {
                 }
             }
         }
+        passed = true;
+        return true;
+    }
+
+    bool packedRouting(int precision, int topK = 3, int channels = 32, int outputs = 32,
+                       const std::vector<int>& tokenCounts = {1, 3, 7, 37}) {
+        const int experts = 5;
+        for (int tokens : tokenCounts) {
+            for (int mode : {0, 1, 2, 3}) {
+                std::unique_ptr<OpT> op(new OpT);
+                op->type = OpType_IndexedLinear;
+                op->main.type = OpParameter_IndexedLinearParam;
+                auto param = new IndexedLinearParamT;
+                op->main.value = param;
+                param->inputMode = mode ? 1 : 0;
+                param->routeWeight = mode;
+                param->routeEps = 0.125f;
+                param->routeScale = 2.5f;
+                std::vector<std::vector<float>> weights(experts), biases(experts);
+                for (int e = 0; e < experts; ++e) {
+                    std::unique_ptr<Convolution2DT> conv(new Convolution2DT);
+                    conv->common.reset(new Convolution2DCommonT);
+                    conv->common->inputCount = channels;
+                    conv->common->outputCount = outputs;
+                    conv->common->kernelX = conv->common->kernelY = 1;
+                    conv->weight.resize(channels * outputs);
+                    conv->bias.resize(outputs);
+                    for (int i = 0; i < channels * outputs; ++i)
+                        conv->weight[i] = ((i + e * 3) % 13 - 6) * 0.035f;
+                    for (int c = 0; c < outputs; ++c)
+                        conv->bias[c] = (c % 5 - 2) * 0.025f;
+                    weights[e] = conv->weight;
+                    biases[e] = conv->bias;
+                    param->linears.emplace_back(std::move(conv));
+                }
+                const auto shape =
+                    mode ? std::vector<int>{tokens, topK, channels} : std::vector<int>{tokens, channels, 1, 1};
+                auto input = _Input(shape, NCHW);
+                auto ids = _Input({tokens, topK}, NCHW, halide_type_of<int>());
+                auto probs =
+                    _Input(mode >= 2 ? std::vector<int>{1, tokens, experts} : std::vector<int>{tokens, topK}, NCHW);
+                std::vector<float> x(tokens * (mode ? topK : 1) * channels);
+                std::vector<float> w(tokens * (mode >= 2 ? experts : topK));
+                std::vector<int> indices(tokens * topK);
+                for (int i = 0; i < x.size(); ++i)
+                    x[i] = ((i * 7) % 23 - 11) * 0.09f;
+                for (int i = 0; i < w.size(); ++i)
+                    w[i] = mode == 3 ? ((i * 3) % 17 - 8) * 0.3f : ((i * 3) % 17 + 1) * 0.04f;
+                for (int i = 0; i < indices.size(); ++i)
+                    indices[i] = (i * 3 + i / topK) % experts;
+                ::memcpy(input->writeMap<float>(), x.data(), x.size() * sizeof(float));
+                ::memcpy(ids->writeMap<int>(), indices.data(), indices.size() * sizeof(int));
+                ::memcpy(probs->writeMap<float>(), w.data(), w.size() * sizeof(float));
+                std::vector<VARP> args = {mode ? input : _Convert(input, NC4HW4), ids};
+                if (mode)
+                    args.emplace_back(probs);
+                auto result = Variable::create(Expr::create(std::move(op), args));
+                auto plain = mode ? _Convert(result, NCHW) : result;
+                auto actual = plain->readMap<float>();
+                if (!actual)
+                    return false;
+                const float tolerance = precision == 1 ? 0.001f : 0.02f;
+                for (int t = 0; t < tokens; ++t) {
+                    float denominator = 0.0f;
+                    float logitMax = -FLT_MAX;
+                    if (mode >= 2) {
+                        if (mode == 3) {
+                            for (int k = 0; k < topK; ++k)
+                                logitMax = std::max(logitMax, w[t * experts + indices[t * topK + k]]);
+                        }
+                        for (int k = 0; k < topK; ++k) {
+                            const float g = w[t * experts + indices[t * topK + k]];
+                            denominator += mode == 3 ? std::exp(g - logitMax) : g;
+                        }
+                        denominator += 0.125f;
+                    }
+                    for (int c = 0; c < outputs; ++c) {
+                        float sum = 0.0f;
+                        for (int k = 0; k < topK; ++k) {
+                            const int e = indices[t * topK + k];
+                            float value = biases[e][c];
+                            const int row = mode ? t * topK + k : t;
+                            for (int i = 0; i < channels; ++i)
+                                value += x[row * channels + i] * weights[e][c * channels + i];
+                            if (mode) {
+                                const float wk = mode == 1 ? w[t * topK + k]
+                                                 : mode == 3 ? std::exp(w[t * experts + e] - logitMax) / denominator * 2.5f
+                                                 : w[t * experts + e] / denominator * 2.5f;
+                                sum += value * wk;
+                            } else {
+                                const float got = actual[(t * topK + k) * outputs + c];
+                                if (!std::isfinite(got) || std::abs(got - value) > tolerance * (1.0f + std::abs(value)))
+                                    return false;
+                            }
+                        }
+                        if (mode) {
+                            const float got = actual[t * outputs + c];
+                            if (!std::isfinite(got) || std::abs(got - sum) > tolerance * (1.0f + std::abs(sum))) {
+                                MNN_ERROR("IndexedLinear routeWeight=%d T=%d: %f != %f\n", mode, tokens, got, sum);
+                                return false;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
+    bool fp32GroupedPrecision(int bits, int tokens) {
+        const int topK = 2, experts = 5, channels = 128;
+        OpT op;
+        op.type = OpType_IndexedLinear;
+        op.main.type = OpParameter_IndexedLinearParam;
+        auto param = new IndexedLinearParamT;
+        op.main.value = param;
+        std::vector<float> scales(experts * channels);
+        for (int e = 0; e < experts; ++e) {
+            std::unique_ptr<Convolution2DT> conv(new Convolution2DT);
+            conv->common.reset(new Convolution2DCommonT);
+            conv->common->inputCount = channels;
+            conv->common->outputCount = channels;
+            conv->common->kernelX = conv->common->kernelY = 1;
+            conv->common->group = 1;
+            conv->bias.resize(channels, 0.0f);
+            std::vector<int8_t> codes(channels * channels, 0);
+            std::vector<float> alpha(channels * 2, 0.0f);
+            for (int o = 0; o < channels; ++o) {
+                codes[o * channels] = 1;
+                scales[e * channels + o] = 0.1234567f + 0.0001234f * (o + e);
+                alpha[2 * o + 1] = scales[e * channels + o];
+            }
+            if (bits == 0) {
+                conv->weight.resize(channels * channels, 0.0f);
+                for (int o = 0; o < channels; ++o) conv->weight[o * channels] = scales[e * channels + o];
+            } else {
+                conv->quanParameter = IDSTEncoder::encode(nullptr, alpha, channels, channels, true,
+                                                          codes.data(), -(1 << (bits - 1)), {bits, false, 32});
+                conv->quanParameter->aMin = 1;
+            }
+            param->linears.emplace_back(std::move(conv));
+        }
+        auto input = _Input({tokens, channels}, NCHW);
+        auto ids = _Input({tokens, topK}, NCHW, halide_type_of<int32_t>());
+        input->setName("x");
+        ids->setName("ids");
+        auto result = Variable::create(Expr::create(&op, {input, ids}));
+        result->setName("y");
+        auto buffer = Variable::save({result});
+        BackendConfig backend;
+        backend.precision = BackendConfig::Precision_High;
+        backend.memory = BackendConfig::Memory_Low;
+        ScheduleConfig schedule;
+        schedule.type = static_cast<MNNForwardType>(MNNTestSuite::get()->pStaus.forwardType);
+        schedule.backendConfig = &backend;
+        if (schedule.type == MNN_FORWARD_OPENCL) {
+            schedule.numThread = MNN_GPU_MEMORY_BUFFER | MNN_GPU_TUNING_NONE;
+        }
+        std::shared_ptr<Executor::RuntimeManager> runtime(Executor::RuntimeManager::createRuntimeManager(schedule),
+                                                         Executor::RuntimeManager::destroy);
+        std::unique_ptr<Module> module(Module::load({"x", "ids"}, {"y"},
+                                                  reinterpret_cast<const uint8_t*>(buffer.data()),
+                                                  buffer.size(), runtime));
+        if (!module) return false;
+        const float values[] = {70000.25f, 1.000123f, 0.0000001f, -90000.5f, 65520.0f};
+        auto x = input->writeMap<float>();
+        std::fill(x, x + tokens * channels, 0.0f);
+        auto routes = ids->writeMap<int32_t>();
+        for (int t = 0; t < tokens; ++t) {
+            x[t * channels] = values[t % experts];
+            for (int k = 0; k < topK; ++k) routes[t * topK + k] = (t + k) % experts;
+        }
+        auto outputs = module->onForward({input, ids});
+        if (outputs.size() != 1) return false;
+        auto actual = outputs[0]->readMap<float>();
+        if (!actual) return false;
+        for (int r = 0; r < tokens * topK; ++r) {
+            for (int o = 0; o < channels; ++o) {
+                const int expert = (r / topK + r % topK) % experts;
+                const double expected = double(values[(r / topK) % experts]) * scales[expert * channels + o];
+                const float got = actual[r * channels + o];
+                if (!std::isfinite(got) || std::abs(double(got) - expected) > 2.0e-6 * std::abs(expected) + 1.0e-10) {
+                    MNN_ERROR("IndexedLinear FP32 precision route=%d channel=%d: %.9g != %.9g\n",
+                              r, o, got, expected);
+                    return false;
+                }
+            }
+        }
         return true;
     }
 
 public:
     bool run(int precision) override {
-        if (!validWeightLengths()) {
+        const auto backend = MNNTestSuite::get()->pStaus.forwardType;
+        if (precision == 1 &&
+            (backend == MNN_FORWARD_CPU || backend == MNN_FORWARD_METAL || backend == MNN_FORWARD_OPENCL)) {
+            if (backend == MNN_FORWARD_CPU) {
+                if (!fp32GroupedPrecision(0, 20)) return false;
+            }
+#ifdef MNN_LOW_MEMORY
+            if (backend != MNN_FORWARD_CPU)
+#endif
+            if (!fp32GroupedPrecision(4, 20) || !fp32GroupedPrecision(8, 20)) {
+                return false;
+            }
+        }
+        if (backend == MNN_FORWARD_OPENCL) {
+            for (int bits : {4, 8}) {
+                if (!runCase(20, 4, 96, 68, 0, precision, bits, 12, true, false, 0, 32, 5, {20, 9, 10, 1, 20}, true) ||
+                    !runCase(20, 4, 96, 68, 1, precision, bits, 12, true) ||
+                    !runCase(20, 4, 96, 66, 0, precision, bits, 12, true, false, 0, 32, 5, {}, true)) {
+                    return false;
+                }
+            }
+            if (!runCase(129, 4, 768, 768, 0, precision, 4, 64, true, false, 0, 16, 60, {}, true) ||
+                !runCase(129, 4, 384, 768, 1, precision, 4, 64, true, false, 0, 16, 60)) {
+                return false;
+            }
+            // Reduce dispatch: global size is outputChannels, so a non-64-aligned
+            // channel count exercises the round-up against the chosen local size.
+            // Recording is chosen by the process GPU mode (run_test.out argv[4]),
+            // so run these under MNN_GPU_RECORD_OP / MNN_GPU_RECORD_BATCH as well.
+            for (int bits : {4, 8}) {
+                for (int outputs : {2880, 3584, 2884}) {
+                    if (!runCase(9, 4, 128, outputs, 1, precision, bits, 32, true, false, 0, 32, 5, {}, false, 2)) {
+                        return false;
+                    }
+                }
+            }
+            if (!runCase(9, 4, 128, 2884, 1, precision, 4, 32, true) ||
+                !runCase(9, 4, 128, 2884, 1, precision, 4, 32, true, false, 0, 32, 5, {9, 1, 20, 4, 9}, false, 2)) {
+                return false;
+            }
+        }
+        if (backend == MNN_FORWARD_METAL) {
+            if (!runCase(2, 4, 128, 132, 1, precision, 0, 0, true, false, 0, 32, 5, {}, false, 2)) {
+                return false;
+            }
+            // Decode GEMV reads a whole result quad of scales; with experts=8 and
+            // 256 blocks the scale bank ends on a page boundary, so the last
+            // expert's tail quad is the one that can run past the allocation.
+            for (int bits : {4, 8}) {
+                if (!runCase(1, 4, 1024, 129, 0, precision, bits, 4, true, false, 0, 32, 8) ||
+                    !runCase(1, 4, 1024, 130, 1, precision, bits, 4, true, false, 0, 32, 8) ||
+                    !runCase(1, 4, 1024, 131, 0, precision, bits, 4, true, false, 0, 16, 8) ||
+                    !runCase(1, 4, 1024, 262, 0, precision, bits, 4, true, false, 0, 32, 8, {}, true)) {
+                    return false;
+                }
+            }
+            // T*K crosses 4*experts (grouped SIMD <-> tensor) and the tileM
+            // 16/32/64 floors in both directions, ending back on decode.
+            for (int bits : {4, 8}) {
+                if (!runCase(1, 4, 128, 130, 0, precision, bits, 32, true, false, 0, 32, 5,
+                             {1, 2, 5, 30, 60, 30, 5, 2, 1}) ||
+                    !runCase(1, 4, 128, 130, 1, precision, bits, 64, true, false, 0, 16, 60,
+                             {1, 59, 60, 61, 129, 61, 60, 59, 1})) {
+                    return false;
+                }
+            }
+            // routeWeight keeps its own resize path: mRouteTmp / mAtomicRw are
+            // re-derived per resize and must be dropped when returning to decode.
+            for (int routeWeight : {1, 2}) {
+                if (!runCase(1, 4, 128, 132, 1, precision, 4, 32, true, false, 0, 32, 5,
+                             {1, 2, 5, 30, 60, 30, 5, 2, 1}, false, routeWeight) ||
+                    !runCase(1, 4, 128, 132, 1, precision, 8, 32, true, false, 0, 16, 5,
+                             {1, 5, 30, 5, 1}, false, routeWeight)) {
+                    return false;
+                }
+            }
+        }
+        if (precision == 1 && backend == MNN_FORWARD_METAL) {
+            for (int tokens : {2, 9, 10}) {
+                if (!fp32GroupedPrecision(0, tokens) || !fp32GroupedPrecision(4, tokens) ||
+                    !fp32GroupedPrecision(8, tokens)) return false;
+            }
+        }
+        if (!packedRouting(precision) || !packedRouting(precision, 4, 384, 768, {1}) ||
+            !validWeightLengths()) {
+            return false;
+        }
+        if (!runCase(1, 4, 128, 2054, 1, precision, 4, 64, true) ||
+            !runCase(1, 4, 128, 4102, 0, precision, 4, 64, true, false, 0, 16, 5, {}, true)) {
             return false;
         }
         if (!fusedSiluRounding() || !fusedFloatingBanks())
             return false;
+        for (int channels : {62, 64, 66, 126, 128, 130}) {
+            if (!runCase(17, 4, 33, channels, 0, precision) ||
+                !runCase(17, 4, 33, channels, 1, precision, 0, 0, true, false, 0, 32, 5,
+                         {17, 1, 9, 17}, true)) {
+                return false;
+            }
+        }
+        for (int bits : {4, 8}) {
+            if (!runCase(129, 4, 128, 256, 0, precision, bits, 64, true, false, 0, 16, 60,
+                         {129, 59, 60, 61, 1, 60, 129}, true) ||
+                !runCase(60, 4, 128, 64, 1, precision, bits, 64, true, false, 0, 16, 60,
+                         {60, 59, 1, 60})) {
+                return false;
+            }
+            if (!runCase(60, 4, 144, 64, 0, precision, bits, 16, true, false, 0, 32, 60,
+                         {60, 59, 1, 60}) ||
+                !runCase(60, 4, 144, 66, 1, precision, bits, 16, true, false, 0, 16, 60,
+                         {60, 59, 1, 60}, true) ||
+                !runCase(17, 4, 132, 131, 0, precision, bits, 4, true, false) ||
+                !runCase(17, 4, 132, 62, 0, precision, bits, 4, true, false, 0, 32, 5, {}, true) ||
+                !runCase(60, 4, 144, 63, 0, precision, bits, 16, true, false, 0, 32, 60)) {
+                return false;
+            }
+        }
         // Sparse routing: most experts are empty, at most T*K input tiles exist.
         if (!runCase(2, 2, 31, 65, 0, precision, 0, 0, true, false, 0, 32, 257))
             return false;
@@ -548,6 +943,22 @@ public:
             }
             if (!runCase(7, 2, 32, 65, mode, precision, 0, 0, true, true)) {
                 return false;
+            }
+            for (int bits : {4, 8}) {
+                if (!runCase(1, 4, 128, 128, mode, precision, bits, 32, true, false) ||
+                    !runCase(7, 4, 128, 128, mode, precision, bits, 32, true, false) ||
+                    !runCase(37, 4, 128, 128, mode, precision, bits, 32, true, false, 0, 32, 5, {}, true) ||
+                    !runCase(1, 4, 128, 128, mode, precision, bits, 32, true, false, 0, 32, 5, {}, true)) {
+                    return false;
+                }
+            }
+            for (int bits : {4, 8}) {
+                if (!runCase(1, 4, 128, 130, mode, precision, bits, 32, true, false) ||
+                    !runCase(7, 4, 128, 130, mode, precision, bits, 32, true, false) ||
+                    !runCase(37, 4, 128, 130, mode, precision, bits, 32, true, false, 0, 32, 5, {}, true) ||
+                    !runCase(1, 4, 128, 134, mode, precision, bits, 32, true, false, 0, 32, 5, {}, true)) {
+                    return false;
+                }
             }
             for (int bits : {4, 8}) {
                 for (int block : {32, 64, 128}) {

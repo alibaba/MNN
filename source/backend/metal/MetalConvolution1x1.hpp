@@ -45,6 +45,11 @@ public:
                         MetalConvolution1x1* peerW = nullptr, const Tensor* peerWOutput = nullptr);
     bool isQKVLeader() const { return mIsQKVLeader; }
     bool isQKVFollower() const { return mIsQKVFollower; }
+    bool setupPrefillWideFusion(const std::vector<MetalConvolution1x1*>& members,
+                                const std::vector<Tensor*>& outputs);
+    void clearWideFusionFlags();
+    bool isWideLeader() const { return mIsWideLeader; }
+    bool isWideFollower() const { return mIsWideFollower; }
     // Check if this Conv1x1 uses the 2sg decode GEMV pipeline (eligible for fusion)
     bool is2sgDecodePipeline() const { return mIs2sgDecode; }
 
@@ -62,6 +67,19 @@ public:
     // taken. Same contract: call before onResize, read the flag back after.
     void requestPrefillGateUpDual(MetalConvolution1x1* gatePeer) { mPrefillDualPeer = gatePeer; }
     bool prefillGateUpDualFused() const { return mPrefillDualOn; }
+
+    // MoE shared-expert row scale (FusedLinearParam.row_mul): the gate value of a
+    // token scales that token's whole output row, and the decode GEMV epilogues can
+    // fold the multiply into their store, so the owner dispatches one kernel and
+    // keeps no intermediate tensor. Same contract as the prefill folds: call with
+    // the C4 scale tensor (one ftype4 per token) before onResize, then read
+    // rowScaleFused() back -- false means the route taken has no fold, and the
+    // caller still owes the multiply.
+    void requestRowScale(const Tensor* scale) {
+        mRowScaleInput = scale;
+        mRowScaleFused = false;
+    }
+    bool rowScaleFused() const { return mRowScaleFused; }
     float scaleCoef() const { return mScaleCoef; }
 
     // Accessors for peer's buffers (used by leader during fused encode)
@@ -100,6 +118,9 @@ private:
     MetalConvolution1x1* mPrefillDualPeer = nullptr;  // gate projection, second accumulator
     bool mPrefillDualOn = false;                      // pipeline compiled with FQ4_GATEUP_DUAL
     id<MTLBuffer> mPrefillDualCoef = nil;             // {gate_scale_coef}
+    // MoE shared-expert row scale (see requestRowScale)
+    const Tensor* mRowScaleInput = nullptr;           // gate scale, one ftype4 per token -> buffer 24
+    bool mRowScaleFused = false;                      // pipeline compiled with CONV_ROW_MUL
 
     // QKV fusion state (see setupQKVFusion)
     bool mIsQKVLeader = false;
@@ -149,6 +170,18 @@ private:
     bool mUseOc16Sg4K1 = false;
     // Quant block count along IC (per outputDepthQuad); fused projections must match.
     int mBlockCount = 1;
+
+    bool mIsWideLeader = false;
+    bool mIsWideFollower = false;
+    id<MTLBuffer> mWideMergedBuffer = nil;
+    std::shared_ptr<Tensor> mWideMergedTensor;
+    size_t mWideWeightOff = 0;
+    size_t mWideScaleOff = 0;
+    size_t mWideBiasOff = 0;
+    size_t mWideMergedSize = 0;
+    id<MTLBuffer> mWideConstBuffer = nil;
+    std::shared_ptr<Tensor> mWideOutHolder;
+    std::pair<MTLSize, MTLSize> mWideThreads;
 
     // Fused W2/W3/W4/W8 GEMM: kernel unpacks quantized weights in-kernel
     // (FUSED_Q4_REAL_UNPACK), skipping the dequant pre-pass and mTempWeight.

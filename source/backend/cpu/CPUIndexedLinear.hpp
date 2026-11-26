@@ -31,13 +31,19 @@ private:
         int firstRoute;
         int rows;
     };
-    CPUIndexedLinear(Backend* backend, std::shared_ptr<Resource> resource, int inputMode, bool fuseSwiGLU);
+    CPUIndexedLinear(Backend* backend, std::shared_ptr<Resource> resource, int inputMode, bool fuseSwiGLU,
+                     int routeWeight, float routeEps, float routeScale);
     std::shared_ptr<Resource> mResource;
     int mInputMode = 0;
     bool mFuseSwiGLU = false;
+    bool mDenseGateUp = false;
+    int mRouteWeight = 0;
+    float mRouteEps = 0.0f;
+    float mRouteScale = 1.0f;
     int mTopK = 0;
     int mTokens = 0;
     int mThreads = 1;
+    bool mRouteParallel = false;
     int mChannelTile = 0;
     int mInputTileBytes = 0;
     int mScratchBytes = 0;
@@ -48,6 +54,8 @@ private:
     Tensor mPackedOutput;
     Tensor mQuantInfo;
     Tensor mAccumulator;
+    Tensor mRouteTmp;
+    Tensor mRouteScratch;
     std::vector<int> mOffsets;
     std::vector<int> mRouteOrder;
     std::vector<Tile> mTiles;

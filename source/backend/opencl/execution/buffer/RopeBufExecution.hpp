@@ -19,7 +19,8 @@ class RopeBufExecution : public CommonExecution {
 public:
     RopeBufExecution(const MNN::Op* op, Backend* backend);
     RopeBufExecution(const MNN::Op* op, Backend* backend, int ropeCutHeadDim, int numHead, int kvNumHead, int headDim,
-                     std::shared_ptr<cl::Buffer> qGamma, float qEps, std::shared_ptr<cl::Buffer> kGamma, float kEps);
+                     bool qNorm, std::shared_ptr<cl::Buffer> qGamma, float qEps, bool kNorm,
+                     std::shared_ptr<cl::Buffer> kGamma, float kEps, bool interleaved);
     virtual ~RopeBufExecution() = default;
 
     virtual ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
@@ -36,6 +37,9 @@ private:
     int mNumHead = 0;
     int mKvNumHead = 0;
     int mHeadDim = 0;
+    bool mQNorm = false;
+    bool mKNorm = false;
+    bool mInterleaved = false;
     std::shared_ptr<cl::Buffer> mQGamma;
     std::shared_ptr<cl::Buffer> mKGamma;
     float mQEps = 0.0f;

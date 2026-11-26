@@ -756,9 +756,7 @@ class ShortConvAttention(torch.nn.Module):
         if torch.onnx.is_in_onnx_export():
             # ONNX path: pass through FusedLinearAttention custom op
             bcx_t = bcx.transpose(1, 2)  # [B, 3H, L]
-            gate = torch.zeros(batch_size, seq_len, 1, dtype=bcx.dtype, device=bcx.device)
-            beta = torch.zeros(batch_size, seq_len, 1, dtype=bcx.dtype, device=bcx.device)
-            attn_out = self.fused_attn(bcx_t, gate, beta, self.conv.weight.data.detach())
+            attn_out = self.fused_attn(bcx_t, conv_weight=self.conv.weight.data.detach())
             # attn_out: [B, L, 1, H] -> [B, L, H]
             attn_out = attn_out.view(batch_size, seq_len, -1)
             output = self.out_proj(attn_out)
@@ -1145,6 +1143,7 @@ class Rotary(torch.nn.Module):
         self.is_mrope = self.theta_sections is not None or self.mrope_interleaved
         self.rope_table_split = 2048
         self.rope_max_pos = getattr(config, 'max_position_embeddings', None) or 131072
+        self.rope_tables_interleaved = self.model_type in ['ernie4_5', 'mobilemoe'] and not self.is_mrope
         self.build_rope_tables()
 
     def build_rope_tables(self):
@@ -1175,10 +1174,14 @@ class Rotary(torch.nn.Module):
         self.rope_sin_low = torch.sin(low_angle).float()
         self.rope_cos_high = torch.cos(high_angle).float()
         self.rope_sin_high = torch.sin(high_angle).float()
+        if self.rope_tables_interleaved:
+            self.rope_cos_low = self.rope_cos_low.repeat_interleave(2, dim=-1)
+            self.rope_sin_low = self.rope_sin_low.repeat_interleave(2, dim=-1)
+            self.rope_cos_high = self.rope_cos_high.repeat_interleave(2, dim=-1)
+            self.rope_sin_high = self.rope_sin_high.repeat_interleave(2, dim=-1)
 
     def _rope_cos_sin(self, position_ids):
         # fp16-safe gather of cos/sin for integer positions; see build_rope_tables.
-        # Returns cos, sin of shape [*position_ids.shape, rotary_dim // 2].
         device = position_ids.device
         shape = position_ids.shape
         # clamp the position itself: positions outside the reserved table range
@@ -1198,18 +1201,22 @@ class Rotary(torch.nn.Module):
         sin_l = torch.nn.functional.embedding(r, self.rope_sin_low.to(device))
         cos_pos = cos_h * cos_l - sin_h * sin_l
         sin_pos = sin_h * cos_l + cos_h * sin_l
-        return cos_pos.reshape(*shape, -1), sin_pos.reshape(*shape, -1)
+        if len(shape) > 1:
+            cos_pos = cos_pos.reshape(*shape, -1)
+            sin_pos = sin_pos.reshape(*shape, -1)
+        return cos_pos, sin_pos
 
     def forward(self, position_ids):
         if self.is_mrope:
             return self.mrope_forward(position_ids)
         cos_pos, sin_pos = self._rope_cos_sin(position_ids.reshape(-1))
         rotary_pos_emb = torch.stack([cos_pos, sin_pos])
-        if self.model_type in ['ernie4_5', 'mobilemoe']:
-            rotary_pos_emb = torch.stack((rotary_pos_emb, rotary_pos_emb), dim=-1)
-            rotary_pos_emb = rotary_pos_emb.reshape(*rotary_pos_emb.shape[:-2], -1)
-        elif self.model_type != 'chatglm2':
-            rotary_pos_emb = torch.cat((rotary_pos_emb, rotary_pos_emb), dim=-1)
+        if not self.rope_tables_interleaved:
+            if self.model_type in ['ernie4_5', 'mobilemoe']:
+                rotary_pos_emb = torch.stack((rotary_pos_emb, rotary_pos_emb), dim=-1)
+                rotary_pos_emb = rotary_pos_emb.reshape(*rotary_pos_emb.shape[:-2], -1)
+            elif self.model_type != 'chatglm2':
+                rotary_pos_emb = torch.cat((rotary_pos_emb, rotary_pos_emb), dim=-1)
         rotary_pos_emb = rotary_pos_emb.unsqueeze(2).unsqueeze(1)
         if self.is_scaled:
             rotary_pos_emb *= self.attention_scaling
@@ -1458,7 +1465,8 @@ class Mlp(torch.nn.Module):
             self.moe_type = 'qwen3_moe'
         elif not hasattr(self, 'router'):
             self.moe_type = 'qwen3_5_moe'
-            self.norm_topk_prob = True
+            if getattr(self, 'norm_topk_prob', None) is None:
+                self.norm_topk_prob = True
             # refacte experts to qwen3_experts
             original_experts = self.experts
             hidden_size = getattr(original_experts, 'hidden_dim', None) or getattr(original_experts, 'hidden_size')
@@ -1494,7 +1502,7 @@ class Mlp(torch.nn.Module):
                     copy_qat_source(self.gate, gate)
                 self.gate = gate
 
-        if hasattr(self, 'expert_bias') and self.expert_bias is not None:
+        if model_type == 'lfm2_moe' or (hasattr(self, 'expert_bias') and self.expert_bias is not None):
             self.moe_type = 'lfm2_moe'
         if model_type == 'mobilemoe':
             self.moe_type = 'mobilemoe'
@@ -1550,9 +1558,12 @@ class Mlp(torch.nn.Module):
             router_input = hidden_states.float() if self.moe_type == 'mobilemoe' else hidden_states
             router_logits = self.gate(router_input)
             routing_weights = router_logits.sigmoid()
-            scores_for_routing = routing_weights + self.expert_bias
-            _, selected_experts = torch.topk(scores_for_routing, self.top_k, dim=-1)
-            routing_weights = torch.gather(routing_weights, dim=-1, index=selected_experts)
+            if getattr(self, 'expert_bias', None) is not None:
+                scores_for_routing = routing_weights + self.expert_bias
+                _, selected_experts = torch.topk(scores_for_routing, self.top_k, dim=-1)
+                routing_weights = torch.gather(routing_weights, dim=-1, index=selected_experts)
+            else:
+                routing_weights, selected_experts = torch.topk(routing_weights, self.top_k, dim=-1)
             if self.norm_topk_prob:
                 eps = 1e-20 if self.moe_type == 'mobilemoe' else 1e-6
                 routing_weights = routing_weights / (routing_weights.sum(dim=-1, keepdim=True) + eps)

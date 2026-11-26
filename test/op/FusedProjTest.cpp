@@ -161,6 +161,68 @@ public:
 };
 MNNTestSuiteRegister(FusedGateUpSplitTest, "op/fused_gateup_split");
 
+// MoE shared expert: out = sigmoid(gate(x)) * (x * down^T + b), the gate value being
+// one scalar per token. Metal folds that row multiply into the projection's decode
+// GEMV epilogue and, on the routes without the fold (the prefill tiles), runs a
+// standalone scaling pass instead -- both must give the reference result.
+static bool runRowMulCase(int seq, int ic, int oc) {
+    std::vector<float> xData(seq * ic);
+    for (int i = 0; i < seq * ic; ++i) {
+        xData[i] = (float)((i % 13) - 6) * 0.11f;
+    }
+    std::vector<float> sData(seq);
+    for (int t = 0; t < seq; ++t) {
+        sData[t] = 0.25f + 0.05f * (float)(t % 7);
+    }
+    auto x = _Input({seq, ic, 1, 1}, NC4HW4);
+    auto xC4 = packC4(xData, seq, ic);
+    ::memcpy(x->writeMap<float>(), xC4.data(), xC4.size() * sizeof(float));
+    x->unMap();
+    // Single-channel C4 scale: one ftype4 per token, value in component 0.
+    auto s = _Input({seq, 1, 1, 1}, NC4HW4);
+    auto sC4 = packC4(sData, seq, 1);
+    ::memcpy(s->writeMap<float>(), sC4.data(), sC4.size() * sizeof(float));
+    s->unMap();
+
+    std::unique_ptr<OpT> op(new OpT);
+    op->type = OpType_FusedLinear;
+    op->main.type = OpParameter_FusedLinearParam;
+    op->main.value = new FusedLinearParamT;
+    op->defaultDimentionFormat = MNN_DATA_FORMAT_NC4HW4;
+    auto param = op->main.AsFusedLinearParam();
+    param->convs.push_back(makeConv(ic, oc, seq));
+    param->row_mul = true;
+    auto expr = Expr::create(std::move(op), {x, s}, 1);
+    if (nullptr == expr) {
+        return false;
+    }
+    auto& conv = op->main.AsFusedLinearParam()->convs[0];
+    std::vector<float> expected;
+    convRef(xData, conv->weight, conv->bias, expected, seq, ic, oc);
+    for (int t = 0; t < seq; ++t) {
+        for (int o = 0; o < oc; ++o) {
+            expected[t * oc + o] *= sData[t];
+        }
+    }
+    char tag[32];
+    ::snprintf(tag, sizeof(tag), "row_mul_%d", seq);
+    return checkOut(Variable::create(expr, 0), expected, seq, oc, tag);
+}
+
+class FusedRowMulTest : public MNNTestCase {
+public:
+    virtual ~FusedRowMulTest() = default;
+    virtual bool run(int precision) {
+        bool ok = true;
+        ok = runRowMulCase(1, 128, 32) && ok; // eligible for floating-point Metal GEMV
+        ok = runRowMulCase(5, 128, 32) && ok; // distinct per-token scales in GEMV
+        ok = runRowMulCase(33, 16, 24) && ok; // shape that does not take the GEMV fold
+        ok = runRowMulCase(4, 8, 6) && ok;     // output channel needs C4 padding
+        return ok;
+    }
+};
+MNNTestSuiteRegister(FusedRowMulTest, "op/fused_row_mul");
+
 static std::vector<int8_t> makeSharedFusedProjModel(int seed) {
     const int ic = 8;
     auto x = _Input({2, ic, 1, 1}, NC4HW4);
@@ -1085,5 +1147,33 @@ public:
     }
 };
 MNNTestSuiteRegister(FusedQKVP4LNQuantBlock64ShapesTest, "op/fused_qkv_p4_ln_quant_block64_shapes");
+
+class FusedWidePrefillMergeTest : public MNNTestCase {
+public:
+    bool run(int precision) override {
+        struct Case {
+            std::vector<int> ocs;
+            const char* tag;
+            bool hasLn;
+        };
+        const std::vector<Case> cases = {
+            {{256, 128, 128}, "wide_prefill_all", true},
+            {{256, 128, 128}, "wide_prefill_all_noln", false},
+            {{256, 128, 32, 32}, "wide_prefill_partial", true},
+            {{256, 128, 32, 32}, "wide_prefill_partial_noln", false},
+            {{8192, 4096, 32, 32}, "wide_prefill_linattn", true},
+            {{32, 256, 128}, "wide_prefill_tiny_leader", true},
+            {{256, 128, 30, 30}, "wide_prefill_oc_tail", true},
+        };
+        for (const auto& c : cases) {
+            const std::vector<int> bits(c.ocs.size(), 4);
+            if (!runQuantLNCase(bits, c.ocs, c.tag, 128, 512, 64, 0.25f / 512, c.hasLn)) {
+                return false;
+            }
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(FusedWidePrefillMergeTest, "op/fused_wide_prefill_merge");
 
 #endif

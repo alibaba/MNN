@@ -4,6 +4,8 @@
 namespace MNN {
 void VulkanShaderMap::init() {
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+mMaps.insert(std::make_pair("glsl_indexed_linear_rw_reduce_comp", std::make_pair(glsl_indexed_linear_rw_reduce_comp, glsl_indexed_linear_rw_reduce_comp_len)));
+mMaps.insert(std::make_pair("glsl_indexed_linear_rw_reduce_FP16_comp", std::make_pair(glsl_indexed_linear_rw_reduce_FP16_comp, glsl_indexed_linear_rw_reduce_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_indexed_linear_route_comp", std::make_pair(glsl_indexed_linear_route_comp,glsl_indexed_linear_route_comp_len)));
 #endif
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE

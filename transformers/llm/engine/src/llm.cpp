@@ -17,7 +17,7 @@
 #include "prompt_cache_utils.hpp"
 #include <MNN/AutoTime.hpp>
 #include "core/TensorUtils.hpp"
-#include "core/AttentionMaskConvention.hpp"
+#include "core/AttentionCommon.hpp"
 #include "cpp/ExprDebug.hpp"
 #include "llm/llm.hpp"
 #include "kvmeta.hpp"

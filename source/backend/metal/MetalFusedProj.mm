@@ -23,12 +23,28 @@
 
 namespace MNN {
 
+// Standalone row scale for FusedLinearParam.row_mul, used only on the routes whose
+// kernel has no epilogue fold (the prefill GEMM tiles); MetalConvolution1x1's decode
+// GEMV bodies apply the same multiply as they store, and then this never runs.
+// In the Metal C4 layout, each channel quad stores all tokens consecutively.
+// Each thread updates one vector in place; its token index is index % tokens.
+static const char* const gFusedProjRowScale = R"metal(
+#include <metal_stdlib>
+using namespace metal;
+kernel void row_scale(device T4* output [[buffer(0)]], const device T4* scale [[buffer(1)]],
+                      constant int2& shape [[buffer(2)]], uint index [[thread_position_in_grid]]) {
+    if (index >= uint(shape.y)) return;
+    output[index] = T4(float4(output[index]) * float(scale[index % uint(shape.x)].x));
+}
+)metal";
+
 class MetalFusedProj : public MetalExecution, public MetalBackend::FusedProjFusionHost {
 public:
     MetalFusedProj(Backend *backend, const MNN::Op *op, bool eager = true) : MetalExecution(backend) {
         auto param  = op->main_as_FusedLinearParam();
         mIsGateUp   = param->act_silu_mul();
         mHasLn      = param->has_ln() && param->ln() != nullptr;
+        mRowMul     = param->row_mul();
         mNumConvs   = (int)param->convs()->size();
         mNumProjOut = mIsGateUp ? 1 : mNumConvs;
         mParam      = param;
@@ -94,6 +110,36 @@ public:
         Tensor *hidden = mHasLn ? inputs[1] : inputs[0];
         auto fmt = TensorUtils::getDescribe(hidden)->dimensionFormat;
         mChildFormat = fmt;
+        if (mRowMul) {
+            if (!_createChildren(backend, inputs, outputs, hidden, fmt)) {
+                return NOT_SUPPORT;
+            }
+            // Ask the projection to fold the gate scale into its own store. Where the
+            // route has the fold (the decode GEMV families) the group is a single
+            // dispatch writing outputs[0] directly, with no intermediate tensor; the
+            // prefill tiles do not, and get a standalone pass afterwards instead.
+            mConvs[0]->requestRowScale(inputs[1]);
+            auto code = mConvs[0]->onResize({hidden}, {outputs[0]});
+            if (code != NO_ERROR) {
+                return code;
+            }
+            const bool fused = mConvs[0]->rowScaleFused();
+            if (!fused) {
+                code = _prepareRowScale(backend, outputs[0]);
+                if (code != NO_ERROR) {
+                    return code;
+                }
+            }
+            // Both the dispatch sequence and the standalone pass' grid follow from
+            // these two, so a change invalidates a recording of this group.
+            const int tokens = outputs[0]->length(0);
+            if (fused != mRowScaleFused || tokens != mRowScaleTokens) {
+                ++mResizeGeneration;
+            }
+            mRowScaleFused = fused;
+            mRowScaleTokens = tokens;
+            return NO_ERROR;
+        }
         if (mHasLn) {
             if (_ensureIntermediate(mNormalized, hidden, hidden->length(1), fmt)) {
                 mResizeGeneration++;
@@ -178,6 +224,19 @@ public:
         // Every resize re-decides the fusion, and the early returns below leave
         // the group unfused, so clear this before any of them can fire.
         mSiluFused = false;
+        for (auto &conv : mConvs) {
+            conv->clearWideFusionFlags();
+        }
+        if (!mIsGateUp && mConvs.size() >= 2 && !mConvs[0]->is2sgDecodePipeline()) {
+            std::vector<MetalConvolution1x1 *> members;
+            members.reserve(mConvs.size());
+            for (auto &conv : mConvs) {
+                members.push_back(conv.get());
+            }
+            if (mConvs[0]->setupPrefillWideFusion(members, mProjOutputs)) {
+                return;
+            }
+        }
         // The fused kernels only exist on the decode-GEMV pipeline; anything
         // else (all of prefill included) stays as per-member dispatches.
         for (auto &conv : mConvs) {
@@ -262,6 +321,22 @@ public:
                           id<MTLComputeCommandEncoder> encoder) override {
         mRecordedGeneration = mResizeGeneration;
         Tensor *projInput = inputs[0];
+        if (mRowMul) {
+#if MNN_METAL_OP_PROFILE
+            mConvs[0]->onExecute({projInput}, {outputs[0]});
+            if (!mRowScaleFused) {
+                auto backend = static_cast<MetalBackend *>(this->backend());
+                backend->profileMarkOp(this);
+                _encodeRowScale(outputs[0], inputs[1], backend->profileNextSubpass("row_scale"));
+            }
+#else
+            mConvs[0]->onEncode({projInput}, {outputs[0]}, encoder);
+            if (!mRowScaleFused) {
+                _encodeRowScale(outputs[0], inputs[1], encoder);
+            }
+#endif
+            return;
+        }
 #if MNN_METAL_OP_PROFILE
         // Profile builds swap the encoder mid-op per subpass; drive each child
         // through its own onExecute so per-op profile state stays consistent.
@@ -318,6 +393,48 @@ public:
     }
 
 private:
+    ErrorCode _prepareRowScale(MetalBackend* backend, const Tensor* output) {
+        if (mRowScalePipeline == nil) {
+            const bool half = backend->useFp16InsteadFp32();
+            std::vector<std::string> keys = {"fused_proj_row_scale", half ? "half" : "float"};
+            mRowScalePipeline = backend->runtime()->findPipeline(keys);
+            if (mRowScalePipeline == nil) {
+                MTLCompileOptions* options = [[MTLCompileOptions alloc] init];
+                options.preprocessorMacros = @{@"T4": half ? @"half4" : @"float4"};
+                mRowScalePipeline =
+                    backend->makeComputePipelineWithSourceOption(gFusedProjRowScale, "row_scale", options);
+                if (mRowScalePipeline != nil) {
+                    backend->runtime()->insertPipeline(keys, mRowScalePipeline);
+                }
+            }
+            if (mRowScalePipeline == nil) {
+                return NOT_SUPPORT;
+            }
+        }
+        if (mRowScaleShape == nil) {
+            mRowScaleShape = backend->getConstBuffer(2 * sizeof(int));
+        }
+        if (mRowScaleShape == nil) {
+            return OUT_OF_MEMORY;
+        }
+        const int tokens = output->length(0);
+        const int count = tokens * UP_DIV(output->length(1), 4);
+        auto shape = static_cast<int*>(mRowScaleShape.contents);
+        shape[0] = tokens;
+        shape[1] = count;
+        const int threads = std::min<int>(128, mRowScalePipeline.maxTotalThreadsPerThreadgroup);
+        mRowScaleThreads = {MTLSizeMake(UP_DIV(count, threads), 1, 1), MTLSizeMake(threads, 1, 1)};
+        return NO_ERROR;
+    }
+
+    void _encodeRowScale(const Tensor* output, const Tensor* scale, id<MTLComputeCommandEncoder> encoder) {
+        [encoder setComputePipelineState:mRowScalePipeline];
+        MetalBackend::setTensor(output, encoder, 0);
+        MetalBackend::setTensor(scale, encoder, 1);
+        [encoder setBuffer:mRowScaleShape offset:0 atIndex:2];
+        [encoder dispatchThreadgroups:mRowScaleThreads.first threadsPerThreadgroup:mRowScaleThreads.second];
+    }
+
     // Keep the Tensor object when its description is unchanged so recorded
     // encode-replay bindings never dangle. Returns true if newly allocated.
     bool _ensureIntermediate(std::shared_ptr<Tensor> &t, const Tensor *like, int channel, MNN_DATA_FORMAT fmt) {
@@ -426,6 +543,13 @@ private:
     std::vector<std::unique_ptr<flatbuffers::FlatBufferBuilder>> mBuilders;
     std::vector<std::unique_ptr<MetalConvolution1x1>> mConvs;
     std::unique_ptr<MetalExecution> mMulSilu;
+    // Standalone row-scale pass, only for the routes where the projection could not
+    // fold the gate scale into its own store (see onResize's mRowMul branch).
+    id<MTLComputePipelineState> mRowScalePipeline = nil;
+    id<MTLBuffer> mRowScaleShape = nil;
+    std::pair<MTLSize, MTLSize> mRowScaleThreads;
+    bool mRowScaleFused = false;
+    int mRowScaleTokens = -1;
     std::unique_ptr<MetalLayerNorm> mLn;
     std::shared_ptr<Tensor> mNormalized;
     std::shared_ptr<Tensor> mGate;
@@ -441,6 +565,7 @@ private:
     const Tensor *mLnHiddenIn    = nullptr;
     Tensor *mLnResidualOut       = nullptr;
     bool mIsGateUp   = false;
+    bool mRowMul = false;
     bool mSiluFused  = false;   // leader's epilogue emits up * silu(gate)
     bool mPrefillSiluFused = false;   // up projection's prefill epilogue emits it instead
     bool mPrefillDualFused = false;   // one dispatch computes both tiles, silu-mul in registers
@@ -457,7 +582,7 @@ public:
         // Must match GeometryFusedProj::_keepWhole exactly: an op the geometry
         // keeps whole but this refuses fails session creation with the member
         // weights already stripped.
-        if (!FusedProjCommon::nativeEnvelopeOk(op, inputs.size(), outputs.size()) ||
+        if (!FusedProjCommon::nativeEnvelopeOk(op, inputs.size(), outputs.size(), true) ||
             !FusedProjCommon::allMembersAre1x1(op)) {
             return nullptr;
         }

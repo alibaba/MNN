@@ -16,6 +16,7 @@
 #include "core/Macro.h"
 #include "core/OpCommonUtils.hpp"
 #include "core/TensorUtils.hpp"
+#include "core/AttentionCommon.hpp"
 
 namespace MNN {
 
@@ -317,13 +318,15 @@ ErrorCode VulkanLinearAttention::onEncode(const std::vector<Tensor*>& inputs, co
     auto vkBn = static_cast<VulkanBackend*>(backend());
     auto cmd = cmdBuffer->get();
 
-    MNN_ASSERT(inputs.size() >= 4);
-    MNN_ASSERT(outputs.size() >= 1);
+    const int weightIndex = linearAttentionWeightIndex(mAttentionType == "short_conv", inputs.size());
+    if (weightIndex < 0 || outputs.empty()) {
+        return INVALID_VALUE;
+    }
 
     auto qkv = inputs[0];
     int batch = 0, convDim = 0, seqLen = 0;
     _linearAttentionDims(qkv, batch, convDim, seqLen);
-    const int kernelSize = inputs[3]->length(2);
+    const int kernelSize = inputs[weightIndex]->length(2);
     const int convStateSize = kernelSize - 1;
     const int keyDim = mNumKHeads * mHeadKDim;
     const int valDim = mNumVHeads * mHeadVDim;
@@ -332,8 +335,8 @@ ErrorCode VulkanLinearAttention::onEncode(const std::vector<Tensor*>& inputs, co
     const bool shortConv = mAttentionType == "short_conv";
     const bool gatedDelta = mAttentionType == "gated_delta_rule";
     const bool qkvC4 = _isC4(qkv);
-    const bool gateC4 = _isC4(inputs[1]);
-    const bool betaC4 = _isC4(inputs[2]);
+    const bool gateC4 = !shortConv && _isC4(inputs[1]);
+    const bool betaC4 = !shortConv && _isC4(inputs[2]);
     const bool outputC4 = _isC4(outputs[0]);
     const int convChannels = shortConv ? convDim / 3 : convDim;
 
@@ -426,7 +429,7 @@ ErrorCode VulkanLinearAttention::onEncode(const std::vector<Tensor*>& inputs, co
         } else {
             mShortConvDesSet->writeBuffer(vkBn->getBuffer(mConvOut.get()), 1);
         }
-        mShortConvDesSet->writeBuffer(vkBn->getBuffer(inputs[3]), 2);
+        mShortConvDesSet->writeBuffer(vkBn->getBuffer(inputs[weightIndex]), 2);
         mShortConvDesSet->writeBuffer(vkBn->getBuffer(mConvOut.get()), 3);
         mShortConvDesSet->writeBuffer(mShortConvParam->buffer(), 4, mShortConvParam->size());
         dispatchWithProfile("linear_attn_short_conv", mShortConvPipeline, mShortConvDesSet,

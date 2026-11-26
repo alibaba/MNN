@@ -655,6 +655,8 @@ decode GEMV 的带宽兑现率**随单 dispatch 体量单调上升**：几 MB �
 - **机制**：tensor-API 设备上 prefill 量化 conv 在 GEMM kernel 内解包反量化；M64 tile 再增大每 TG 的 M 维。
 - **为什么赚**：① 省掉 dequant 预处理 dispatch 与 `mTempWeight` 分配（约 4× 权重体积的带宽往返）；② 更大的 M tile 减少跨 TG 的权重读冗余。
 - **适用边界**：**小模型 + 低 bit 组合上可能翻负**，因此对权重规模设了下限（低于阈值的 conv 路由回 outer-dequant）。
+- **M tile 加大被双重寄存器预算锁死，缩 N 救不回来**：destination cooperative tensor 摊到每线程 `M*N/threads` 个 float（超过约 32 float/thread 即溢出），但**输入 staging 的活跃行寄存器随 M 同步增长**（每线程行数 = M/16，M64 持 4 行、M128 持 8 行）。所以即便缩 N 把累加器压回 32 float/thread（M128×N32），多出的活跃输入寄存器仍把核推到同一条溢出悬崖——M128×N64、M128×N32、§2.2.5 的 N128×M64 全部翻负。判据：若变慢比值**跨短/中/长序列恒定**，则是每 TG 固有的寄存器/MMA 效率悬崖，**不是 DRAM 冗余流量**（后者随 grid.x∝area 变化、必有交叉点）。据此"缩 N 加 M 减权重冗余"在这族 fused-quant 核上已被证伪，别再试 M tile 增长。附流量模型：总重读 ≈ `(oc/N)·InputBytes + (area/M)·WeightBytes`，输入 fp16(2B/elem) 比 Q4 权重(0.5B/elem) 重 4×，缩 N 会放大更贵的输入重读——即使没有寄存器悬崖也是净亏。
+- **短序列差距先归属再选手段**：短 prefill 的 GEMM 常是 latency-bound（达成带宽随 TG 数单调升）。用消融删 MMA 读"加载+staging 地板"：**地板≈对手总时间 ⇒ 差距全在 MMA 重叠效率**（tensor-op `mmOps.run` 同步退休，MMA 串行暴露在访存之上），不在权重冗余。此时加深 B 预取、预取 A、单缓冲提占用都会因寄存器压力/barrier 净亏而翻负——别再去省指令或加预取，也**别靠缩 N 加 M 减冗余流量**（见上条，已证伪）；唯一剩下的结构性手段是改 MMA 与 load 的重叠本身（让 tensor-op 不同步退休、把 MMA 藏到访存之下）。
 - **位宽覆盖**：M64 tile 的门控是 `bits ∈ {4, 8} && area >= 64`（tensor-API 设备）。判据与位宽无关的原因是 **staging 存的是反量化后的 ftype**，`SMEM_OPERAND` 只随 ftype 与 tile 常量变化——W8 不会因权重字节翻倍而撑爆 threadgroup memory 预算。W2/W3 不在内：它们的解包是逐 nibble 标量，且 prefill 本来就走 outer-dequant。
 - **epilogue 仍按位宽分档**：gate/up 双累加器（`FQ4_GATEUP_DUAL`）与 MUL_SILU 折叠（`FQ4_SILU_MUL`）**只对 Q4 开**，因为它们的面积阈值是按 Q4 形状标定的；W8 只拿 M64 tile 与双缓冲 staging，gate 张量照旧落地并由 owner 单独 dispatch。双缓冲宏因此改名为 `FQ_DOUBLE_BUF`（它不再只服务 Q4），而 dual/silu 两个宏保留 `FQ4_` 前缀以如实反映其位宽范围。
 - **回退**：`OUTER_DEQUANT_GEMM_TENSORAPI` 开关回到 outer-dequant + fp GEMM；非 tensor-API 设备该开关是 no-op。
@@ -680,6 +682,23 @@ decode GEMV 的带宽兑现率**随单 dispatch 体量单调上升**：几 MB �
 
 - MPP `matmul2d` 要求 M/N 至少一个 16 倍数、静态 K 16 倍数。**探测 kernel 的描述符写错会让 tensor API 整体禁用**，症状是新设备上性能没有任何变化（而不是报错）。
 - 另有一类更隐蔽的：探测**通过**但运行时 pipeline 反复编译失败并回退，反而比不探测更慢。⇒ **能力探测必须验证"探测结果 == 运行时真的能编译并跑"**，不能只看探测返回 true。
+
+### 2.2.5 MoE grouped GEMM：staging 是主成本，不是 MMA
+
+- **判据**：每专家行数小（M ≈ routes/experts）的 grouped GEMM，kernel 时间大头在 staging——量化权重解包、dequant scale 取数、A 的间接 gather——MMA 本体只占小头。动手前先用消融阶梯把 B staging / A gather / MMA 逐类删掉读差值，别按"GEMM=算力 bound"的直觉选手段。
+- **有效杠杆**（都作用于 staging 指令数与冗余流量，不改变总在途字节，§3.6 不变量仍然成立）：
+  ① staging 加载向量化：A 沿 C4 连续轴按 `ftype4` gather（每 lane 一个 quad，替代逐元素标量读）；B 每个 packed tile 一次宽加载覆盖其全部行（如 Q4 的 `ushort4` = 4 行 × 4 nibble），替代逐行 2B 标量读。
+  ② scale 按 K 窗口单次暂存 smem 复用：逐元素直读会把同一 (oc, block) 的 scale 冗余取数倍于唯一字节量；smem 暂存 + 一次 barrier 换掉全部冗余 device 读。
+  ③ 加宽 K（如 32→64）：barrier 与 matmul2d 调用次数减半，destination capacity 不变（§2.3.4 判据）；smem 预算随之翻倍，先核对 threadgroup memory 上限。
+- **陷阱**：编译期 smem 数组按运行时参数的上限分配（如 scale 子块数 = K 窗口/blockSize）时，dispatcher 必须对该参数加门控，否则小参数用例（极小 blockSize）越界写 smem，症状是 NaN 而非编译错误；不满足门控的形状回退旧路径，而不是缩小数组。
+- **循环不变的间接 gather 元数据要手动 hoist 出 K 循环**：A 的行映射（`order[row]`→source row）与 K 窗口无关，但 Metal 编译器不对 device load 做 LICM，留在循环内会每窗口重发 `order[]` 依赖加载。提到循环外每线程只取一次，窗口多的短 K 形状小赚、长 K 中性，纯重构逐位等价。反向把 B 的 packed 加载 hoist 到 A barrier 前求延迟重叠则翻负——跨 barrier 持寄存器加剧压力（§2.2.1 寄存器悬崖），与加宽 K 跨占用边界同类，别试。
+- **M tile 按 rows/expert 分档路由，不可全局加大**：M 加大把每专家权重读摊到更多 route 行（长序列下权重重复读是主成本），但 ceil-padding 的 MMA 浪费随 M 增大；rows/expert 小时 padding 项反超流量项，净收益为负。正确形态是 M16/M32/M64 编译期变体 + dispatcher 按 rows/expert 阈值路由，阈值用 op 单测在临界 T 上交替配对扫描定。tile 粒度常量同时活在 routing 预处理（tileOffsets 构建）与 grouped kernel（firstRow）里，变体宏必须同步这两处并进 pipeline 缓存 key；resize 改变 M 时作废受影响 kernel 的本地 pipeline 缓存。attention tc 的"加 M 溢出"判据不能外推到 GEMM：GEMM 只有 D 累加器，没有 q_reg/softmax 状态一起翻倍。
+- **smem 相位复用**：K 循环结束后 staging tile 已死，epilogue 的 C tile 可别名同一块 threadgroup buffer（dense M64 GEMM 的做法），既省出大 M 的预算，也可能因占用下降直接提速；staging 与 epilogue 之间必须有 barrier。
+- **A 直喂 device tensor（staging 地板的结构性手段）**：廉价杠杆（向量化/scale 暂存/加宽 K/hoist）用尽后，把 A 在路由预处理里 permute 成专家排序的连续 scratch（每 route 行一线程，`inputChannels%4==0`），grouped GEMM 用 `tensor<device ftype,…>` handle 的 `slice(firstInput, firstRow)` 直喂 matmul2d（§2.3.9 `FATC_KV_DEV_TENSOR` 机制），消掉 A 的 smem 往返与跨 N-tile 散读，`slice()` 自带尾行 zero-fill。已验证 `execution_simdgroups<4>` + device-A/threadgroup-B 混合地址空间可行；destination CT 类型用 `remove_addrspace_t<decltype(slice)>` 推。**形状门控**：短 K 非融合（down，staging-bound）赚，长 K 融合（gate_up，compute-bound）因 permute 开销 + 长 K device 重读收不回而翻负——按 `!fuseSwiGLU` 门控（down-like 的稳健代理），融合路径保留 smem staging。permute 在 routing 之后、grouped 之前 dispatch（serial encoder 隐式定序），scratch 绑 grouped buffer 0 不改签名。**连带杠杆**：handle 直喂后 A 的 smem 区已死，令 `A_BYTES=0` 缩 smem 可提占用（M32 上叠加收益），cTile 别名仍成立。
+- **验证**：staging 改写属于归约顺序不变但加载布局全变的改动，正确性 oracle 必须覆盖 K 尾块、奇数输出通道 partial tile、融合/非融合、全部位宽与两种 inputMode；"全绿"前先确认新路径真的被用例命中（门控可能把用例全部推回旧路径）。M 变体还要覆盖 resize 序列（token 数变化触发 M 切换与缓存失效路径）。
+- **N/K tile 先算占用与 MMA 效率再动手**：加宽的判据是 smem 预算跨过 32KB/2 占用边界或累加器寄存器超预算；缩 N 省 smem 提占用同样翻负——tensor-op MMA 效率随 N 走，且 TG 数与 barrier 总数翻倍，占用收益补不回来。N64 是双向局部最优，两个方向均已实测否决。
+- **smem 字节数学必须 `sizeof(ftype)`**：staging 偏移若硬编码 `*2`（fp16 假设），fp32 路径会越界写 threadgroup buffer，症状是 fp32 单测大数值用例错而 fp16 全绿——两种精度都要跑才算验证完。
+- **路由预处理融合 + 原子 RW epilogue**：Clear/Histogram/Prefix/Scatter 四 dispatch 可合成单 TG(1024) kernel（tg atomic 直方图 + tid0 串行 O(E) prefix + scatter），op 级中性但每层省 3 次 dispatch；down-proj 的 routeWeight 折叠可用 half2 CAS 原子加直接累进 C4 输出（fp16 无原生原子加），省 route-row scratch 与 reduce dispatch（op −5%、e2e pp512 +4%）。**RAW probs（routeWeight=2）的 topK 归一化 sum 必须按行 hoist 进 smem wTile**：逐 channel-pair 重算会把 op 收益吃光并造成 e2e 回退——op 测速用例必须镜像模型的 routeWeight 模式，只测 mode=1 会漏掉 mode=2 的尾段成本。原子路径的宏（RW_ATOMIC）改变 kernel 签名与 smem 布局，必须在 grouped pipeline 编译**之前**定夺，且编译失败回退时同步关掉原子标志重建。
 
 ## 2.3 Attention Kernel
 
@@ -772,6 +791,8 @@ auto t_k = tensor<device ftype, dextents<int32_t, 2>, tensor_inline>(
 - PV 的 B 操作数是 `transpose_b=false`（`[k][n]`），QK 是 `true`——**K=32 多出来的那一级落在元素索引哪一位，不能从 QK 类比推导**，必须单独 dump。
 - 只有常驻-CT 的 PV 分支实现了宽 K 填充，故 `PV_K32` 依赖 `O_CT`，shader 里加 `#error` 守卫。
 - 让 QK 累加也常驻单个 destination CT 是**中性**的——K32 之后编译器已自行合并了那处往返。
+- **大 head_dim 的 O 累加器寄存器悬崖必须按 D 切，但切法决定 QK 是否冗余**：online softmax 要求 O 跨 kv tile 常驻，full head_dim 的 O（每 lane `HEAD_DIM/32×16` float，d256=128）单独就超预算（destination CT >~32 float/thread 即溢出）。**不切 O 的两条路都实测翻负**：Q_CT 常驻（O+Q 双份寄存器）数倍慢；流式 Q（腾 Q 寄存器、Q 每 kv tile 重读）长 seq 仍明显慢——O 单独撞悬崖，腾 Q 救不回。切 O 有两种：① grid.z 切到不同 TG 各持半 O，但每 slice 重算整段 QK（QK 跨 full head_dim），冗余随 S² 增长；② **simdgroup 级切（`FATC_WN`）**——同一 row group 的 WN 个 simdgroup 各算一段 D 的 partial QK，经 threadgroup memory 交换求和得完整 score，QK 只算一次，O 仍按 D 切片常驻。② 实测优于 ①（消冗余 QK，长 seq 尤甚），代价是每 kv tile 两次 TG-wide barrier + smem 交换 + 各 d_group 冗余 softmax；且 WN>1 必须用 **block 级 kv_lim**（整 64 行块的顶行）保证全 TG 走相同 kv tile 数，否则 barrier 死锁，低 row group 的多余 tile 由逐行 causal mask 清零。P 落 smem/global 共享不可行（P 行=16×seq_k，smem 放不下；global 的 S² 带宽比重算 QK 更贵）。
+- **短 seq attention op 单测的时钟爬坡陷阱**：Apple GPU 轻负载不升频，短 seq（如 T512）kernel 太轻喂不 boost clock，**先跑的臂冷低频、后跑的臂被前任暖升频**，A/B 顺序直接决定符号（同核可差 3×）。短 seq 的 TFLOPS 随 seq 单调升很大一部分是升频假象，不是核效率。可靠 A/B 只在重负载长 seq（T2048，rounds≥25 收敛到稳态）做；短 seq 要么 interleaved 配对、要么先重负载暖机再测，别信冷却后第一跑。
 
 ### 2.3.5 单 pass 融合 SDPA decode
 

@@ -120,17 +120,20 @@ struct ModelShape {
     int vocab;
     SliceList qkv;
     SliceList linearIn;
+    bool splitQkv;
 };
 
 constexpr ModelShape kModels[] = {
-    {"Qwen3-0.6B", "0.6b", 1024, 28, 28, 3072, 151936, {3, {2048, 1024, 1024}}, {0, {0}}},
-    {"Qwen3-1.7B", "1.7b", 2048, 28, 28, 6144, 151936, {3, {2048, 1024, 1024}}, {0, {0}}},
-    {"Qwen3-4B", "4b", 2560, 36, 36, 9728, 151936, {3, {4096, 1024, 1024}}, {0, {0}}},
-    {"Qwen3-8B", "8b", 4096, 36, 36, 12288, 151936, {3, {4096, 1024, 1024}}, {0, {0}}},
+    {"Qwen3-0.6B", "0.6b", 1024, 28, 28, 3072, 151936, {3, {2048, 1024, 1024}}, {0, {0}}, false},
+    {"Qwen3-1.7B", "1.7b", 2048, 28, 28, 6144, 151936, {3, {2048, 1024, 1024}}, {0, {0}}, false},
+    {"Qwen3-4B", "4b", 2560, 36, 36, 9728, 151936, {3, {4096, 1024, 1024}}, {0, {0}}, false},
+    {"Qwen3-8B", "8b", 4096, 36, 36, 12288, 151936, {3, {4096, 1024, 1024}}, {0, {0}}, false},
     // Qwen3.5 is hybrid: full_attention_interval 4 => 6 of 24 layers attend.
-    {"Qwen3.5-0.8B", "3.5-0.8b", 1024, 24, 6, 3584, 248320, {4, {2048, 512, 512, 2048}}, {4, {6144, 2048, 16, 16}}},
-    {"Qwen3.5-2B", "3.5-2b", 2048, 24, 6, 6144, 248320, {4, {2048, 512, 512, 2048}}, {4, {6144, 2048, 16, 16}}},
-    {"Qwen3.5-4B", "3.5-4b", 2560, 32, 8, 9216, 248320, {4, {4096, 1024, 1024, 4096}}, {4, {8192, 4096, 32, 32}}},
+    {"Qwen3.5-0.8B", "3.5-0.8b", 1024, 24, 6, 3584, 248320, {4, {2048, 512, 512, 2048}}, {4, {6144, 2048, 16, 16}}, false},
+    {"Qwen3.5-2B", "3.5-2b", 2048, 24, 6, 6144, 248320, {4, {2048, 512, 512, 2048}}, {4, {6144, 2048, 16, 16}}, false},
+    {"Qwen3.5-4B", "3.5-4b", 2560, 32, 8, 9216, 248320, {4, {4096, 1024, 1024, 4096}}, {4, {8192, 4096, 32, 32}}, false},
+    {"Qwen3.6-35B-A3B", "3.6-35b", 2048, 40, 10, 512, 248320, {4, {4096, 512, 512, 4096}}, {4, {8192, 4096, 32, 32}}, false},
+    {"MobileMoE-S", "mmoe", 768, 20, 20, 1536, 128256, {3, {768, 256, 256}}, {0, {0}}, true},
 };
 
 const ModelShape& model() {
@@ -209,24 +212,24 @@ double weightBytes(double params) {
 
 namespace {
 
-VARP buildFloatConv1x1(VARP x, int ic, int oc) {
+VARP buildFloatConv1x1(VARP x, int ic, int oc, int seed = 0) {
     std::vector<float> weight(oc * ic);
     for (size_t i = 0; i < weight.size(); ++i) {
-        weight[i] = ((float)(i % 127) - 63.0f) / 1000.0f;
+        weight[i] = ((float)((i + seed * 7919) % 127) - 63.0f) / 1000.0f;
     }
     std::vector<float> bias(oc, 0.0f);
     return _Conv(std::move(weight), std::move(bias), x, {ic, oc}, {1, 1}, PaddingMode::VALID, {1, 1}, {1, 1}, 1,
                  {0, 0}, false, false);
 }
 
-VARP buildQuantConv1x1(VARP x, int ic, int oc) {
+VARP buildQuantConv1x1(VARP x, int ic, int oc, int seed = 0) {
     const int block = blockSize();
     MNN_ASSERT(ic % block == 0);
     const int blockNum = ic / block;
 
     std::vector<float> weightFp32(oc * ic);
     for (size_t i = 0; i < weightFp32.size(); ++i) {
-        weightFp32[i] = ((float)(i % 127) - 63.0f) / 1000.0f;
+        weightFp32[i] = ((float)((i + seed * 7919) % 127) - 63.0f) / 1000.0f;
     }
     std::vector<float> wScale(2 * oc * blockNum);
     for (int k = 0; k < oc; ++k) {
@@ -249,14 +252,17 @@ const char* quantArmName() {
 }
 
 // mode: 0 = float dense, 1 = int4 block-quantized
-void benchLinear(const char* name, int M, int K, int N, int mode, int thread) {
+void benchLinear(const char* name, int M, int K, int N, int mode, int thread, int layers = 1) {
     // Graph is wrapped in a Module so every onForward recomputes; an Express
     // VARP caches its result and would need a host writeMap to dirty the input,
     // which drags a 159 MB upload into the measurement.
     auto x = _Input({1, K, 1, M}, NC4HW4, halide_type_of<float>());
-    VARP y = (mode == 0) ? buildFloatConv1x1(x, K, N) : buildQuantConv1x1(x, K, N);
+    std::vector<VARP> ys;
+    for (int l = 0; l < layers; ++l) {
+        ys.push_back((mode == 0) ? buildFloatConv1x1(x, K, N, l) : buildQuantConv1x1(x, K, N, l));
+    }
     x.fix(VARP::INPUT);
-    auto buffer = Variable::save({y});
+    auto buffer = Variable::save(ys);
     std::shared_ptr<Module> mod(
         Module::load({}, {}, (const uint8_t*)buffer.data(), buffer.size(), makeRuntime(thread)));
 
@@ -279,12 +285,12 @@ void benchLinear(const char* name, int M, int K, int N, int mode, int thread) {
         last = mod->onForward({input});
     }
     last[0]->readMap<float>();
-    float avgMs = (float)_t.durationInUs() / 1000.0f / (float)LOOP;
+    float avgMs = (float)_t.durationInUs() / 1000.0f / (float)LOOP / (float)layers;
     last[0]->unMap();
     double flops  = 2.0 * (double)M * (double)K * (double)N;
     double tflops = flops / (avgMs * 1e6) / 1000.0;
-    MNN_PRINT("%-10s %-6s M=%-5d K=%-5d N=%-6d  wall=%8.3f ms (%6.2f TFLOPS)\n", name,
-              mode == 0 ? "float" : quantArmName(), M, K, N, avgMs, tflops);
+    MNN_PRINT("%-10s %-6s M=%-5d K=%-5d N=%-6d  wall=%8.3f ms (%6.2f TFLOPS) x%d\n", name,
+              mode == 0 ? "float" : quantArmName(), M, K, N, avgMs, tflops, layers);
     fflush(stdout);
 }
 
@@ -308,7 +314,15 @@ int prefillSeq() {
 std::vector<LinearShape> prefillShapes() {
     const int S   = prefillSeq();
     const auto& m = model();
-    std::vector<LinearShape> shapes = {{"qkv", S, m.hidden, sumOc(m.qkv)}};
+    std::vector<LinearShape> shapes;
+    if (m.splitQkv) {
+        shapes.push_back({"q", S, m.hidden, m.qkv.oc[0]});
+        shapes.push_back({"k", S, m.hidden, m.qkv.oc[1]});
+        shapes.push_back({"v", S, m.hidden, m.qkv.oc[2]});
+        shapes.push_back({"router", S, m.hidden, 60});
+    } else {
+        shapes.push_back({"qkv", S, m.hidden, sumOc(m.qkv)});
+    }
     if (0 != m.linearIn.n) {
         shapes.push_back({"linear_in", S, m.hidden, sumOc(m.linearIn)});
     }
@@ -333,17 +347,18 @@ public:
         MNN_PRINT("forwardType=%d precision=%d thread=%d block=%d\n", st.forwardType, st.precision, st.thread,
                   blockSize());
         for (auto& s : prefillShapes()) {
+            const int layers = (model().splitQkv && 0 != strcmp(s.name, "lm_head")) ? model().layers : 1;
             // The float arm materializes dense fp32 weights on the host: at
             // Qwen3.5-2B's 2048 x 248320 lm_head that is 2 GB and the process
             // gets OOM-killed before the quantized row prints. Production
             // lm_head is quantized, so the float reading there is not worth it.
-            if ((double)s.K * (double)s.N * 4.0 > 1e9) {
+            if ((double)s.K * (double)s.N * 4.0 * layers > 1e9) {
                 MNN_PRINT("%-10s float  M=%-5d K=%-5d N=%-6d  skipped (dense fp32 weights >1 GB)\n", s.name, s.M, s.K,
                           s.N);
             } else {
-                benchLinear(s.name, s.M, s.K, s.N, 0, st.thread);
+                benchLinear(s.name, s.M, s.K, s.N, 0, st.thread, layers);
             }
-            benchLinear(s.name, s.M, s.K, s.N, 1, st.thread);
+            benchLinear(s.name, s.M, s.K, s.N, 1, st.thread, layers);
         }
         return true;
     }
@@ -523,7 +538,7 @@ std::shared_ptr<Module> makeFusedLinearModule(const std::vector<int>& ocs, bool 
         op->defaultDimentionFormat = MNN_DATA_FORMAT_NC4HW4;
         auto param                 = op->main.AsFusedLinearParam();
         param->act_silu_mul        = gateUp;
-        param->has_ln              = true;
+        param->has_ln              = nullptr == getenv("MNN_FL_NOLN") && !model().splitQkv;
         param->ln.reset(new LayerNormT);
         param->ln->epsilon    = 1e-6f;
         param->ln->gamma      = std::vector<float>(hidden, 1.0f);
@@ -537,8 +552,11 @@ std::shared_ptr<Module> makeFusedLinearModule(const std::vector<int>& ocs, bool 
             param->convs.push_back(_blockQuantConv1x1(hidden, ocs[m], bits(), blockSize(), (int)m + 1 + l * 97));
         }
         // gate/up collapse to one output; qkv keeps one per member. Plus residual_out.
-        const int numOut = (gateUp ? 1 : (int)ocs.size()) + 1;
-        auto expr        = Expr::create(std::move(op), {residual, hiddenIn}, numOut);
+        const bool hasLn = param->has_ln;
+        const int numOut = (gateUp ? 1 : (int)ocs.size()) + (hasLn ? 1 : 0);
+        auto expr        = Expr::create(std::move(op),
+                                        hasLn ? std::vector<VARP>{residual, hiddenIn}
+                                              : std::vector<VARP>{hiddenIn}, numOut);
         for (int i = 0; i < numOut; ++i) {
             outputs.push_back(Variable::create(expr, i));
         }
@@ -563,7 +581,10 @@ float benchFusedLinear(const char* tag, const std::vector<int>& ocs, bool gateUp
     auto residual             = makeActivation(seq, hidden, 0.11f, deviceResident);
     auto hiddenIn             = makeActivation(seq, hidden, -0.07f, deviceResident);
 
-    auto forwardOnce = [&]() { return attn->onForward({residual, hiddenIn}); };
+    const bool noLn = nullptr != getenv("MNN_FL_NOLN") || model().splitQkv;
+    auto forwardOnce = [&]() {
+        return noLn ? attn->onForward({hiddenIn}) : attn->onForward({residual, hiddenIn});
+    };
     for (int i = 0; i < 3; ++i) {
         auto out = forwardOnce();
         out[0]->readMap<float>();
@@ -613,6 +634,7 @@ public:
         const bool diag                   = nullptr != getenv("MNN_FL_DIAG");
         const std::vector<int> nosilu6144 = {2048, 2048, 2048};
         const std::vector<int> wide9216   = {3072, 3072, 3072};
+        const std::vector<int> linbig     = {8192, 4096};
         // Near-zero GEMM width: isolates the shape-independent prologue
         // (rms-norm, plus any per-call input transfer).
         const std::vector<int> tiny192 = {64, 64, 64};
@@ -641,7 +663,10 @@ public:
             bool gateUp;
             int layerCount;
         };
-        std::vector<Shape> shapes = {{"qkv", &qkvOcs, false, m.attnLayers}};
+        std::vector<Shape> shapes;
+        if (!m.splitQkv) {
+            shapes.push_back({"qkv", &qkvOcs, false, m.attnLayers});
+        }
         if (!linearInOcs.empty()) {
             shapes.push_back({"linear_in", &linearInOcs, false, m.layers - m.attnLayers});
         }
@@ -649,6 +674,7 @@ public:
         if (diag) {
             shapes.push_back({"nosilu6144", &nosilu6144, false, m.layers});
             shapes.push_back({"wide9216", &wide9216, false, m.layers});
+            shapes.push_back({"linbig", &linbig, false, m.layers});
             shapes.push_back({"tiny192", &tiny192, false, m.layers});
         }
 
@@ -762,11 +788,16 @@ public:
         // The three shapes the model runs outside FusedLinear: o_proj
         // (heads*dim -> hidden), down_proj (inter -> hidden), lm_head
         // (hidden -> vocab). lm_head is a single op but inherently DRAM-bound.
-        std::vector<Shape> shapes = {
-            {"o_proj", m.qkv.oc[0], m.hidden, m.layers},
-            {"down", m.inter, m.hidden, m.layers},
-            {"lm_head", m.hidden, m.vocab, 1},
-        };
+        std::vector<Shape> shapes;
+        if (m.splitQkv) {
+            shapes.push_back({"q", m.hidden, m.qkv.oc[0], m.layers});
+            shapes.push_back({"k", m.hidden, m.qkv.oc[1], m.layers});
+            shapes.push_back({"v", m.hidden, m.qkv.oc[2], m.layers});
+            shapes.push_back({"router", m.hidden, 60, m.layers});
+        }
+        shapes.push_back({"o_proj", m.qkv.oc[0], m.hidden, m.layers});
+        shapes.push_back({"down", m.inter, m.hidden, m.layers});
+        shapes.push_back({"lm_head", m.hidden, m.vocab, 1});
         // MNN_CD_SHAPES="ic:oc;ic:oc;..." overrides the model table with an
         // arbitrary ic sweep, tagged by block count; MNN_CD_LAYERS stacks that
         // many copies per shape to amortize per-forward host overhead.
@@ -855,7 +886,7 @@ MNNTestSuiteRegister(LlmConvDecodeSpeedTest, "speed/LlmConvDecode");
 
 namespace {
 
-enum Entry { kFusedQkv, kFusedQkvNoLn, kFusedGateUp, kConv, kConvSplit, kConvChain };
+enum Entry { kFusedQkv, kFusedQkvNoLn, kFusedGateUp, kFusedGateUpNoLn, kConv, kConvSplit, kConvChain };
 
 struct DecodeGroup {
     const char* name;
@@ -867,15 +898,22 @@ struct DecodeGroup {
 
 std::vector<DecodeGroup> decodeGroups() {
     const auto& m = model();
-    std::vector<DecodeGroup> groups = {
-        {"qkv(FL)", kFusedQkv, m.hidden, toVec(m.qkv), m.attnLayers},
-    };
+    std::vector<DecodeGroup> groups;
+    if (m.splitQkv) {
+        groups.push_back({"q", kConv, m.hidden, {m.qkv.oc[0]}, m.attnLayers});
+        groups.push_back({"k", kConv, m.hidden, {m.qkv.oc[1]}, m.attnLayers});
+        groups.push_back({"v", kConv, m.hidden, {m.qkv.oc[2]}, m.attnLayers});
+        groups.push_back({"router", kConv, m.hidden, {60}, m.attnLayers});
+    } else {
+        groups.push_back({"qkv(FL)", kFusedQkv, m.hidden, toVec(m.qkv), m.attnLayers});
+    }
     if (m.linearIn.n > 0) {
         groups.push_back({"linear_in(FL)", kFusedQkv, m.hidden, toVec(m.linearIn), m.layers - m.attnLayers - 1});
         groups.push_back({"linear_in0(FL)", kFusedQkvNoLn, m.hidden, toVec(m.linearIn), 1});
     }
     groups.push_back({"o_proj", kConv, m.qkv.oc[0], {m.hidden}, m.layers});
-    groups.push_back({"gateup(FL)", kFusedGateUp, m.hidden, {m.inter, m.inter}, m.layers});
+    groups.push_back({"gateup(FL)", m.splitQkv ? kFusedGateUpNoLn : kFusedGateUp, m.hidden, {m.inter, m.inter},
+                      m.layers});
     groups.push_back({"down_proj", kConv, m.inter, {m.hidden}, m.layers});
     groups.push_back({"lm_head", kConv, m.hidden, {m.vocab}, 1});
     if (getenv("MNN_DECODE_GEMV_DIAG") != nullptr) {
@@ -970,14 +1008,14 @@ std::vector<DecodeGroup> decodeGroups() {
 // is projected directly. gateup collapses its two members into
 // out = up * silu(gate).
 std::vector<VARP> makeDecodeFusedLayer(const DecodeGroup& group, VARP residual, VARP hidden, int seed) {
-    const bool hasLn = (group.entry != kFusedQkvNoLn);
+    const bool hasLn = (group.entry != kFusedQkvNoLn && group.entry != kFusedGateUpNoLn);
     std::unique_ptr<OpT> op(new OpT);
     op->type                   = OpType_FusedLinear;
     op->main.type              = OpParameter_FusedLinearParam;
     op->main.value             = new FusedLinearParamT;
     op->defaultDimentionFormat = MNN_DATA_FORMAT_NC4HW4;
     auto param                 = op->main.AsFusedLinearParam();
-    param->act_silu_mul        = (group.entry == kFusedGateUp);
+    param->act_silu_mul        = (group.entry == kFusedGateUp || group.entry == kFusedGateUpNoLn);
     param->has_ln              = hasLn;
     if (hasLn) {
         param->ln.reset(new LayerNormT);
@@ -1102,7 +1140,7 @@ public:
         for (size_t i = 0; i < groups.size(); ++i) {
             if (groups[i].entry == kConv || groups[i].entry == kConvSplit || groups[i].entry == kConvChain) {
                 inputs[i] = {makeActivation(1, groups[i].ic, 0.02f, deviceResident)};
-            } else if (groups[i].entry == kFusedQkvNoLn) {
+            } else if (groups[i].entry == kFusedQkvNoLn || groups[i].entry == kFusedGateUpNoLn) {
                 inputs[i] = {makeActivation(1, groups[i].ic, -0.07f, deviceResident)};
             } else {
                 inputs[i] = {makeActivation(1, groups[i].ic, 0.11f, deviceResident),

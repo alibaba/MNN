@@ -24,6 +24,33 @@ class FusedProjSizeComputer : public SizeComputer {
         const int numConvs  = (int)param->convs()->size();
         const bool isGateUp = param->act_silu_mul();
         const bool hasLn    = param->has_ln();
+        if (param->row_mul()) {
+            if (numConvs != 1 || isGateUp || hasLn || inputs.size() != 2 || outputs.size() != 1 ||
+                inputs[1] == nullptr || inputs[0]->dimensions() != 4 || inputs[1]->dimensions() != 4 ||
+                inputs[0]->getType() != halide_type_of<float>() || inputs[1]->getType() != inputs[0]->getType() ||
+                TensorUtils::getDescribe(inputs[0])->dimensionFormat != MNN_DATA_FORMAT_NC4HW4 ||
+                TensorUtils::getDescribe(inputs[1])->dimensionFormat != MNN_DATA_FORMAT_NC4HW4 ||
+                inputs[0]->length(0) != inputs[1]->length(0) || inputs[1]->length(1) != 1 ||
+                inputs[0]->length(2) != 1 || inputs[0]->length(3) != 1 ||
+                inputs[1]->length(2) != 1 || inputs[1]->length(3) != 1) {
+                return false;
+            }
+            auto conv = param->convs()->GetAs<Convolution2D>(0);
+            if (conv == nullptr || conv->common() == nullptr || conv->common()->outputCount() <= 0) {
+                return false;
+            }
+            auto common = conv->common();
+            if (common->group() != 1 || common->kernelX() != 1 || common->kernelY() != 1 ||
+                common->strideX() != 1 || common->strideY() != 1 || common->dilateX() != 1 ||
+                common->dilateY() != 1 || common->padX() != 0 || common->padY() != 0 ||
+                common->inputCount() != inputs[0]->length(1) || inputs[0]->length(0) <= 0) {
+                return false;
+            }
+            TensorUtils::copyShape(inputs[0], outputs[0], true);
+            outputs[0]->setLength(1, conv->common()->outputCount());
+            outputs[0]->buffer().type = inputs[0]->getType();
+            return true;
+        }
         if (isGateUp && numConvs != 2) {
             return false;
         }
@@ -105,6 +132,9 @@ class FusedProjSizeComputer : public SizeComputer {
         }
         if (param->has_ln()) {
             flops += 6.f * (float)x->elementSize();
+        }
+        if (param->row_mul()) {
+            flops += tokens * (float)param->convs()->GetAs<Convolution2D>(0)->common()->outputCount();
         }
         return flops / FLOPS_M;
     }

@@ -140,8 +140,8 @@ public:
     bool run() {
         auto optimizedOps = cloneOps(mOps);
         auto optimizedTensors = mTensors;
-        TransformerC4Graph optimizedGraph(optimizedOps, optimizedTensors, mGraphOutputs, mFuseQkvProj,
-                                          mFuseGateUpProj, mFuseLnProj);
+        TransformerC4Graph optimizedGraph(optimizedOps, optimizedTensors, mGraphOutputs, mFuseQkvProj, mFuseGateUpProj,
+                                          mFuseLnProj);
         if (optimizedGraph.runFusePipeline() && optimizedGraph.validateOptimizedGraph()) {
             mOps.swap(optimizedOps);
             mTensors.swap(optimizedTensors);
@@ -306,8 +306,8 @@ private:
     }
 
     static bool isFusedProj(OpT* op) {
-        return op != nullptr && op->type == OpType_FusedLinear &&
-               op->main.type == OpParameter_FusedLinearParam && op->main.AsFusedLinearParam() != nullptr;
+        return op != nullptr && op->type == OpType_FusedLinear && op->main.type == OpParameter_FusedLinearParam &&
+               op->main.AsFusedLinearParam() != nullptr;
     }
 
     static int fusedProjOutputChannel(OpT* op, int tensor) {
@@ -382,6 +382,31 @@ private:
         return values;
     }
 
+    bool constScalarFloat(int tensorIdx, float* value) const {
+        int opIdx = producerOf(tensorIdx);
+        if (opIdx < 0) {
+            return false;
+        }
+        auto op = mOps[opIdx].get();
+        if (op == nullptr || op->type != OpType_Const || op->main.type != OpParameter_Blob ||
+            op->main.AsBlob() == nullptr) {
+            return false;
+        }
+        auto blob = op->main.AsBlob();
+        if (blobElementCount(blob) != 1) {
+            return false;
+        }
+        if (!blob->float32s.empty()) {
+            *value = blob->float32s[0];
+            return true;
+        }
+        if (!blob->int32s.empty()) {
+            *value = (float)blob->int32s[0];
+            return true;
+        }
+        return false;
+    }
+
     int findConstIntTensor(int value) const {
         for (auto& opPtr : mOps) {
             auto op = opPtr.get();
@@ -407,11 +432,32 @@ private:
         if (attention == nullptr || attention->inputIndexes.size() < 2) {
             return nullptr;
         }
-        int ropeIdx = producerOf(attention->inputIndexes[0]);
-        if (ropeIdx < 0 || ropeIdx != producerOf(attention->inputIndexes[1])) {
+        int ropeIdx = ropeBehindNorm(attention->inputIndexes[0]);
+        if (ropeIdx < 0 || ropeIdx != ropeBehindNorm(attention->inputIndexes[1])) {
             return nullptr;
         }
         return ropeParam(mOps[ropeIdx].get());
+    }
+
+    int ropeBehindNorm(int tensor) const {
+        int p = producerOf(tensor);
+        if (p < 0) {
+            return -1;
+        }
+        auto op = mOps[p].get();
+        if (op->type == OpType_RoPE) {
+            return p;
+        }
+        if (isLayerNorm(op) && op->inputIndexes.size() == 1) {
+            auto ln = op->main.AsLayerNorm();
+            if (ln->useRMSNorm && ln->gamma.empty()) {
+                int rp = producerOf(op->inputIndexes[0]);
+                if (rp >= 0 && mOps[rp]->type == OpType_RoPE) {
+                    return rp;
+                }
+            }
+        }
+        return -1;
     }
 
     std::unique_ptr<OpT> makeReshape(const std::string& name, int input, int output, const std::vector<int>& dims) {
@@ -533,11 +579,7 @@ private:
 
     bool fuseMulSilu() {
         rebuildMaps();
-        std::unordered_map<int, int> consumerCount;
-        for (auto& iter : mConsumers) {
-            consumerCount[iter.first] = (int)iter.second.size();
-        }
-        std::set<int> removeIndexes;
+        std::set<int> siluIndexes;
         for (int idx = 0; idx < (int)mOps.size(); ++idx) {
             auto op = mOps[idx].get();
             if (op->type != OpType_BinaryOp || op->main.type != OpParameter_BinaryOp ||
@@ -548,12 +590,14 @@ private:
             OpT* siluOp = nullptr;
             for (int i = 0; i < 2; ++i) {
                 int producerIdx = producerOf(op->inputIndexes[i]);
-                if (producerIdx < 0 || consumerCount[op->inputIndexes[i]] != 1) {
+                if (producerIdx < 0) {
                     continue;
                 }
                 auto candidate = mOps[producerIdx].get();
                 if (candidate->type == OpType_UnaryOp && candidate->main.type == OpParameter_UnaryOp &&
-                    candidate->main.AsUnaryOp()->opType == UnaryOpOperation_SILU) {
+                    candidate->main.AsUnaryOp() != nullptr &&
+                    candidate->main.AsUnaryOp()->opType == UnaryOpOperation_SILU &&
+                    candidate->inputIndexes.size() == 1 && candidate->outputIndexes.size() == 1) {
                     siluPos = i;
                     siluOp = candidate;
                     break;
@@ -579,12 +623,22 @@ private:
             op->main.AsBinaryOp()->opType = BinaryOpOperation_MUL_SILU;
             int siluIdx = producerOf(siluOp->outputIndexes[0]);
             if (siluIdx >= 0) {
+                siluIndexes.insert(siluIdx);
+            }
+        }
+        if (siluIndexes.empty()) {
+            return false;
+        }
+        rebuildMaps();
+        std::set<int> removeIndexes;
+        for (int siluIdx : siluIndexes) {
+            int output = mOps[siluIdx]->outputIndexes[0];
+            if (mConsumers.find(output) == mConsumers.end() && mGraphOutputs.find(output) == mGraphOutputs.end()) {
                 removeIndexes.insert(siluIdx);
             }
         }
-        bool changed = !removeIndexes.empty();
         removeOps(removeIndexes);
-        return changed;
+        return true;
     }
 
     // ---- Convert-time FusedLinear construction -------------------------------
@@ -725,8 +779,8 @@ private:
             removeIndexes.insert(members[i].convIdx);
             // A pre chain shared with other consumers stays; a private one goes
             // with its conv.
-            if (members[i].pre.convertIdx != members[morphPos].pre.convertIdx &&
-                members[i].pre.convUsers.size() == 1 && members[i].pre.convUsers[0] == members[i].convIdx) {
+            if (members[i].pre.convertIdx != members[morphPos].pre.convertIdx && members[i].pre.convUsers.size() == 1 &&
+                members[i].pre.convUsers[0] == members[i].convIdx) {
                 removeIndexes.insert(members[i].pre.convertIdx);
                 removeIndexes.insert(members[i].pre.reshapeIdx);
             }
@@ -764,8 +818,8 @@ private:
                 attention->outputIndexes.size() != 1) {
                 continue;
             }
-            int ropeIdx = producerOf(attention->inputIndexes[0]);
-            if (ropeIdx < 0 || ropeIdx != producerOf(attention->inputIndexes[1])) {
+            int ropeIdx = ropeBehindNorm(attention->inputIndexes[0]);
+            if (ropeIdx < 0 || ropeIdx != ropeBehindNorm(attention->inputIndexes[1])) {
                 continue;
             }
             auto rope = mOps[ropeIdx].get();
@@ -863,12 +917,12 @@ private:
             while (currentUser >= 0 && mOps[currentUser]->type == OpType_Cast &&
                    mOps[currentUser]->inputIndexes.size() == 1 && mOps[currentUser]->outputIndexes.size() == 1) {
                 currentTensor = mOps[currentUser]->outputIndexes[0];
-                currentUser   = singleConsumer(currentTensor);
+                currentUser = singleConsumer(currentTensor);
             }
             ProjectionExpressionMatch zExpression;
             if (currentUser >= 0 && isLayerNorm(mOps[currentUser].get()) &&
                 mOps[currentUser]->inputIndexes.size() == 1 && mOps[currentUser]->outputIndexes.size() == 1) {
-                int normOutput    = mOps[currentUser]->outputIndexes[0];
+                int normOutput = mOps[currentUser]->outputIndexes[0];
                 int normBinaryIdx = singleConsumer(normOutput);
                 if (normBinaryIdx >= 0 && isBinaryOp(mOps[normBinaryIdx].get(), BinaryOpOperation_MUL) &&
                     mOps[normBinaryIdx]->inputIndexes.size() == 2) {
@@ -940,13 +994,13 @@ private:
                 continue;
             }
             auto gatePost = matchLinearPost(mOps[siluIdx]->inputIndexes[0]);
-            auto upPost   = matchLinearPost(op->inputIndexes[1 - siluPos]);
+            auto upPost = matchLinearPost(op->inputIndexes[1 - siluPos]);
             if (!gatePost.valid || !upPost.valid || gatePost.channel != upPost.channel ||
                 gatePost.convIdx == upPost.convIdx) {
                 continue;
             }
             auto gateMember = matchProjMember(gatePost.convIdx);
-            auto upMember   = matchProjMember(upPost.convIdx);
+            auto upMember = matchProjMember(upPost.convIdx);
             if (!gateMember.valid || !upMember.valid) {
                 continue;
             }
@@ -1014,8 +1068,8 @@ private:
         auto conv = mOps[convIdx].get();
         // A fused projection produces one output per member, so the channel count
         // must be resolved from the specific output slot feeding this Convert.
-        int channel = isFusedProj(conv) ? fusedProjOutputChannel(conv, convert->inputIndexes[0])
-                                        : convolutionOutputCount(conv);
+        int channel =
+            isFusedProj(conv) ? fusedProjOutputChannel(conv, convert->inputIndexes[0]) : convolutionOutputCount(conv);
         if (channel <= 0) {
             return match;
         }
@@ -1086,8 +1140,7 @@ private:
         std::set<int> removeIndexes;
         for (int idx = 0; idx < (int)mOps.size(); ++idx) {
             auto op = mOps[idx].get();
-            if (!isFusedProj(op) || !op->main.AsFusedLinearParam()->act_silu_mul ||
-                op->outputIndexes.size() != 1) {
+            if (!isFusedProj(op) || !op->main.AsFusedLinearParam()->act_silu_mul || op->outputIndexes.size() != 1) {
                 continue;
             }
             int channel = fusedProjOutputChannel(op, op->outputIndexes[0]);
@@ -1109,8 +1162,7 @@ private:
             }
             auto postReshape = mOps[postReshapeIdx].get();
             if (!isReshape(postReshape) || postReshape->outputIndexes.size() != 1 ||
-                postReshape->main.AsReshape()->dims.size() != 3 ||
-                postReshape->main.AsReshape()->dims[2] != channel) {
+                postReshape->main.AsReshape()->dims.size() != 3 || postReshape->main.AsReshape()->dims[2] != channel) {
                 continue;
             }
             int downReshapeIdx = singleConsumer(postReshape->outputIndexes[0]);
@@ -1205,8 +1257,7 @@ private:
         for (int idx = 0; idx < (int)mOps.size(); ++idx) {
             auto layerNorm = mOps[idx].get();
             if (!isLayerNorm(layerNorm) || layerNorm->inputIndexes.size() != 2 ||
-                layerNorm->outputIndexes.size() != 2 ||
-                layerNorm->defaultDimentionFormat != MNN_DATA_FORMAT_NC4HW4) {
+                layerNorm->outputIndexes.size() != 2 || layerNorm->defaultDimentionFormat != MNN_DATA_FORMAT_NC4HW4) {
                 continue;
             }
             int sumOutput = layerNorm->outputIndexes[0];
@@ -1222,8 +1273,7 @@ private:
             if (consumers != mConsumers.end()) {
                 for (int userIdx : consumers->second) {
                     auto user = mOps[userIdx].get();
-                    if (isFusedProj(user) && user->inputIndexes.size() == 1 &&
-                        user->inputIndexes[0] == normOutput) {
+                    if (isFusedProj(user) && user->inputIndexes.size() == 1 && user->inputIndexes[0] == normOutput) {
                         if (fusedIdx >= 0) {
                             unsupported = true;
                             break;
@@ -1231,8 +1281,8 @@ private:
                         fusedIdx = userIdx;
                         continue;
                     }
-                    if (user != nullptr && (user->type == OpType_Shape || user->type == OpType_Rank ||
-                                            user->type == OpType_Size)) {
+                    if (user != nullptr &&
+                        (user->type == OpType_Shape || user->type == OpType_Rank || user->type == OpType_Size)) {
                         shapeOnlyConsumers.push_back(userIdx);
                         continue;
                     }
@@ -1490,8 +1540,8 @@ private:
                 int packed = buildUniqueTensor(prefix + "_convert");
                 insertBefore[idx].push_back(
                     makeReshape(mTensors[reshaped], originalInput, reshaped, {-1, channels, 1, 1}));
-                insertBefore[idx].push_back(makeConvert(mTensors[packed], reshaped, packed, MNN_DATA_FORMAT_NCHW,
-                                                        MNN_DATA_FORMAT_NC4HW4));
+                insertBefore[idx].push_back(
+                    makeConvert(mTensors[packed], reshaped, packed, MNN_DATA_FORMAT_NCHW, MNN_DATA_FORMAT_NC4HW4));
                 rope->inputIndexes[inputPosition] = packed;
             };
             prepareInput(0, qChannels, qMatch, "FuseTransformerC4_rope_q_input");
@@ -1532,8 +1582,7 @@ private:
         if (isFusedProj(producer)) {
             return fusedProjOutputChannel(producer, tensor) == channels;
         }
-        if (!isConvert(producer, MNN_DATA_FORMAT_NCHW, MNN_DATA_FORMAT_NC4HW4) ||
-            producer->inputIndexes.size() != 1) {
+        if (!isConvert(producer, MNN_DATA_FORMAT_NCHW, MNN_DATA_FORMAT_NC4HW4) || producer->inputIndexes.size() != 1) {
             return false;
         }
         int reshapeIdx = producerOf(producer->inputIndexes[0]);
@@ -1832,10 +1881,10 @@ private:
             return false;
         }
         int64_t gammaSize = (int64_t)ln->gamma.size();
-        int64_t betaSize  = (int64_t)ln->beta.size();
+        int64_t betaSize = (int64_t)ln->beta.size();
         if (gammaSize == 0 && ln->external.size() >= 3) {
             gammaSize = ln->external[1] / (int64_t)sizeof(float);
-            betaSize  = ln->external[2] / (int64_t)sizeof(float);
+            betaSize = ln->external[2] / (int64_t)sizeof(float);
         }
         if (headDim <= 0 || gammaSize != headDim || betaSize != gammaSize) {
             return false;
@@ -1978,13 +2027,15 @@ private:
         }
         int userIdx = consumers->second[0];
         auto user = mOps[userIdx].get();
-        if (user == nullptr || user->type != OpType_StridedSlice ||
-            user->main.type != OpParameter_StridedSliceParam || user->main.AsStridedSliceParam() == nullptr ||
-            user->inputIndexes.empty() || user->inputIndexes[0] != tensor || user->outputIndexes.size() != 1) {
+        if (user == nullptr || user->type != OpType_StridedSlice || user->main.type != OpParameter_StridedSliceParam ||
+            user->main.AsStridedSliceParam() == nullptr || user->inputIndexes.empty() ||
+            user->inputIndexes[0] != tensor || user->outputIndexes.size() != 1) {
             return -1;
         }
         return userIdx;
     }
+    enum class MoeStructure { None, RoutedOnly, SharedRouted };
+
     struct HiddenBlockPlan {
         int blockIdx;
         int attentionIdx;
@@ -2010,6 +2061,29 @@ private:
         int mlpAddIdx;
         int mlpAddOut;
         LinearAttentionC4Plan linearAttention;
+        MoeStructure moe;
+        int moeDispatchReshapeIdx;
+        int moeSharedTailReshapeIdx;
+        int moeSharedMulIdx = -1;
+        int moeSharedGateTensor = -1;
+        int moeRoutedReshapeIdx;
+        int moeAdd2Idx;
+        int moeGateUpIndexedIdx;
+        int moeRwMulIdx;
+        int moeRwReduceIdx;
+        int moeWeightsTensor;
+        int moeDownIndexedIdx;
+        int moeProbsTensor;
+        int moeRwGatherIdx;
+        int moeRwSumIdx;
+        int moeRwEpsAddIdx;
+        int moeRwDivIdx;
+        int moeRwScaleMulIdx;
+        int moeRwCastIdx;
+        int moeRwWeightsReshapeIdx;
+        int moeRwUnsqueezeIdx;
+        float moeRouteEps;
+        float moeRouteScale;
         HiddenBlockPlan()
             : blockIdx(0),
               attentionIdx(-1),
@@ -2028,16 +2102,528 @@ private:
               fusedGateUpIdx(-1),
               mlpBinaryIdx(-1),
               mlpAddIdx(-1),
-              mlpAddOut(-1) {}
+              mlpAddOut(-1),
+              moe(MoeStructure::None),
+              moeDispatchReshapeIdx(-1),
+              moeSharedTailReshapeIdx(-1),
+              moeRoutedReshapeIdx(-1),
+              moeAdd2Idx(-1),
+              moeGateUpIndexedIdx(-1),
+              moeRwMulIdx(-1),
+              moeRwReduceIdx(-1),
+              moeWeightsTensor(-1),
+              moeDownIndexedIdx(-1),
+              moeProbsTensor(-1),
+              moeRwGatherIdx(-1),
+              moeRwSumIdx(-1),
+              moeRwEpsAddIdx(-1),
+              moeRwDivIdx(-1),
+              moeRwScaleMulIdx(-1),
+              moeRwCastIdx(-1),
+              moeRwWeightsReshapeIdx(-1),
+              moeRwUnsqueezeIdx(-1),
+              moeRouteEps(0.0f),
+              moeRouteScale(1.0f) {}
     };
 
-    bool matchMlpFromPostLayerNorm(HiddenBlockPlan* plan) const {
+    bool matchMoeGatherRouteWeights(HiddenBlockPlan* plan, int wReshapeIdx, int unsqIdx, int downIdsTensor) const {
+        if (wReshapeIdx < 0 || unsqIdx < 0) {
+            return false;
+        }
+        auto dataInputOf = [&](int opIdx) -> int {
+            auto op = mOps[opIdx].get();
+            return op->inputIndexes.empty() ? -1 : op->inputIndexes[0];
+        };
+        int scaleOut = dataInputOf(wReshapeIdx);
+        int castIdx = -1;
+        int mulIdx = producerOf(scaleOut);
+        if (mulIdx >= 0 && mOps[mulIdx]->type == OpType_Cast && mOps[mulIdx]->inputIndexes.size() == 1) {
+            if (mOps[mulIdx]->main.AsCastParam() == nullptr ||
+                mOps[mulIdx]->main.AsCastParam()->dstT != DataType_DT_FLOAT) {
+                return false;
+            }
+            castIdx = mulIdx;
+            scaleOut = mOps[mulIdx]->inputIndexes[0];
+            mulIdx = producerOf(scaleOut);
+        }
+        float scale = 1.0f;
+        int divOut = scaleOut;
+        if (mulIdx >= 0 && isBinaryOp(mOps[mulIdx].get(), BinaryOpOperation_MUL)) {
+            auto mul = mOps[mulIdx].get();
+            if (mul->inputIndexes.size() != 2 || mul->main.AsBinaryOp()->activationType != 0 ||
+                mul->main.AsBinaryOp()->T != DataType_DT_FLOAT) {
+                return false;
+            }
+            if (constScalarFloat(mul->inputIndexes[0], &scale)) {
+                divOut = mul->inputIndexes[1];
+            } else if (constScalarFloat(mul->inputIndexes[1], &scale)) {
+                divOut = mul->inputIndexes[0];
+            } else {
+                return false;
+            }
+        } else {
+            mulIdx = -1;
+        }
+        int divIdx = producerOf(divOut);
+        if (divIdx < 0 || !(isBinaryOp(mOps[divIdx].get(), BinaryOpOperation_DIV) ||
+                            isBinaryOp(mOps[divIdx].get(), BinaryOpOperation_REALDIV))) {
+            return false;
+        }
+        auto div = mOps[divIdx].get();
+        if (div->inputIndexes.size() != 2) {
+            return false;
+        }
+        const int gatheredOut = div->inputIndexes[0];
+        const int denomOut = div->inputIndexes[1];
+        int epsAddIdx = producerOf(denomOut);
+        if (epsAddIdx < 0 || !isBinaryOp(mOps[epsAddIdx].get(), BinaryOpOperation_ADD)) {
+            return false;
+        }
+        float eps = 0.0f;
+        int sumOut = -1;
+        {
+            auto add = mOps[epsAddIdx].get();
+            if (add->inputIndexes.size() != 2) {
+                return false;
+            }
+            if (constScalarFloat(add->inputIndexes[0], &eps)) {
+                sumOut = add->inputIndexes[1];
+            } else if (constScalarFloat(add->inputIndexes[1], &eps)) {
+                sumOut = add->inputIndexes[0];
+            } else {
+                return false;
+            }
+        }
+        int sumIdx = producerOf(sumOut);
+        if (sumIdx < 0 || mOps[sumIdx]->type != OpType_Reduction) {
+            return false;
+        }
+        auto sum = mOps[sumIdx].get();
+        if (sum->main.type != OpParameter_ReductionParam || sum->main.AsReductionParam() == nullptr ||
+            sum->main.AsReductionParam()->operation != ReductionType_SUM || sum->inputIndexes.empty() ||
+            sum->inputIndexes[0] != gatheredOut) {
+            return false;
+        }
+        int gatherIdx = producerOf(gatheredOut);
+        if (gatherIdx < 0 || mOps[gatherIdx]->type != OpType_GatherElements) {
+            return false;
+        }
+        auto gather = mOps[gatherIdx].get();
+        if (gather->inputIndexes.size() != 3) {
+            return false;
+        }
+        auto axis = constInt32s(gather->inputIndexes[2]);
+        if (axis.size() != 1 || axis[0] != -1) {
+            return false;
+        }
+        const int probsTensor = gather->inputIndexes[0];
+        const int topkIdsTensor = gather->inputIndexes[1];
+        int topkIdx = producerOf(topkIdsTensor);
+        if (topkIdx < 0 || mOps[topkIdx]->type != OpType_TopKV2 || mOps[topkIdx]->inputIndexes.empty()) {
+            return false;
+        }
+        int topkDataIdx = producerOf(mOps[topkIdx]->inputIndexes[0]);
+        if (topkDataIdx < 0 || !isBinaryOp(mOps[topkDataIdx].get(), BinaryOpOperation_ADD)) {
+            return false;
+        }
+        bool addUsesProbs = false;
+        for (int in : mOps[topkDataIdx]->inputIndexes) {
+            addUsesProbs |= (in == probsTensor);
+        }
+        if (!addUsesProbs) {
+            return false;
+        }
+        int idsReshapeIdx = producerOf(downIdsTensor);
+        if (idsReshapeIdx < 0 || !isReshape(mOps[idsReshapeIdx].get()) ||
+            dataInputOf(idsReshapeIdx) != topkIdsTensor) {
+            return false;
+        }
+        const int scaleConsumer = castIdx >= 0 ? castIdx : wReshapeIdx;
+        if (singleConsumer(sumOut) != epsAddIdx || singleConsumer(denomOut) != divIdx ||
+            singleConsumer(divOut) != (mulIdx >= 0 ? mulIdx : scaleConsumer)) {
+            return false;
+        }
+        if (singleConsumer(scaleOut) != scaleConsumer) {
+            return false;
+        }
+        if (castIdx >= 0 && singleConsumer(mOps[castIdx]->outputIndexes[0]) != wReshapeIdx) {
+            return false;
+        }
+        auto gatherConsumers = mConsumers.find(gatheredOut);
+        if (gatherConsumers == mConsumers.end()) {
+            return false;
+        }
+        for (int consumer : gatherConsumers->second) {
+            if (consumer != sumIdx && consumer != divIdx) {
+                return false;
+            }
+        }
+        if (!isMoeSum(sumIdx, gatheredOut, 0, -1, true)) {
+            return false;
+        }
+        for (int idx : {gatherIdx, sumIdx, epsAddIdx, divIdx, mulIdx, castIdx}) {
+            if (idx >= 0) {
+                for (int out : mOps[idx]->outputIndexes) {
+                    if (mGraphOutputs.count(out)) {
+                        return false;
+                    }
+                }
+            }
+        }
+        plan->moeProbsTensor = probsTensor;
+        plan->moeRwGatherIdx = gatherIdx;
+        plan->moeRwSumIdx = sumIdx;
+        plan->moeRwEpsAddIdx = epsAddIdx;
+        plan->moeRwDivIdx = divIdx;
+        plan->moeRwScaleMulIdx = mulIdx;
+        plan->moeRwCastIdx = castIdx;
+        plan->moeRwWeightsReshapeIdx = wReshapeIdx;
+        plan->moeRwUnsqueezeIdx = unsqIdx;
+        plan->moeRouteEps = eps;
+        plan->moeRouteScale = scale;
+        return true;
+    }
+
+    bool matchMoeTopKRouteWeights(HiddenBlockPlan* plan, int wReshapeIdx, int unsqIdx, int downIdsTensor) const {
+        int divIdx = producerOf(mOps[wReshapeIdx]->inputIndexes[0]);
+        auto div = divIdx < 0 ? nullptr : mOps[divIdx].get();
+        if (!(isBinaryOp(div, BinaryOpOperation_REALDIV) || isBinaryOp(div, BinaryOpOperation_DIV)) ||
+            div->inputIndexes.size() != 2 || div->outputIndexes.size() != 1 ||
+            div->main.AsBinaryOp()->T != DataType_DT_FLOAT) {
+            return false;
+        }
+        int values = div->inputIndexes[0];
+        int topkIdx = producerOf(values);
+        auto topk = topkIdx < 0 ? nullptr : mOps[topkIdx].get();
+        if (topk == nullptr || topk->type != OpType_TopKV2 || topk->inputIndexes.size() < 2 ||
+            topk->outputIndexes.size() != 2 || topk->outputIndexes[0] != values ||
+            topk->main.AsTopKV2() == nullptr || topk->main.AsTopKV2()->T != DataType_DT_FLOAT) {
+            return false;
+        }
+        if (topk->inputIndexes.size() == 3) {
+            auto axis = constInt32s(topk->inputIndexes[2]);
+            if (axis.size() != 1 || axis[0] != -1) {
+                return false;
+            }
+        }
+        int idsIdx = producerOf(downIdsTensor);
+        if (idsIdx < 0 || !isReshape(mOps[idsIdx].get()) || mOps[idsIdx]->inputIndexes.empty() ||
+            mOps[idsIdx]->inputIndexes[0] != topk->outputIndexes[1]) {
+            return false;
+        }
+        int sumIdx = producerOf(div->inputIndexes[1]);
+        if (!isMoeSum(sumIdx, values, 0, -1, true) ||
+            !hasOnlyMoeConsumers(div->inputIndexes[1], {divIdx}) ||
+            !hasOnlyMoeConsumers(div->outputIndexes[0], {wReshapeIdx})) {
+            return false;
+        }
+        plan->moeProbsTensor = topk->inputIndexes[0];
+        plan->moeRwSumIdx = sumIdx;
+        plan->moeRwDivIdx = divIdx;
+        plan->moeRwWeightsReshapeIdx = wReshapeIdx;
+        plan->moeRwUnsqueezeIdx = unsqIdx;
+        return true;
+    }
+
+    bool matchMoeRawRouteWeights(HiddenBlockPlan* plan, int wReshapeIdx, int unsqIdx, int downIdsTensor) const {
+        if (wReshapeIdx < 0 || unsqIdx < 0 || mOps[wReshapeIdx]->inputIndexes.empty() ||
+            mOps[wReshapeIdx]->outputIndexes.size() != 1 ||
+            !hasOnlyMoeConsumers(mOps[wReshapeIdx]->outputIndexes[0], {unsqIdx}) ||
+            !hasOnlyMoeConsumers(mOps[unsqIdx]->outputIndexes[0], {plan->moeRwMulIdx})) {
+            return false;
+        }
+        return matchMoeTopKRouteWeights(plan, wReshapeIdx, unsqIdx, downIdsTensor) ||
+            matchMoeGatherRouteWeights(plan, wReshapeIdx, unsqIdx, downIdsTensor);
+    }
+
+    bool isMoeSum(int opIdx, int input, int rank, int axis, bool keepDims) const {
+        auto op = opIdx < 0 ? nullptr : mOps[opIdx].get();
+        if (op == nullptr || op->type != OpType_Reduction || op->main.AsReductionParam() == nullptr ||
+            op->inputIndexes.empty() || op->inputIndexes[0] != input || op->outputIndexes.size() != 1) {
+            return false;
+        }
+        auto param = op->main.AsReductionParam();
+        auto dims = op->inputIndexes.size() == 2 ? constInt32s(op->inputIndexes[1]) : param->dim;
+        return param->operation == ReductionType_SUM && param->keepDims == keepDims &&
+            param->dType == DataType_DT_FLOAT && dims.size() == 1 &&
+            (dims[0] == axis || dims[0] == axis - rank);
+    }
+
+    bool hasOnlyMoeConsumers(int tensor, const std::set<int>& expected) const {
+        if (mGraphOutputs.count(tensor)) {
+            return false;
+        }
+        auto iter = mConsumers.find(tensor);
+        if (iter == mConsumers.end()) {
+            return false;
+        }
+        return std::set<int>(iter->second.begin(), iter->second.end()) == expected;
+    }
+
+    bool matchMoeMlpFromPostLayerNorm(HiddenBlockPlan* plan) const {
+        auto postConsumers = mConsumers.find(plan->postLnOut);
+        if (postConsumers == mConsumers.end()) {
+            return false;
+        }
+        int dispatchIdx = -1;
+        for (int userIdx : postConsumers->second) {
+            auto user = mOps[userIdx].get();
+            if (!isReshape(user) || user->inputIndexes.empty() || user->inputIndexes[0] != plan->postLnOut ||
+                user->outputIndexes.size() != 1) {
+                continue;
+            }
+            int dispatchOut = user->outputIndexes[0];
+            bool feedsIndexed = false;
+            auto dispatchConsumers = mConsumers.find(dispatchOut);
+            if (dispatchConsumers != mConsumers.end()) {
+                for (int consumerIdx : dispatchConsumers->second) {
+                    auto indexed = mOps[consumerIdx].get();
+                    if (indexed != nullptr && indexed->type == OpType_IndexedLinear &&
+                        !indexed->inputIndexes.empty() && indexed->inputIndexes[0] == dispatchOut) {
+                        feedsIndexed = true;
+                        break;
+                    }
+                }
+            }
+            if (!feedsIndexed) {
+                continue;
+            }
+            if (dispatchIdx >= 0) {
+                return false;
+            }
+            dispatchIdx = userIdx;
+        }
+        if (dispatchIdx < 0) {
+            return false;
+        }
+        int dispatchOut = mOps[dispatchIdx]->outputIndexes[0];
+
+        int gateUpIndexedIdx = -1;
+        for (int idx : mConsumers.at(dispatchOut)) {
+            auto op = mOps[idx].get();
+            if (op->type == OpType_IndexedLinear && op->inputIndexes[0] == dispatchOut) {
+                if (gateUpIndexedIdx >= 0) {
+                    return false;
+                }
+                gateUpIndexedIdx = idx;
+            }
+        }
+        auto gateUpIndexed = mOps[gateUpIndexedIdx].get();
+        auto gateParam = gateUpIndexed->main.AsIndexedLinearParam();
+        if (gateParam == nullptr || gateParam->inputMode != 0 || gateParam->routeWeight != 0 ||
+            gateUpIndexed->inputIndexes.size() != 2 || gateUpIndexed->outputIndexes.size() != 1) {
+            return false;
+        }
+        int downIndexedIdx = singleConsumer(gateUpIndexed->outputIndexes[0]);
+        auto downIndexed = downIndexedIdx < 0 ? nullptr : mOps[downIndexedIdx].get();
+        if (downIndexed == nullptr || downIndexed->type != OpType_IndexedLinear ||
+            downIndexed->main.AsIndexedLinearParam() == nullptr || downIndexed->inputIndexes.size() != 2 ||
+            downIndexed->outputIndexes.size() != 1 || downIndexed->main.AsIndexedLinearParam()->inputMode != 1 ||
+            downIndexed->main.AsIndexedLinearParam()->fusedActivation != -1 ||
+            downIndexed->main.AsIndexedLinearParam()->routeWeight != 0 ||
+            downIndexed->inputIndexes[1] != gateUpIndexed->inputIndexes[1]) {
+            return false;
+        }
+        int downOut = downIndexed->outputIndexes[0];
+        int mulIdx = singleConsumer(downOut);
+        if (mulIdx < 0 || !isBinaryOp(mOps[mulIdx].get(), BinaryOpOperation_MUL) ||
+            mOps[mulIdx]->inputIndexes.size() != 2 || mOps[mulIdx]->outputIndexes.size() != 1) {
+            return false;
+        }
+        auto mul = mOps[mulIdx].get();
+        int weightsOut = mul->inputIndexes[0] == downOut ? mul->inputIndexes[1] : mul->inputIndexes[0];
+        int weightsUnsqIdx = producerOf(weightsOut);
+        auto unsq = weightsUnsqIdx < 0 ? nullptr : mOps[weightsUnsqIdx].get();
+        if (unsq == nullptr || unsq->type != OpType_Unsqueeze || unsq->inputIndexes.size() != 2 ||
+            unsq->outputIndexes.size() != 1) {
+            return false;
+        }
+        auto unsqAxis = constInt32s(unsq->inputIndexes[1]);
+        if (unsqAxis.size() != 1 || (unsqAxis[0] != -1 && unsqAxis[0] != 2)) {
+            return false;
+        }
+        int weightsTensor = unsq->inputIndexes[0];
+        int weightsReshapeIdx = producerOf(weightsTensor);
+        if (weightsReshapeIdx < 0 || !isReshape(mOps[weightsReshapeIdx].get())) {
+            return false;
+        }
+        int reduceIdx = singleConsumer(mul->outputIndexes[0]);
+        if (!isMoeSum(reduceIdx, mul->outputIndexes[0], 3, 1, false)) {
+            return false;
+        }
+        int reduceOut = mOps[reduceIdx]->outputIndexes[0];
+        int routedReshapeIdx = singleConsumer(reduceOut);
+        auto routedReshape = routedReshapeIdx < 0 ? nullptr : mOps[routedReshapeIdx].get();
+        if (!isReshape(routedReshape) || routedReshape->inputIndexes.empty() ||
+            routedReshape->inputIndexes[0] != reduceOut || routedReshape->outputIndexes.size() != 1 ||
+            !hasOnlyMoeConsumers(downOut, {mulIdx}) ||
+            !hasOnlyMoeConsumers(mul->outputIndexes[0], {reduceIdx}) ||
+            !hasOnlyMoeConsumers(reduceOut, {routedReshapeIdx})) {
+            return false;
+        }
+        int routedOut = routedReshape->outputIndexes[0];
+        int mergeIdx = singleConsumer(routedOut);
+        if (mergeIdx < 0 || !isBinaryOp(mOps[mergeIdx].get(), BinaryOpOperation_ADD) ||
+            !hasOnlyMoeConsumers(routedOut, {mergeIdx})) {
+            return false;
+        }
+        int mlpAddIdx = findAddConsumerWithInputs(routedOut, plan->attentionAddOut);
+        plan->moe = MoeStructure::RoutedOnly;
+        if (mlpAddIdx < 0) {
+            if (!matchMoeSharedBranch(plan, dispatchOut, routedOut, mergeIdx)) {
+                return false;
+            }
+            mlpAddIdx = plan->mlpAddIdx;
+        }
+        plan->moeDispatchReshapeIdx = dispatchIdx;
+        plan->moeRoutedReshapeIdx = routedReshapeIdx;
+        plan->moeGateUpIndexedIdx = gateUpIndexedIdx;
+        plan->moeRwMulIdx = mulIdx;
+        plan->moeRwReduceIdx = reduceIdx;
+        plan->moeWeightsTensor = weightsTensor;
+        plan->moeDownIndexedIdx = downIndexedIdx;
+        matchMoeRawRouteWeights(plan, weightsReshapeIdx, weightsUnsqIdx, downIndexed->inputIndexes[1]);
+        plan->mlpAddIdx = mlpAddIdx;
+        plan->mlpAddOut = mOps[mlpAddIdx]->outputIndexes[0];
+        return true;
+    }
+
+    bool matchMoeSharedBranch(HiddenBlockPlan* plan, int dispatchOut, int routedOut, int mergeIdx) const {
         int fusedGateUpIdx = -1;
         PreConvertMatch fusedGateUpPre;
         for (int idx = 0; idx < (int)mOps.size(); ++idx) {
             auto op = mOps[idx].get();
-            if (!isFusedProj(op) || !op->main.AsFusedLinearParam()->act_silu_mul ||
-                op->outputIndexes.size() != 1) {
+            if (!isFusedProj(op) || !op->main.AsFusedLinearParam()->act_silu_mul || op->outputIndexes.size() != 1) {
+                continue;
+            }
+            auto pre = matchPreConvertFromConv(idx);
+            if (!pre.valid || pre.inputTensor != dispatchOut || pre.hiddenSize != plan->hiddenSize) {
+                continue;
+            }
+            if (fusedGateUpIdx >= 0) {
+                return false;
+            }
+            fusedGateUpIdx = idx;
+            fusedGateUpPre = pre;
+        }
+        if (fusedGateUpIdx < 0) {
+            return false;
+        }
+        int downConvIdx = findSingleConvolutionConsumer(mOps[fusedGateUpIdx]->outputIndexes[0]);
+        if (downConvIdx < 0) {
+            return false;
+        }
+        auto downPost = matchPostConvertFromConv(downConvIdx, plan->hiddenSize);
+        if (!downPost.valid) {
+            return false;
+        }
+        int sharedTailIdx = singleConsumer(downPost.reshapeOut);
+        if (sharedTailIdx < 0) {
+            return false;
+        }
+        int sharedInput = downPost.reshapeOut;
+        int sharedMulIdx = -1;
+        int sharedGateTensor = -1;
+        auto sharedTail = mOps[sharedTailIdx].get();
+        if (isBinaryOp(sharedTail, BinaryOpOperation_MUL) && sharedTail->inputIndexes.size() == 2 &&
+            sharedTail->outputIndexes.size() == 1) {
+            if (sharedTail->main.AsBinaryOp()->activationType != 0 ||
+                sharedTail->main.AsBinaryOp()->T != DataType_DT_FLOAT) {
+                return false;
+            }
+            sharedMulIdx = sharedTailIdx;
+            sharedGateTensor = sharedTail->inputIndexes[0] == sharedInput ?
+                sharedTail->inputIndexes[1] : sharedTail->inputIndexes[0];
+            int sigmoidIdx = producerOf(sharedGateTensor);
+            auto sigmoid = sigmoidIdx < 0 ? nullptr : mOps[sigmoidIdx].get();
+            if (sigmoid == nullptr || sigmoid->type != OpType_UnaryOp ||
+                sigmoid->main.AsUnaryOp() == nullptr || sigmoid->main.AsUnaryOp()->opType != UnaryOpOperation_SIGMOID ||
+                sigmoid->inputIndexes.size() != 1 || sigmoid->outputIndexes.size() != 1) {
+                return false;
+            }
+            int gateReshapeIdx = producerOf(sigmoid->inputIndexes[0]);
+            auto gateReshape = gateReshapeIdx < 0 ? nullptr : mOps[gateReshapeIdx].get();
+            if (!isReshape(gateReshape) || gateReshape->inputIndexes.empty()) {
+                return false;
+            }
+            int gateConvertIdx = producerOf(gateReshape->inputIndexes[0]);
+            auto gateConvert = gateConvertIdx < 0 ? nullptr : mOps[gateConvertIdx].get();
+            if (gateConvert == nullptr || gateConvert->inputIndexes.size() != 1) {
+                return false;
+            }
+            int gateConvIdx = producerOf(gateConvert->inputIndexes[0]);
+            if (gateConvIdx < 0 || !isConvolution(mOps[gateConvIdx].get()) ||
+                convolutionOutputCount(mOps[gateConvIdx].get()) != 1) {
+                return false;
+            }
+            auto gatePre = matchPreConvertFromConv(gateConvIdx);
+            auto gatePost = matchPostConvertFromConv(gateConvIdx, 1);
+            if (!gatePre.valid || gatePre.inputTensor != dispatchOut || gatePre.hiddenSize != plan->hiddenSize ||
+                !gatePost.valid || gatePost.reshapeOut != sigmoid->inputIndexes[0] ||
+                !hasOnlyMoeConsumers(downPost.convOut, {downPost.convertIdx}) ||
+                !hasOnlyMoeConsumers(mOps[downPost.convertIdx]->outputIndexes[0], {downPost.reshapeIdx}) ||
+                !hasOnlyMoeConsumers(downPost.reshapeOut, {sharedMulIdx})) {
+                return false;
+            }
+            sharedInput = sharedTail->outputIndexes[0];
+            sharedTailIdx = singleConsumer(sharedInput);
+            if (sharedTailIdx < 0 || !hasOnlyMoeConsumers(sharedInput, {sharedTailIdx})) {
+                return false;
+            }
+            sharedTail = mOps[sharedTailIdx].get();
+        }
+        if (!isReshape(sharedTail) || sharedTail->inputIndexes.empty() ||
+            sharedTail->inputIndexes[0] != sharedInput || sharedTail->outputIndexes.size() != 1) {
+            return false;
+        }
+        int sharedTailOut = sharedTail->outputIndexes[0];
+        auto sharedTailConsumers = mConsumers.find(sharedTailOut);
+        if (sharedTailConsumers == mConsumers.end() || sharedTailConsumers->second.size() != 1) {
+            return false;
+        }
+        int add2Idx = sharedTailConsumers->second[0];
+        auto add2 = mOps[add2Idx].get();
+        if (!isBinaryOp(add2, BinaryOpOperation_ADD) || add2->inputIndexes.size() != 2 ||
+            add2->outputIndexes.size() != 1 || add2Idx != mergeIdx) {
+            return false;
+        }
+        int routedReshapeOut = add2->inputIndexes[0] == sharedTailOut ? add2->inputIndexes[1] : add2->inputIndexes[0];
+        if (routedReshapeOut != routedOut || !hasOnlyMoeConsumers(sharedTailOut, {add2Idx}) ||
+            !hasOnlyMoeConsumers(sharedInput, {sharedTailIdx})) {
+            return false;
+        }
+        int add2Out = add2->outputIndexes[0];
+        auto add2Consumers = mConsumers.find(add2Out);
+        if (add2Consumers == mConsumers.end() || add2Consumers->second.size() != 1) {
+            return false;
+        }
+        int mlpAddIdx = findAddConsumerWithInputs(add2Out, plan->attentionAddOut);
+        if (mlpAddIdx < 0 || add2Consumers->second[0] != mlpAddIdx || mGraphOutputs.count(add2Out)) {
+            return false;
+        }
+        plan->moe = MoeStructure::SharedRouted;
+        plan->moeSharedTailReshapeIdx = sharedTailIdx;
+        plan->moeSharedMulIdx = sharedMulIdx;
+        plan->moeSharedGateTensor = sharedGateTensor;
+        plan->moeAdd2Idx = add2Idx;
+        plan->fusedGateUpIdx = fusedGateUpIdx;
+        plan->gatePre = fusedGateUpPre;
+        plan->downPost = downPost;
+        plan->mlpAddIdx = mlpAddIdx;
+        plan->mlpAddOut = mOps[mlpAddIdx]->outputIndexes[0];
+        return true;
+    }
+
+    bool matchMlpFromPostLayerNorm(HiddenBlockPlan* plan) const {
+        return matchDenseMlpFromPostLayerNorm(plan) || matchMoeMlpFromPostLayerNorm(plan);
+    }
+
+    bool matchDenseMlpFromPostLayerNorm(HiddenBlockPlan* plan) const {
+        int fusedGateUpIdx = -1;
+        PreConvertMatch fusedGateUpPre;
+        for (int idx = 0; idx < (int)mOps.size(); ++idx) {
+            auto op = mOps[idx].get();
+            if (!isFusedProj(op) || !op->main.AsFusedLinearParam()->act_silu_mul || op->outputIndexes.size() != 1) {
                 continue;
             }
             auto pre = matchPreConvertFromConv(idx);
@@ -2136,8 +2722,8 @@ private:
             attention->outputIndexes.size() != 1) {
             return false;
         }
-        int ropeIdx = producerOf(attention->inputIndexes[0]);
-        if (ropeIdx < 0 || ropeIdx != producerOf(attention->inputIndexes[1])) {
+        int ropeIdx = ropeBehindNorm(attention->inputIndexes[0]);
+        if (ropeIdx < 0 || ropeIdx != ropeBehindNorm(attention->inputIndexes[1])) {
             return false;
         }
         auto rope = mOps[ropeIdx].get();
@@ -2259,14 +2845,15 @@ private:
         auto attention = mOps[attentionIdx].get();
         if (attention == nullptr || attention->type != OpType_LinearAttention ||
             attention->main.type != OpParameter_LinearAttentionParam ||
-            attention->main.AsLinearAttentionParam() == nullptr || attention->inputIndexes.size() != 4 ||
+            attention->main.AsLinearAttentionParam() == nullptr ||
             attention->outputIndexes.size() != 1) {
             return false;
         }
         auto param = attention->main.AsLinearAttentionParam();
         bool shortConv = param->attn_type == "short_conv";
         bool gatedDelta = param->attn_type == "gated_delta_rule";
-        if (!shortConv && !gatedDelta) {
+        if ((!shortConv && !gatedDelta) ||
+            (attention->inputIndexes.size() != 4 && !(shortConv && attention->inputIndexes.size() == 2))) {
             return false;
         }
         int keyDim = param->num_k_heads * param->head_k_dim;
@@ -2369,14 +2956,13 @@ private:
             int currentTensor = mOps[headReshapeIdx]->outputIndexes[0];
             int currentUser = singleConsumer(currentTensor);
             int gatedSegmentOut = -1;
-            int gatedNormIdx    = -1;
+            int gatedNormIdx = -1;
             // A GatedRMSNorm here collapses Cast/LayerNorm/MUL into one op (kept
             // for models exported before the fold moved into this pass); its
             // second input is z. The tail Reshape into out_proj is unchanged,
             // so only the segment differs from the legacy chain below.
             if (currentUser >= 0 && mOps[currentUser]->type == OpType_GatedRMSNorm &&
-                mOps[currentUser]->inputIndexes.size() == 2 &&
-                mOps[currentUser]->outputIndexes.size() == 1) {
+                mOps[currentUser]->inputIndexes.size() == 2 && mOps[currentUser]->outputIndexes.size() == 1) {
                 gatedNormIdx = currentUser;
                 auto zExpression =
                     matchProjectionExpression(mOps[gatedNormIdx]->inputIndexes[1], gatedNormIdx, valueDim);
@@ -2388,29 +2974,26 @@ private:
             } else {
                 std::vector<int> xCasts;
                 while (currentUser >= 0 && mOps[currentUser]->type == OpType_Cast &&
-                       mOps[currentUser]->inputIndexes.size() == 1 &&
-                       mOps[currentUser]->outputIndexes.size() == 1) {
+                       mOps[currentUser]->inputIndexes.size() == 1 && mOps[currentUser]->outputIndexes.size() == 1) {
                     xCasts.push_back(currentUser);
                     currentTensor = mOps[currentUser]->outputIndexes[0];
-                    currentUser   = singleConsumer(currentTensor);
+                    currentUser = singleConsumer(currentTensor);
                 }
                 if (currentUser < 0 || !isLayerNorm(mOps[currentUser].get()) ||
                     mOps[currentUser]->inputIndexes.size() != 1 || mOps[currentUser]->outputIndexes.size() != 1) {
                     return false;
                 }
                 int attentionNormIdx = currentUser;
-                int normOutput    = mOps[attentionNormIdx]->outputIndexes[0];
+                int normOutput = mOps[attentionNormIdx]->outputIndexes[0];
                 int normBinaryIdx = singleConsumer(normOutput);
                 if (normBinaryIdx < 0 || !isBinaryOp(mOps[normBinaryIdx].get(), BinaryOpOperation_MUL) ||
-                    mOps[normBinaryIdx]->inputIndexes.size() != 2 ||
-                    mOps[normBinaryIdx]->outputIndexes.size() != 1) {
+                    mOps[normBinaryIdx]->inputIndexes.size() != 2 || mOps[normBinaryIdx]->outputIndexes.size() != 1) {
                     return false;
                 }
-                int zTensor = mOps[normBinaryIdx]->inputIndexes[0] == normOutput
-                                  ? mOps[normBinaryIdx]->inputIndexes[1]
-                                  : mOps[normBinaryIdx]->inputIndexes[0];
+                int zTensor = mOps[normBinaryIdx]->inputIndexes[0] == normOutput ? mOps[normBinaryIdx]->inputIndexes[1]
+                                                                                 : mOps[normBinaryIdx]->inputIndexes[0];
                 auto zExpression = matchProjectionExpression(zTensor, normBinaryIdx, valueDim);
-                gatedSegmentOut  = mOps[normBinaryIdx]->outputIndexes[0];
+                gatedSegmentOut = mOps[normBinaryIdx]->outputIndexes[0];
                 if (canFoldGatedNorm(attentionNormIdx, zExpression, param->head_v_dim)) {
                     // Fold the spelled-out RMSNorm(x)*silu(z) segment into one
                     // GatedRMSNorm: the LayerNorm op is morphed in the apply
@@ -2420,9 +3003,9 @@ private:
                     }
                     gatedNormIdx = attentionNormIdx;
                     linearPlan.gatedNormConstructIdx = attentionNormIdx;
-                    linearPlan.gatedNormX            = mOps[headReshapeIdx]->outputIndexes[0];
-                    linearPlan.gatedNormZ            = zExpression.projection.reshapeOut;
-                    linearPlan.gatedNormOut          = gatedSegmentOut;
+                    linearPlan.gatedNormX = mOps[headReshapeIdx]->outputIndexes[0];
+                    linearPlan.gatedNormZ = zExpression.projection.reshapeOut;
+                    linearPlan.gatedNormOut = gatedSegmentOut;
                     linearPlan.removeIndexes.insert(xCasts.begin(), xCasts.end());
                     linearPlan.removeIndexes.insert(normBinaryIdx);
                     linearPlan.c4Ops.push_back(attentionNormIdx);
@@ -2439,8 +3022,7 @@ private:
             int finalReshapeIdx = singleConsumer(gatedSegmentOut);
             if (finalReshapeIdx < 0 || !isReshape(mOps[finalReshapeIdx].get()) ||
                 mOps[finalReshapeIdx]->outputIndexes.size() != 1 ||
-                !findOutputProjection(mOps[finalReshapeIdx]->outputIndexes[0], valueDim, &outputPre,
-                                      &outputConvIdx)) {
+                !findOutputProjection(mOps[finalReshapeIdx]->outputIndexes[0], valueDim, &outputPre, &outputConvIdx)) {
                 return false;
             }
             if (gatedNormIdx >= 0) {
@@ -2451,16 +3033,15 @@ private:
                                                      attention->outputIndexes[0]);
                 linearPlan.removeIndexes.insert(headReshapeIdx);
                 linearPlan.removeIndexes.insert(finalReshapeIdx);
-                linearPlan.c4Ops.erase(
-                    std::remove(linearPlan.c4Ops.begin(), linearPlan.c4Ops.end(), headReshapeIdx),
-                    linearPlan.c4Ops.end());
+                linearPlan.c4Ops.erase(std::remove(linearPlan.c4Ops.begin(), linearPlan.c4Ops.end(), headReshapeIdx),
+                                       linearPlan.c4Ops.end());
                 linearPlan.finalReshapeIdx = -1;
-                linearPlan.finalValueDim   = valueDim;
-                linearPlan.outputInputC4   = gatedSegmentOut;
+                linearPlan.finalValueDim = valueDim;
+                linearPlan.outputInputC4 = gatedSegmentOut;
             } else {
                 linearPlan.finalReshapeIdx = finalReshapeIdx;
-                linearPlan.finalValueDim   = valueDim;
-                linearPlan.outputInputC4   = mOps[finalReshapeIdx]->outputIndexes[0];
+                linearPlan.finalValueDim = valueDim;
+                linearPlan.outputInputC4 = mOps[finalReshapeIdx]->outputIndexes[0];
                 linearPlan.c4Ops.push_back(finalReshapeIdx);
             }
         }
@@ -2687,7 +3268,9 @@ private:
         }
         plan.finalLayerNormIdx = finalLayerNormUsers->second[0];
         auto finalLayerNorm = mOps[plan.finalLayerNormIdx].get();
-        if (!isLayerNorm(finalLayerNorm) || finalLayerNorm->outputIndexes.size() != 1) {
+        if (!isLayerNorm(finalLayerNorm) || finalLayerNorm->outputIndexes.size() != 1 ||
+            mGraphOutputs.count(finalLayerNorm->outputIndexes[0]) ||
+            mGraphOutputs.count(finalSlice->outputIndexes[0])) {
             return plan;
         }
         auto preReshapeUsers = mConsumers.find(finalLayerNorm->outputIndexes[0]);
@@ -2717,6 +3300,36 @@ private:
         plan.lmHeadConvIdx = lmHeadUsers->second[0];
         plan.useC4Tail = true;
         return plan;
+    }
+
+    void fuseMoeDown(const HiddenBlockPlan& plan, int output,
+                     std::map<int, std::vector<std::unique_ptr<OpT>>>& insertAfter,
+                     std::set<int>& removeIndexes) {
+        auto down = mOps[plan.moeDownIndexedIdx].get();
+        const bool raw = plan.moeProbsTensor >= 0;
+        int weights = raw ? plan.moeProbsTensor : plan.moeWeightsTensor;
+        down->inputIndexes.push_back(weights);
+        auto param = down->main.AsIndexedLinearParam();
+        param->routeWeight = raw ? 2 : 1;
+        if (raw) {
+            param->routeEps = plan.moeRouteEps;
+            param->routeScale = plan.moeRouteScale;
+            for (int idx : {plan.moeRwUnsqueezeIdx, plan.moeRwWeightsReshapeIdx, plan.moeRwScaleMulIdx,
+                            plan.moeRwDivIdx, plan.moeRwEpsAddIdx, plan.moeRwSumIdx, plan.moeRwGatherIdx,
+                            plan.moeRwCastIdx}) {
+                if (idx >= 0) {
+                    removeIndexes.insert(idx);
+                }
+            }
+        }
+        down->outputIndexes = {output};
+        int position = std::max(plan.moeDownIndexedIdx, producerOf(weights));
+        if (position != plan.moeDownIndexedIdx) {
+            insertAfter[position].push_back(cloneOp(down));
+            removeIndexes.insert(plan.moeDownIndexedIdx);
+        }
+        removeIndexes.insert(plan.moeRwMulIdx);
+        removeIndexes.insert(plan.moeRwReduceIdx);
     }
 
     bool fuseHiddenStateC4Regions() {
@@ -2767,9 +3380,9 @@ private:
                         // LayerNorm parameter travels as-is, gamma inline or
                         // external) before the replacements below rewire x/z to
                         // the C4 attention output and the raw projection output.
-                        auto gatedNorm           = mOps[linear.gatedNormConstructIdx].get();
-                        gatedNorm->type          = OpType_GatedRMSNorm;
-                        gatedNorm->inputIndexes  = {linear.gatedNormX, linear.gatedNormZ};
+                        auto gatedNorm = mOps[linear.gatedNormConstructIdx].get();
+                        gatedNorm->type = OpType_GatedRMSNorm;
+                        gatedNorm->inputIndexes = {linear.gatedNormX, linear.gatedNormZ};
                         gatedNorm->outputIndexes = {linear.gatedNormOut};
                     }
                     for (auto& replacement : linear.replacements) {
@@ -2826,7 +3439,7 @@ private:
                 }
                 removeIndexes.insert(plan.gatePre.reshapeIdx);
                 removeIndexes.insert(plan.gatePre.convertIdx);
-                if (plan.fusedGateUpIdx < 0) {
+                if (plan.moe == MoeStructure::None && plan.fusedGateUpIdx < 0) {
                     for (int convIdx : plan.upPre.convUsers) {
                         replaceInput(convIdx, plan.upPre.convertOut, plan.postLnOut);
                     }
@@ -2837,15 +3450,100 @@ private:
                 if (plan.mlpBinaryIdx >= 0) {
                     mOps[plan.mlpBinaryIdx]->defaultDimentionFormat = MNN_DATA_FORMAT_NC4HW4;
                 }
-                auto mlpAdd = mOps[plan.mlpAddIdx].get();
-                mlpAdd->defaultDimentionFormat = MNN_DATA_FORMAT_NC4HW4;
-                replaceInput(plan.mlpAddIdx, plan.downPost.reshapeOut, plan.downPost.convOut);
-                auto& addInputs = mlpAdd->inputIndexes;
-                if (addInputs.size() != 2 || addInputs[0] != plan.attentionAddOut) {
-                    addInputs = {plan.attentionAddOut, plan.downPost.convOut};
+                if (plan.moe != MoeStructure::None) {
+                    int dispatchOut = mOps[plan.moeDispatchReshapeIdx]->outputIndexes[0];
+                    replaceInput(plan.moeGateUpIndexedIdx, dispatchOut, plan.postLnOut);
+                    bool keepDispatch = mGraphOutputs.count(dispatchOut) != 0;
+                    for (int idx : mConsumers[dispatchOut]) {
+                        if (!removeIndexes.count(idx) &&
+                            std::find(mOps[idx]->inputIndexes.begin(), mOps[idx]->inputIndexes.end(), dispatchOut) !=
+                                mOps[idx]->inputIndexes.end()) {
+                            keepDispatch = true;
+                        }
+                    }
+                    if (!keepDispatch) {
+                        removeIndexes.insert(plan.moeDispatchReshapeIdx);
+                    }
+                    bool keepPlain = mGraphOutputs.count(plan.postLnOut) != 0;
+                    for (int idx : mConsumers[plan.postLnOut]) {
+                        keepPlain |= !removeIndexes.count(idx);
+                    }
+                    if (keepPlain) {
+                        int postC4 = buildUniqueTensor("FuseTransformerC4_moe_post_norm_c4");
+                        int postPlain4 = buildUniqueTensor("FuseTransformerC4_moe_post_norm_plain");
+                        for (auto& output : mOps[plan.postLnIdx]->outputIndexes) {
+                            if (output == plan.postLnOut) {
+                                output = postC4;
+                            }
+                        }
+                        replaceInput(plan.moeGateUpIndexedIdx, plan.postLnOut, postC4);
+                        for (int idx : plan.gatePre.convUsers) {
+                            replaceInput(idx, plan.postLnOut, postC4);
+                        }
+                        insertAfter[plan.postLnIdx].push_back(makeConvert(mTensors[postPlain4], postC4, postPlain4,
+                                                                         MNN_DATA_FORMAT_NC4HW4, MNN_DATA_FORMAT_NCHW));
+                        insertAfter[plan.postLnIdx].push_back(makeReshape(mTensors[plan.postLnOut], postPlain4,
+                                                                     plan.postLnOut, {1, -1, plan.hiddenSize}));
+                    }
+
+                    int downC4 = buildUniqueTensor("FuseTransformerC4_moe_down_c4");
+                    fuseMoeDown(plan, downC4, insertAfter, removeIndexes);
+
+                    int mlpOut = downC4;
+                    if (plan.moe == MoeStructure::SharedRouted) {
+                        if (plan.moeSharedMulIdx >= 0) {
+                            int gatePlain = buildUniqueTensor("FuseTransformerC4_shared_gate_reshape");
+                            int gateC4 = buildUniqueTensor("FuseTransformerC4_shared_gate_c4");
+                            auto& inserts = insertBefore[plan.moeSharedMulIdx];
+                            inserts.push_back(makeReshape(mTensors[gatePlain], plan.moeSharedGateTensor,
+                                                          gatePlain, {-1, 1, 1, 1}));
+                            inserts.push_back(makeConvert(mTensors[gateC4], gatePlain, gateC4,
+                                                          MNN_DATA_FORMAT_NCHW, MNN_DATA_FORMAT_NC4HW4));
+                            auto down = mOps[plan.downPost.convIdx].get();
+                            std::unique_ptr<OpT> fused(new OpT);
+                            fused->name = down->name;
+                            fused->type = OpType_FusedLinear;
+                            fused->main.type = OpParameter_FusedLinearParam;
+                            auto param = new FusedLinearParamT;
+                            param->row_mul = true;
+                            auto copied = cloneOp(down);
+                            param->convs.emplace_back(copied->main.AsConvolution2D());
+                            copied->main.value = nullptr;
+                            fused->main.value = param;
+                            fused->inputIndexes = {down->inputIndexes[0], gateC4};
+                            fused->outputIndexes = {plan.downPost.convOut};
+                            fused->externalPath = down->externalPath;
+                            fused->defaultDimentionFormat = MNN_DATA_FORMAT_NC4HW4;
+                            inserts.emplace_back(std::move(fused));
+                            removeIndexes.insert(plan.downPost.convIdx);
+                            removeIndexes.insert(plan.moeSharedMulIdx);
+                        }
+                        auto add2 = mOps[plan.moeAdd2Idx].get();
+                        add2->defaultDimentionFormat = MNN_DATA_FORMAT_NC4HW4;
+                        add2->inputIndexes = {plan.downPost.convOut, downC4};
+                        mlpOut = add2->outputIndexes[0];
+                        removeIndexes.insert(plan.moeSharedTailReshapeIdx);
+                        removeIndexes.insert(plan.downPost.convertIdx);
+                        removeIndexes.insert(plan.downPost.reshapeIdx);
+                    }
+
+                    auto mlpAdd = mOps[plan.mlpAddIdx].get();
+                    mlpAdd->defaultDimentionFormat = MNN_DATA_FORMAT_NC4HW4;
+                    mlpAdd->inputIndexes = {plan.attentionAddOut, mlpOut};
+                    removeIndexes.insert(plan.moeRwMulIdx);
+                    removeIndexes.insert(plan.moeRwReduceIdx);
+                    removeIndexes.insert(plan.moeRoutedReshapeIdx);
+                } else {
+                    auto mlpAdd = mOps[plan.mlpAddIdx].get();
+                    mlpAdd->defaultDimentionFormat = MNN_DATA_FORMAT_NC4HW4;
+                    replaceInput(plan.mlpAddIdx, plan.downPost.reshapeOut, plan.downPost.convOut);
+                    auto& addInputs = mlpAdd->inputIndexes;
+                    if (addInputs.size() != 2 || addInputs[0] != plan.attentionAddOut) {
+                        addInputs = {plan.attentionAddOut, plan.downPost.convOut};
+                    }
+                    removeIndexes.insert(plan.downPost.convertIdx);
+                    removeIndexes.insert(plan.downPost.reshapeIdx);
                 }
-                removeIndexes.insert(plan.downPost.convertIdx);
-                removeIndexes.insert(plan.downPost.reshapeIdx);
                 currentC4 = plan.mlpAddOut;
             }
 
@@ -2956,8 +3654,16 @@ private:
                     param->rope_cut_head_dim > param->head_dim || param->rope_cut_head_dim % 2 != 0) {
                     return false;
                 }
-                if ((param->q_norm != nullptr && (int)param->q_norm->gamma.size() != param->head_dim) ||
-                    (param->k_norm != nullptr && (int)param->k_norm->gamma.size() != param->head_dim)) {
+                auto normGammaOk = [param](const std::unique_ptr<LayerNormT>& norm) {
+                    if (norm == nullptr) {
+                        return true;
+                    }
+                    if ((int)norm->gamma.size() == param->head_dim) {
+                        return true;
+                    }
+                    return norm->gamma.empty() && norm->useRMSNorm;
+                };
+                if (!normGammaOk(param->q_norm) || !normGammaOk(param->k_norm)) {
                     return false;
                 }
                 if (!isPackedRoPEInput(op->inputIndexes[0], param->num_head * param->head_dim) ||
@@ -3011,9 +3717,9 @@ public:
         // (which lora_split relies on) would still fuse inside MoE expert
         // subgraphs, whose bodies are exactly the SwiGLU gate/up pattern.
         auto config = Global<modelConfig>::Get();
-        const bool fuseQkvProj    = config == nullptr || config->transformerFuseQkvProj;
+        const bool fuseQkvProj = config == nullptr || config->transformerFuseQkvProj;
         const bool fuseGateUpProj = config == nullptr || config->transformerFuseGateUpProj;
-        const bool fuseLnProj     = config == nullptr || config->transformerFuseLnProj;
+        const bool fuseLnProj = config == nullptr || config->transformerFuseLnProj;
         std::set<int> mainOutputs;
         bool validOutputNames = true;
         for (auto& outputName : net->outputName) {

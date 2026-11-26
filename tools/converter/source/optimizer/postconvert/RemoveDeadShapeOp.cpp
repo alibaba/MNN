@@ -56,7 +56,7 @@ public:
             OpType_Shape,        OpType_Rank,      OpType_Size,
             OpType_Unsqueeze,    OpType_Squeeze,   OpType_Concat,
             OpType_StridedSlice, OpType_GatherV2,  OpType_BinaryOp,
-            OpType_Const,
+            OpType_Const,        OpType_Reshape,   OpType_ConvertTensor,
         };
         bool hasFusedTransformer = false;
         for (const auto& op : net->oplists) {
@@ -94,6 +94,12 @@ public:
         // would mark everything as dead. Skip to avoid incorrect deletions.
         if (stack.empty()) {
             return true;
+        }
+
+        for (const auto& op : net->oplists) {
+            if (kShapeOpWhitelist.count(op->type) == 0) {
+                stack.insert(stack.end(), op->inputIndexes.begin(), op->inputIndexes.end());
+            }
         }
 
         // Backward reachability over the producer graph.

@@ -11,6 +11,7 @@
 
 #include "geometry/GeometryComputer.hpp"
 #include "geometry/GeometryComputerUtils.hpp"
+#include "geometry/ConvertUtils.hpp"
 #include "core/FusedProjCommon.hpp"
 #include "core/OpCommonUtils.hpp"
 #include "core/TensorUtils.hpp"
@@ -56,7 +57,7 @@ class GeometryFusedProj : public GeometryComputer {
     // disagree.
     static bool _keepWhole(const Context& context, const Op* op, size_t numInputs, size_t numOutputs) {
         if (context.forwardType() == MNN_FORWARD_METAL) {
-            return FusedProjCommon::nativeEnvelopeOk(op, numInputs, numOutputs) &&
+            return FusedProjCommon::nativeEnvelopeOk(op, numInputs, numOutputs, true) &&
                    FusedProjCommon::allMembersAre1x1(op);
         }
         if (context.forwardType() == MNN_FORWARD_CPU || context.forwardType() == MNN_FORWARD_CPU_EXTENSION) {
@@ -102,6 +103,20 @@ public:
             return false;
         }
         const int numConvs = (int)param->convs()->size();
+        if (param->row_mul()) {
+            if (!FusedProjCommon::nativeEnvelopeOk(op, inputs.size(), outputs.size(), true) ||
+                res.command.size() != 2 || res.extras.size() != 2) {
+                return false;
+            }
+            _updateTensorShape(res.extras[0].get(), outputs[0]);
+            _updateTensorShape(res.extras[1].get(), outputs[0]);
+            ConvertUtils::broadcastto(inputs[1], res.extras[1].get());
+            res.command[0]->inputs = {inputs[0]};
+            res.command[0]->outputs = {res.extras[0].get()};
+            res.command[1]->inputs = {res.extras[0].get(), res.extras[1].get()};
+            res.command[1]->outputs = {outputs[0]};
+            return true;
+        }
         const bool isGateUp = param->act_silu_mul();
         const bool hasLn = param->has_ln();
         const int numProjOut = isGateUp ? 1 : numConvs;
@@ -165,6 +180,23 @@ public:
         const bool isGateUp = param->act_silu_mul();
         const bool hasLn    = param->has_ln();
         const auto fmt      = op->defaultDimentionFormat();
+        if (param->row_mul()) {
+            if (!FusedProjCommon::nativeEnvelopeOk(op, inputs.size(), outputs.size(), true)) {
+                return false;
+            }
+            std::shared_ptr<Tensor> projected(Tensor::createDevice(outputs[0]->shape(), outputs[0]->getType()));
+            _updateTensorShape(projected.get(), outputs[0]);
+            res.extras.emplace_back(projected);
+            std::shared_ptr<Tensor> scales(new Tensor);
+            _updateTensorShape(scales.get(), outputs[0]);
+            ConvertUtils::broadcastto(inputs[1], scales.get());
+            res.extras.emplace_back(scales);
+            res.command.emplace_back(_makeCmd(FusedProjCommon::makeConvOp(param->convs()->GetAs<Convolution2D>(0),
+                fmt, op->externalPath()), {inputs[0]}, {projected.get()}));
+            res.command.emplace_back(_makeCmd(FusedProjCommon::makeMulOp(fmt),
+                {projected.get(), scales.get()}, {outputs[0]}));
+            return true;
+        }
         if (isGateUp && numConvs != 2) {
             return false;
         }

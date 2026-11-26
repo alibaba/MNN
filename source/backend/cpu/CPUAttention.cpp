@@ -17,7 +17,7 @@
 #include "compute/TurboQuant.hpp"
 #include "core/Macro.h"
 #include "core/Concurrency.h"
-#include "core/AttentionMaskConvention.hpp"
+#include "core/AttentionCommon.hpp"
 #include "core/BufferAllocator.hpp"
 #include "core/TensorUtils.hpp"
 #include "core/OpCommonUtils.hpp"
@@ -501,7 +501,7 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
     const float* sinksPtr = sinks ? sinks->host<float>() : nullptr;
     int kvValidOffset = kvSeqLen - seqLen; // reuse_kv=true or decode, kvValidOffset>0
 
-    // Classify the mask by shape only, see core/AttentionMaskConvention.hpp.
+    // Classify the mask by shape only, see core/AttentionCommon.hpp.
     const bool hasMask = (mask != nullptr);
     const int maskDims = hasMask ? mask->dimensions() : 0;
     const int maskElems = hasMask ? mask->elementSize() : 0;

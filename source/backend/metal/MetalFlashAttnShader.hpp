@@ -347,27 +347,26 @@ static inline long fatc_mask_offset(constant FaParam& param, int b, int hn, int 
     return ((long(mask_b) * param.mask_head_num + mask_h) * param.mask_q_len + mask_q) * (long)param.mask_k_len + local_k;
 }
 
-#define FATC_NSG   4
+#define FATC_WM    4
+#ifndef FATC_WN
+#define FATC_WN    1
+#endif
+#define FATC_NSG   (FATC_WM * FATC_WN)
 #define FATC_BQ    64                   // queries per threadgroup (16 per simdgroup)
 // kv columns per step (matmul2d N for QK). Widening N inflates s_acc; prefer
 // widening K (FATC_QK_K) instead, whose capacity is K-independent.
 #define FATC_BK    32
 #define FATC_TK    (FATC_BK / 16)      // kv frags
-#define FATC_TD    (HEAD_DIM / 16)      // head_dim frags
+#define FATC_TD    (FATC_DDIM / 16)     // head_dim frags
 #define FATC_NEG   (-1.0e30f)
 
 // QK destination capacity per lane; element i maps to
 //   m = fm + ((i>>2)&1)*8,  n = fn + (i&3) + ((i>>3)&1)*16
 #define FATC_SCAP  (FATC_BK / 2)
 
-// Split head_dim across grid.z so one threadgroup owns FATC_DDIM output dims;
-// divides the O register budget by FATC_DSPLIT at the cost of recomputed QK.
-#ifndef FATC_DSPLIT
-#define FATC_DSPLIT 1
-#endif
-#define FATC_DDIM (HEAD_DIM / FATC_DSPLIT)
-#if FATC_DSPLIT > 1 && !defined(FATC_O_CT)
-#error "FATC_DSPLIT requires FATC_O_CT (only the persistent-CT PV path is d-sliced)"
+#define FATC_DDIM (HEAD_DIM / FATC_WN)
+#if FATC_WN > 1 && !defined(FATC_O_CT)
+#error "FATC_WN requires FATC_O_CT (only the persistent-CT PV path is d-sliced)"
 #endif
 
 // 32-wide O tiles, one destination coop tensor each; expanded through
@@ -394,7 +393,7 @@ static inline long fatc_mask_offset(constant FaParam& param, int b, int hn, int 
 #define FATC_QK_K 16
 #endif
 #define FATC_NH    (FATC_QK_K / 16)        // 16-K halves per QK call
-#define FATC_TDK   (HEAD_DIM / FATC_QK_K)  // QK accumulate steps
+#define FATC_TDK   (FATC_DDIM / FATC_QK_K)  // QK accumulate steps
 
 // PV accumulate width. FATC_PV_K32 consumes the whole BK=32 kv tile in one
 // matmul2d, cutting PV call count. Layout matches QK's +16 upper-half K.
@@ -457,15 +456,11 @@ kernel void prefill_flash_attn_tc(
 #else
     const int q_tile  = int(tgpig.x);
 #endif
-    const int q_row_base = q_tile * FATC_BQ + seq_idx * param.q_seq_piece_len
-                         + int(sgitg) * 16;
-#if FATC_DSPLIT > 1
-    // This threadgroup produces only [q_row_base, +16) x [d_base, +FATC_DDIM).
-    // QK spans the full head_dim regardless, so the z slices duplicate it.
-    const int d_base = int(tgpig.z) * FATC_DDIM;
-#else
-    constexpr int d_base = 0;
-#endif
+    const int row_group = int(sgitg) / FATC_WN;
+    const int d_group   = int(sgitg) % FATC_WN;
+    const int q_block_base = q_tile * FATC_BQ + seq_idx * param.q_seq_piece_len;
+    const int q_row_base = q_block_base + row_group * 16;
+    const int d_base = d_group * FATC_DDIM;
 
     // Per-lane base offsets inside a cooperative tensor tile (kernel-dev-and-optimize.md §1.10):
     // fn indexes 4 consecutive elements of the fast axis, fm the slow axis.
@@ -537,13 +532,17 @@ kernel void prefill_flash_attn_tc(
     const int k_row_stride = param.batch * kv_heads * param.head_dim;
     const int v_row_stride = param.batch * kv_heads * param.head_dim;
     const device ftype* q_lane = Q + ((long)b * seq_q * param.head_num + h) * param.head_dim
-                                  + (long)(q_row_base + int(fm)) * q_row_stride + int(fn);
-    const device ftype* k_head = K + ((long)b * kv_heads + kh) * param.head_dim + int(fn);
+                                  + (long)(q_row_base + int(fm)) * q_row_stride + int(fn) + d_base;
+    const device ftype* k_head = K + ((long)b * kv_heads + kh) * param.head_dim + int(fn) + d_base;
     const device ftype* v_head = V + ((long)b * kv_heads + kh) * param.head_dim + int(fn);
 
     // Tile-level causal bounds: blocks fully above the diagonal never run, and
     // blocks fully below it skip masking entirely.
+#if FATC_WN > 1
+    const int kv_lim = min(seq_k, q_block_base + FATC_BQ + kv_valid_offset);
+#else
     const int kv_lim = min(seq_k, q_row_base + 16 + kv_valid_offset);
+#endif
     const int kv_no_mask_end = q_row_base + kv_valid_offset;
     const int q_valid_rows = seq_q - q_row_base;   // rows >= this are padding
 
@@ -595,6 +594,10 @@ kernel void prefill_flash_attn_tc(
     }
 #endif
 
+#if FATC_WN > 1
+    threadgroup float s_xchg[FATC_NSG][32 * FATC_SCAP];
+#endif
+
     for (int kv0 = 0; kv0 < kv_lim; kv0 += FATC_BK) {
         // ---- QK: S[16 q][FATC_BK kv], accumulated over head_dim ----
         float s_acc[FATC_SCAP];
@@ -618,7 +621,7 @@ kernel void prefill_flash_attn_tc(
 #ifdef FATC_KV_DEV_TENSOR
             // B operand is the K tile itself: origin (k = dd*QK_K, n = this
             // tile's first kv row), extents from the descriptor. No per-lane fill.
-            auto ct_b = t_k.slice(dd * FATC_QK_K, kv0);
+            auto ct_b = t_k.slice(d_base + dd * FATC_QK_K, kv0);
 #else
             auto ct_b = mm.get_right_input_cooperative_tensor<ftype, ftype, float>();
 #endif
@@ -677,6 +680,25 @@ kernel void prefill_flash_attn_tc(
                 s_acc[i] = ct_c[i];
             }
         }
+
+#if FATC_WN > 1
+        {
+            float* slot = &s_xchg[sgitg][int(tiisg) * FATC_SCAP];
+            for (ushort i = 0; i < FATC_SCAP; i++) {
+                slot[i] = s_acc[i];
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+            const int rg = row_group * FATC_WN;
+            for (ushort i = 0; i < FATC_SCAP; i++) {
+                float v = s_xchg[rg][int(tiisg) * FATC_SCAP + i];
+                for (int p = 1; p < FATC_WN; p++) {
+                    v += s_xchg[rg + p][int(tiisg) * FATC_SCAP + i];
+                }
+                s_acc[i] = v;
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+        }
+#endif
 
         // ---- mask, in registers. In a destination tile element i sits at
         // (m = fm + ((i>>2)&1)*8, n = fn + (i&3) + ((i>>3)&1)*16).

@@ -11,7 +11,7 @@
 #include <MNN/expr/Module.hpp>
 #include "core/OpCommonUtils.hpp"
 #include "core/MNNFileUtils.h"
-#include "core/AttentionMaskConvention.hpp"
+#include "core/AttentionCommon.hpp"
 #include "MNNTestSuite.h"
 #include "TestUtils.h"
 #include <stdlib.h>
@@ -1249,7 +1249,7 @@ public:
 
 private:
     // The first three are dense per-element masks; the last is the bidirectional
-    // sentinel (core/AttentionMaskConvention.hpp) that vision encoders use instead of
+    // sentinel (core/AttentionCommon.hpp) that vision encoders use instead of
     // materialising a seq*seq block of zeros.
     //   kAllVisibleDense       all-zero ADD mask, i.e. full bidirectional attention
     //   kCausalDense           causal ADD mask, which only matches if the kernel reads
@@ -1306,7 +1306,7 @@ private:
             VARP Mask;
             if (kBidirectionalSentinel == maskKind) {
                 // Rank-1 one-element sentinel; classified by shape, so the value is
-                // conventional only (core/AttentionMaskConvention.hpp).
+                // conventional only (core/AttentionCommon.hpp).
                 Mask = _Input({1}, NCHW, halide_type_of<float>());
                 Mask->writeMap<float>()[0] = MNN::kAttentionMaskBidirectional;
             } else {

@@ -307,7 +307,7 @@ if [ -n "$PROMPT_DIR" ]; then
         LOG_FILE="$LOG_DIR/bench_${RUN_TAG}_file${FI}_${FNAME%.txt}.log"
         LOG_FILES="$LOG_FILES $LOG_FILE"
         echo "==> [5/5] ($((FI + 1))/$TOTAL) $FNAME ($BACKEND, max_new=$MAX_NEW)..."
-        run_one_bench "$LOG_FILE" --bench-cmd "benchfiles $BACKEND $THREADS $MAX_NEW $FI"
+        run_one_bench "$LOG_FILE" --bench-cmd "benchfiles $BACKEND $THREADS $MAX_NEW $FNAME"
         case "$STATUS" in
             done)
                 LINE=$(grep -o "\[MNN_FILE_PERF\] .*" "$LOG_FILE" | sed 's/\[MNN_FILE_PERF\] //')

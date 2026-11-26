@@ -155,7 +155,7 @@ OpenCL 同样错，但**不是**因为回落到 CPU——它跑自己的 kernel�
 合理默认；无 KV cache ⟹ 一次性注意力（视觉 / 交叉 / 双向编码器）⟹ 没有依据假设因果，"无 mask"
 必须意味着"不遮挡"。Metal 一直是后者，CPU 是前者。
 
-**修复**：在 `core/AttentionMaskConvention.hpp` 里加 `IsAttentionMaskCausal(hasMask, dims, kvCache)`，
+**修复**：在 `core/AttentionCommon.hpp` 里加 `IsAttentionMaskCausal(hasMask, dims, kvCache)`，
 CPU 与 Metal 共用同一个谓词；解封 unit test 3 在 CPU 上的跳过。验证：CPU 家族 14/14、CPU
 精度×线程四档 14/14、Metal 家族 4 轮交替无失败、`llm_demo`（LLM 与 VLM × CPU 与 Metal）四组
 输出与基线**逐字节相同**（md5 一致），确认 LLM 因果路径（rank-0 + kv_cache=true）未受影响。
@@ -217,7 +217,7 @@ host 侧发了 `-DDEFAULT_MASK`、名字也贴切，很容易让人以为 kernel
   只有模型质量下降，从故障现象反推几乎不可能。
 - 判据是"这个后端在**输入缺失/歧义**时假设了什么"。逐个后端列一遍，分歧就会自己浮出来。本例中
   Vulkan / CUDA 把 absent/rank-0 一律读成全可见（不看 kv_cache），与 CPU/Metal 仍不一致 ——
-  已知、已记录在 `AttentionMaskConvention.hpp`，未修。
+  已知、已记录在 `AttentionCommon.hpp`，未修。
 - 单测里被 `skip` + `TODO` 挡住的用例，往往正对应一个真实的后端能力缺口。看到
   `skipXxx = cpuInfer` 这类按后端跳过的逻辑，值得追一次"为什么跳"。
 
@@ -242,7 +242,7 @@ FA 本身仍错 → 需要架构层加固。
 | `source/backend/metal/MetalSoftmaxShader.cpp` | softmax CAUSAL_BOUND 分支实现 |
 | `skills/metal-optimize/env-registry.md` | `MNN_METAL_QK_CAUSAL_TRI` 等相关开关的完整语义登记 |
 | `skills/metal-optimize/kernel-dev-and-optimize.md` | causal-tri / CAUSAL_BOUND 的设计文档（§2.3.1）|
-| `source/core/AttentionMaskConvention.hpp` | mask 三分类 + `IsAttentionMaskCausal(hasMask, dims, kvCache)` 的权威定义，以及各后端对 absent/rank-0 的分歧现状（§7.5.1） |
+| `source/core/AttentionCommon.hpp` | mask 三分类 + `IsAttentionMaskCausal(hasMask, dims, kvCache)` 的权威定义，以及各后端对 absent/rank-0 的分歧现状（§7.5.1） |
 | `tools/converter/source/optimizer/merge/FuseAttention.cpp` | mask **强制**（`:114-122`，非 Select/Add 就 `return false`），产出 4+ 输入 op |
 | `tools/converter/source/optimizer/merge/FuseFmhaV2.cpp` | 三个 pass（`:250/501/706`）产出 **3 输入 + kv_cache=false** 的 op，即"源图无 mask 运算"那一档 |
 | `source/backend/cpu/CPUAttention.cpp` | `isLowerTriangular` / `noElementMask` / `useMaskInSoftmax` 三个标志的职责划分（§7.5.1 排除项 3） |

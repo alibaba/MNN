@@ -224,6 +224,20 @@ class LoRA:
             raise RuntimeError(
                 f'FusedLinear "{op["name"]}" has {len(convs)} convs but {len(members)} member names; '
                 'rebuild MNNConvert so FuseTransformerC4 records member names in the op name')
+        if main.get('row_mul'):
+            if len(convs) != 1 or len(op['inputIndexes']) != 2 or len(op['outputIndexes']) != 1:
+                raise ValueError(f'Invalid row-mul FusedLinear: {op["name"]}')
+            source, gate = op['inputIndexes']
+            output = op['outputIndexes'][0]
+            raw = self.build_tensor(f'{op["name"]}/unscaled')
+            op['type'] = 'Convolution'
+            op['main_type'] = 'Convolution2D'
+            op['main'] = convs[0]
+            op['inputIndexes'] = [source]
+            op['outputIndexes'] = [raw]
+            adapted = self.build_lora_chain(source, raw, layer + members[0])
+            self.build_binary('MUL', [adapted, gate], f'{op["name"]}/row_mul', output_index=output)
+            return
         if main.get('has_ln'):
             self.unfold_fused_ln(op)
         if main.get('act_silu_mul'):

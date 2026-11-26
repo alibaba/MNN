@@ -3,6 +3,7 @@ import sys
 import subprocess
 import copy
 import json
+import subprocess
 import torch
 import numpy as np
 
@@ -73,7 +74,8 @@ class MNNConverter:
                     finally:
                         sys.argv = previous_argv
                 else:
-                    subprocess.run([self.mnnconvert, *convert_args[1:]], stdout=log_fp, check=True)
+                    subprocess.run([self.mnnconvert, *map(str, convert_args[1:])],
+                                   stdout=log_fp, stderr=subprocess.STDOUT, check=True)
             success = True
         finally:
             if sfd is not None:
@@ -151,7 +153,8 @@ class MNNConverter:
             str(mnn_path),
             '--MNNModel',
             str(mnn_path),
-            '--optimizeLevel=1'
+            '--optimizeLevel=1',
+            '--saveExternalData'
         ]
         convert_args += self.transformer_c4_args()
         self.convert(convert_args)

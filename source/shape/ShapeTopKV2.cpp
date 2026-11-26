@@ -14,7 +14,7 @@ namespace MNN {
 class TopKV2SizeComputer : public SizeComputer {
     virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                const std::vector<Tensor*>& outputs) const override {
-        MNN_ASSERT(2 == inputs.size() || 3 == inputs.size());
+        MNN_ASSERT(2 == inputs.size() || 3 == inputs.size() || 4 == inputs.size());
         MNN_ASSERT(2 == outputs.size());
         auto input   = inputs[0];
         auto kTensor = inputs[1];
@@ -25,11 +25,19 @@ class TopKV2SizeComputer : public SizeComputer {
         int axis = (inputs.size() == 3 ? inputs[2]->host<int32_t>()[0] : inputDimension - 1);
         if (axis < 0) axis += input->dimensions();
         // outputs: 0 --> data, 1 --> index
+        auto param = op->main_as_TopKV2();
+        const bool routeSigmoid = nullptr != param && param->routeSigmoid();
+        if (routeSigmoid) {
+            MNN_ASSERT(4 == inputs.size());
+            MNN_ASSERT(axis == inputDimension - 1);
+        }
 
         auto outputData                 = outputs[0];
         outputData->buffer().dimensions = inputDimension;
         memcpy(outputData->buffer().dim, input->buffer().dim, inputDimension * sizeof(halide_dimension_t));
-        outputData->buffer().dim[axis].extent = k;
+        if (!routeSigmoid) {
+            outputData->buffer().dim[axis].extent = k;
+        }
         outputData->buffer().type                           = input->buffer().type;
 
         auto outputIndices                 = outputs[1];

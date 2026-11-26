@@ -24,20 +24,20 @@
 namespace MNN {
 
 static std::shared_ptr<MetalLayerNorm::Resource> makeRopeNormResource(Backend* backend, const LayerNorm* layerNorm) {
-    if (nullptr == layerNorm || nullptr == layerNorm->gamma()) {
+    if (nullptr == layerNorm) {
         return nullptr;
     }
-    int gammaSize = layerNorm->gamma()->size();
-    if (gammaSize <= 0) {
-        return nullptr;
-    }
+    int gammaSize = (nullptr == layerNorm->gamma()) ? 0 : layerNorm->gamma()->size();
     auto res = std::make_shared<MetalLayerNorm::Resource>();
     res->mGroup = layerNorm->group();
     res->mEps = layerNorm->epsilon();
     res->mAxisSize = layerNorm->axis() == nullptr ? 1 : layerNorm->axis()->size();
-    res->mHasGammaBeta = true;
     res->mRMSNorm = layerNorm->useRMSNorm();
     res->mGammaSize = gammaSize;
+    res->mHasGammaBeta = gammaSize > 0;
+    if (gammaSize <= 0) {
+        return res;
+    }
     res->mGammaBuffer.reset(Tensor::createDevice<uint8_t>({gammaSize * (int)sizeof(float)}));
     if (!backend->onAcquireBuffer(res->mGammaBuffer.get(), Backend::STATIC)) {
         MNN_ERROR("MetalRope: alloc q/k norm gamma buffer error.\n");
@@ -121,10 +121,10 @@ kernel void rope_kernel(
                         device ftype* qo                 [[ buffer(4) ]],
                         device ftype* ko                 [[ buffer(5) ]],
                         constant RopeParam& p           [[ buffer(6) ]],
-#ifdef Q_NORM
+#ifdef Q_GAMMA
                         const device float* qGamma      [[ buffer(7) ]],
 #endif
-#ifdef K_NORM
+#ifdef K_GAMMA
                         const device float* kGamma      [[ buffer(8) ]],
 #endif
 #ifdef USE_SG
@@ -169,16 +169,23 @@ kernel void rope_kernel(
     // the eps are one uniform choice per simdgroup rather than a per-lane branch.
     const device float* gamma = nullptr;
     float eps = 0.0f;
+    bool hasNorm = false;
 #ifdef Q_NORM
     if (isQ) {
-        gamma = qGamma;
+        hasNorm = true;
         eps = p.qEps;
+#ifdef Q_GAMMA
+        gamma = qGamma;
+#endif
     }
 #endif
 #ifdef K_NORM
     if (!isQ) {
-        gamma = kGamma;
+        hasNorm = true;
         eps = p.kEps;
+#ifdef K_GAMMA
+        gamma = kGamma;
+#endif
     }
 #endif
 
@@ -199,16 +206,18 @@ kernel void rope_kernel(
 #ifdef USE_SG
     square_sum = simd_sum(square_sum);
 #endif
-    float var = (nullptr == gamma) ? 1.0f : 1.0f / sqrt(square_sum / ROPE_D + eps);
+    float var = hasNorm ? 1.0f / sqrt(square_sum / ROPE_D + eps) : 1.0f;
 
     const int halfSlots = ROPE_HALF_D / 32;
     for (int s = 0; s < halfSlots; ++s) {
         int i = start + s * step;
         ftype evenVal = xv[s];
         ftype oddVal  = xv[s + halfSlots];
+        evenVal = evenVal * var;
+        oddVal  = oddVal * var;
         if (nullptr != gamma) {
-            evenVal = evenVal * var * gamma[i];
-            oddVal  = oddVal * var * gamma[i + ROPE_HALF_D];
+            evenVal = evenVal * gamma[i];
+            oddVal  = oddVal * gamma[i + ROPE_HALF_D];
         }
 
         int cosIndex = gid.y * (2 * ROPE_HALF_D) + i;
@@ -223,30 +232,60 @@ kernel void rope_kernel(
     for (int s = 2 * halfSlots; s < X_CACHE_N; ++s) {
         int i = start + s * step;
         ftype value = xv[s];
+        value = value * var;
         if (nullptr != gamma) {
-            value = value * var * gamma[i];
+            value = value * gamma[i];
+        }
+        yTensor[yBase + i] = value;
+    }
+#else
+#ifdef POST_NORM
+    for (int i = start; i < p.ropeHalfD; i += step) {
+        ftype evenVal = loadC4(xTensor, gid.y, xBase, i, xSeq);
+        ftype oddVal  = loadC4(xTensor, gid.y, xBase, i + p.ropeHalfD, xSeq);
+        int cosIndex = gid.y * (2 * p.ropeHalfD) + i;
+        ftype cEven = cos[cosIndex];
+        ftype cOdd  = cos[cosIndex + p.ropeHalfD];
+        ftype sEven = sin[cosIndex];
+        ftype sOdd  = sin[cosIndex + p.ropeHalfD];
+        yTensor[yBase + i] = evenVal * cEven - oddVal * sEven;
+        yTensor[yBase + i + p.ropeHalfD] = oddVal * cOdd + evenVal * sOdd;
+    }
+    for (int i = 2 * p.ropeHalfD + start; i < p.D; i += step) {
+        yTensor[yBase + i] = loadC4(xTensor, gid.y, xBase, i, xSeq);
+    }
+    float square_sum = 0.0f;
+    for (int i = start; i < p.D; i += step) {
+        float val = yTensor[yBase + i];
+        square_sum += val * val;
+    }
+    float var = hasNorm ? 1.0f / sqrt(square_sum / p.D + eps) : 1.0f;
+    for (int i = start; i < p.D; i += step) {
+        ftype value = yTensor[yBase + i] * var;
+        if (nullptr != gamma) {
+            value = value * gamma[i];
         }
         yTensor[yBase + i] = value;
     }
 #else
     float square_sum = 0.0f;
-    if (nullptr != gamma) {
-        for (int i = start; i < p.D; i += step) {
-            float val = loadC4(xTensor, gid.y, xBase, i, xSeq);
-            square_sum += val * val;
-        }
+    for (int i = start; i < p.D; i += step) {
+        float val = loadC4(xTensor, gid.y, xBase, i, xSeq);
+        square_sum += val * val;
     }
 #ifdef USE_SG
     square_sum = simd_sum(square_sum);
 #endif
-    float var = (nullptr == gamma) ? 1.0f : 1.0f / sqrt(square_sum / p.D + eps);
+    float var = hasNorm ? 1.0f / sqrt(square_sum / p.D + eps) : 1.0f;
 
     for (int i = start; i < p.ropeHalfD; i += step) {
         ftype evenVal = loadC4(xTensor, gid.y, xBase, i, xSeq);
         ftype oddVal  = loadC4(xTensor, gid.y, xBase, i + p.ropeHalfD, xSeq);
+        evenVal = evenVal * var;
+        oddVal  = oddVal * var;
         if (nullptr != gamma) {
-            evenVal = evenVal * var * gamma[i];
-            oddVal  = oddVal * var * gamma[i + p.ropeHalfD];
+            evenVal = evenVal * gamma[i];
+            oddVal  = oddVal * gamma[i + p.ropeHalfD];
         }
 
         int cosIndex = gid.y * (2 * p.ropeHalfD) + i;
@@ -260,20 +299,22 @@ kernel void rope_kernel(
     }
     for (int i = 2 * p.ropeHalfD + start; i < p.D; i += step) {
         ftype value = loadC4(xTensor, gid.y, xBase, i, xSeq);
+        value = value * var;
         if (nullptr != gamma) {
-            value = value * var * gamma[i];
+            value = value * gamma[i];
         }
         yTensor[yBase + i] = value;
     }
+#endif
 #endif
 }
 
 #ifdef ROPE_TILE
 static inline ftype4 ropeNormQuad(const threadgroup ftype4* row, int qi, float var,
                                   const device float4* gamma) {
-    ftype4 v = row[qi];
+    ftype4 v = row[qi] * (ftype4)var;
     if (nullptr != gamma) {
-        v = ftype4(float4(v) * var * gamma[qi]);
+        v = ftype4(float4(v) * gamma[qi]);
     }
     return v;
 }
@@ -289,10 +330,10 @@ kernel void rope_kernel_tile(
                         device ftype* qo                [[ buffer(4) ]],
                         device ftype* ko                [[ buffer(5) ]],
                         constant RopeParam& p           [[ buffer(6) ]],
-#ifdef Q_NORM
+#ifdef Q_GAMMA
                         const device float* qGamma      [[ buffer(7) ]],
 #endif
-#ifdef K_NORM
+#ifdef K_GAMMA
                         const device float* kGamma      [[ buffer(8) ]],
 #endif
                         uint3 gid                       [[ threadgroup_position_in_grid ]],
@@ -313,9 +354,13 @@ kernel void rope_kernel_tile(
     int yHead = (int)actual_z * ROPE_PLANES;
     const device float4* gamma = nullptr;
     float eps = 0.0f;
+    bool hasNorm = false;
 #ifdef Q_NORM
-    gamma = (const device float4*)qGamma;
+    hasNorm = true;
     eps = p.qEps;
+#ifdef Q_GAMMA
+    gamma = (const device float4*)qGamma;
+#endif
 #endif
     if (actual_z >= (uint)p.numHead) {
         xTensor = (const device ftype4*)k;
@@ -325,9 +370,13 @@ kernel void rope_kernel_tile(
         yHead = ((int)actual_z - p.numHead) * ROPE_PLANES;
         gamma = nullptr;
         eps = 0.0f;
+        hasNorm = false;
 #ifdef K_NORM
-        gamma = (const device float4*)kGamma;
+        hasNorm = true;
         eps = p.kEps;
+#ifdef K_GAMMA
+        gamma = (const device float4*)kGamma;
+#endif
 #endif
     }
 
@@ -367,7 +416,7 @@ kernel void rope_kernel_tile(
             }
         }
         ss = simd_sum(ss);
-        float var = (nullptr == gamma) ? 1.0f : 1.0f / sqrt(ss / ROPE_D + eps);
+        float var = hasNorm ? 1.0f / sqrt(ss / ROPE_D + eps) : 1.0f;
         int yBase = tok * headStride + yHead;
         int cosBase = tok * (ROPE_HALF_D / 2);
         for (int c = 0; c < ROPE_QUADS_PER_LANE; ++c) {
@@ -439,6 +488,154 @@ kernel void rope_kernel(
     }
 }
 #endif
+
+kernel void rope_kernel_interleaved(
+                        const device ftype* q           [[ buffer(0) ]],
+                        const device ftype* k           [[ buffer(1) ]],
+                        const device ftype* cos         [[ buffer(2) ]],
+                        const device ftype* sin         [[ buffer(3) ]],
+                        device ftype* qo                [[ buffer(4) ]],
+                        device ftype* ko                [[ buffer(5) ]],
+                        constant RopeParam& p           [[ buffer(6) ]],
+#ifdef Q_GAMMA
+                        const device float* qGamma      [[ buffer(7) ]],
+#endif
+#ifdef K_GAMMA
+                        const device float* kGamma      [[ buffer(8) ]],
+#endif
+#ifdef USE_SG
+                        uint3 gid                      [[ threadgroup_position_in_grid]],
+                        uint tiisg                     [[ thread_index_in_simdgroup]],
+                        uint sgitg                     [[ simdgroup_index_in_threadgroup ]]
+#else
+                        uint3 gid                      [[ thread_position_in_grid]]
+#endif
+) {
+#ifdef USE_SG
+    uint actual_z = gid.z * 2 + sgitg;
+    if (gid.y >= (uint)p.outerSize || actual_z >= p.fullHead) {
+        return;
+    }
+    const int start = tiisg;
+    const int step  = 32;
+#else
+    uint actual_z = gid.z;
+    if (gid.x >= 1 || gid.y >= (uint)p.outerSize || actual_z >= p.fullHead) {
+        return;
+    }
+    const int start = 0;
+    const int step  = 1;
+#endif
+    bool isQ = true;
+    const device ftype* xTensor = q;
+    int xBase = actual_z * p.D;
+    int xSeq  = p.outerSize;
+    device ftype* yTensor = qo;
+    int yBase = gid.y * p.numHead * p.D + actual_z * p.D;
+    if (actual_z >= p.numHead) {
+        xTensor = k;
+        xBase   = (actual_z - p.numHead) * p.D;
+        yTensor = ko;
+        yBase   = gid.y * p.kvnumHead * p.D + (actual_z - p.numHead) * p.D;
+        isQ     = false;
+    }
+    const device float* gamma = nullptr;
+    float eps    = 0.0f;
+    bool hasNorm = false;
+#ifdef Q_NORM
+    if (isQ) {
+        eps     = p.qEps;
+        hasNorm = true;
+#ifdef Q_GAMMA
+        gamma = qGamma;
+#endif
+    }
+#endif
+#ifdef K_NORM
+    if (!isQ) {
+        eps     = p.kEps;
+        hasNorm = true;
+#ifdef K_GAMMA
+        gamma = kGamma;
+#endif
+    }
+#endif
+#ifdef POST_NORM
+    for (int i = start; i < p.ropeHalfD; i += step) {
+        const int ch = 2 * i;
+        ftype evenVal = loadC4(xTensor, gid.y, xBase, ch, xSeq);
+        ftype oddVal  = loadC4(xTensor, gid.y, xBase, ch + 1, xSeq);
+        const int trig = gid.y * (2 * p.ropeHalfD) + 2 * i;
+        ftype c = cos[trig];
+        ftype s = sin[trig];
+        yTensor[yBase + ch]     = evenVal * c - oddVal * s;
+        yTensor[yBase + ch + 1] = evenVal * s + oddVal * c;
+    }
+    for (int ch = 2 * p.ropeHalfD + start; ch < p.D; ch += step) {
+        yTensor[yBase + ch] = loadC4(xTensor, gid.y, xBase, ch, xSeq);
+    }
+#ifdef USE_SG
+    simdgroup_barrier(mem_flags::mem_device);
+#endif
+    float square_sum = 0.0f;
+    for (int i = start; i < p.D; i += step) {
+        float v = yTensor[yBase + i];
+        square_sum += v * v;
+    }
+#ifdef USE_SG
+    square_sum = simd_sum(square_sum);
+#endif
+    float var = hasNorm ? 1.0f / sqrt(square_sum / p.D + eps) : 1.0f;
+    for (int i = start; i < p.D; i += step) {
+        ftype value = yTensor[yBase + i] * var;
+        if (nullptr != gamma) {
+            value = value * gamma[i];
+        }
+        yTensor[yBase + i] = value;
+    }
+#else
+    float var = 1.0f;
+    if (hasNorm) {
+        float square_sum = 0.0f;
+        for (int i = start; i < p.D; i += step) {
+            float v = loadC4(xTensor, gid.y, xBase, i, xSeq);
+            square_sum += v * v;
+        }
+#ifdef USE_SG
+        square_sum = simd_sum(square_sum);
+#endif
+        var = 1.0f / sqrt(square_sum / p.D + eps);
+    }
+    for (int i = start; i < p.ropeHalfD; i += step) {
+        const int ch = 2 * i;
+        ftype evenVal = loadC4(xTensor, gid.y, xBase, ch, xSeq);
+        ftype oddVal  = loadC4(xTensor, gid.y, xBase, ch + 1, xSeq);
+        if (hasNorm) {
+            evenVal = evenVal * var;
+            oddVal  = oddVal * var;
+            if (nullptr != gamma) {
+                evenVal = evenVal * gamma[ch];
+                oddVal  = oddVal * gamma[ch + 1];
+            }
+        }
+        const int trig = gid.y * (2 * p.ropeHalfD) + 2 * i;
+        ftype c = cos[trig];
+        ftype s = sin[trig];
+        yTensor[yBase + ch]     = evenVal * c - oddVal * s;
+        yTensor[yBase + ch + 1] = evenVal * s + oddVal * c;
+    }
+    for (int ch = 2 * p.ropeHalfD + start; ch < p.D; ch += step) {
+        ftype value = loadC4(xTensor, gid.y, xBase, ch, xSeq);
+        if (hasNorm) {
+            value = value * var;
+            if (nullptr != gamma) {
+                value = value * gamma[ch];
+            }
+        }
+        yTensor[yBase + ch] = value;
+    }
+#endif
+}
 )metal";
 
 // Token-tiled RoPE geometry. Tokens are the contiguous axis of the C4 input, so
@@ -454,12 +651,14 @@ class MetalRopeExecution : public MetalExecution {
 public:
     explicit MetalRopeExecution(Backend *backend, int ropeCutHeadDim, std::shared_ptr<MetalLayerNorm::Resource> qNorm,
                                 std::shared_ptr<MetalLayerNorm::Resource> kNorm, int numHead, int kvNumHead,
-                                int headDim)
+                                int headDim, bool interleaved, bool normAfter)
         : MetalExecution(backend),
           mRopeCutHeadDim(ropeCutHeadDim),
           mNumHead(numHead),
           mKvNumHead(kvNumHead),
           mHeadDim(headDim),
+          mInterleaved(interleaved),
+          mNormAfter(normAfter),
           mQNorm(qNorm),
           mKNorm(kNorm) {
         auto mtbn = static_cast<MetalBackend *>(backend);
@@ -476,17 +675,46 @@ public:
         if (mQNorm) {
             macros[@"Q_NORM"] = @"1";
             keys.emplace_back("q_norm");
+            if (mQNorm->mGammaBuffer) {
+                macros[@"Q_GAMMA"] = @"1";
+                keys.emplace_back("q_gamma");
+            }
         }
         if (mKNorm) {
             macros[@"K_NORM"] = @"1";
             keys.emplace_back("k_norm");
+            if (mKNorm->mGammaBuffer) {
+                macros[@"K_GAMMA"] = @"1";
+                keys.emplace_back("k_gamma");
+            }
         }
-        if ((mQNorm || mKNorm) && rt->supportSimdGroupReduce()) {
+        if (mNormAfter) {
+            macros[@"POST_NORM"] = @"1";
+            keys.emplace_back("post");
+        }
+        bool sgEligible = (mQNorm || mKNorm) && rt->supportSimdGroupReduce() && (!mNormAfter || mInterleaved);
+        if (sgEligible) {
             macros[@"USE_SG"] = @"1";
             keys.emplace_back("sg");
             mUseSG = true;
         } else {
             mUseSG = false;
+        }
+        if (mInterleaved) {
+            option.preprocessorMacros = macros;
+            keys.emplace_back("interleaved");
+            auto pipeline = rt->findPipeline(keys);
+            if (nil == pipeline) {
+                pipeline = mtbn->makeComputePipelineWithSourceOption(gMetalRopeKernelSource, "rope_kernel_interleaved",
+                                                                     option);
+                rt->insertPipeline(keys, pipeline);
+            }
+            mPipeline = pipeline;
+            if (nil == mPipeline) {
+                MNN_ERROR("MetalRope: failed to compile rope_kernel_interleaved.\n");
+            }
+            mActivePipeline = mPipeline;
+            return;
         }
         // Same derivation as onResize; headDim and ropeCutHeadDim are ctor arguments,
         // so the rotary geometry is already fixed here and can be baked in.
@@ -586,6 +814,17 @@ public:
         p->kEps       = mKNorm ? mKNorm->mEps : 0.0f;
         auto mtbn = static_cast<MetalBackend *>(backend());
         auto context = (__bridge MNNMetalContext *)mtbn->context();
+        if (mInterleaved) {
+            mActivePipeline = mPipeline;
+            if (mUseSG) {
+                mThreads = std::make_pair(MTLSizeMake(1, p->outerSize, (NSUInteger)(numHead + kvnumHead + 1) / 2),
+                                          MTLSizeMake(64, 1, 1));
+            } else {
+                mThreads = [context computeBestGroupAndLocal:mPipeline
+                                                     threads:MTLSizeMake(1, p->outerSize, (NSUInteger)(numHead + kvnumHead))];
+            }
+            return NO_ERROR;
+        }
         if (mQNorm || mKNorm) {
             if (mUseSG) {
                 bool useTile = (nil != mPipelineTile) && p->outerSize >= kRopeTileMinSeq;
@@ -637,7 +876,8 @@ public:
         if (nullptr == dst) {
             return true;
         }
-        auto rope = new MetalRopeExecution(bn, mRopeCutHeadDim, mQNorm, mKNorm, mNumHead, mKvNumHead, mHeadDim);
+        auto rope = new MetalRopeExecution(bn, mRopeCutHeadDim, mQNorm, mKNorm, mNumHead, mKvNumHead, mHeadDim,
+                                           mInterleaved, mNormAfter);
         *dst = rope;
         MNN_METAL_PROFILE_REGISTER_CLONE(bn, op, *dst);
         return true;
@@ -649,6 +889,8 @@ private:
     int mKvNumHead = 0;
     int mHeadDim = 0;
     int mTileT = 0;
+    bool mInterleaved = false;
+    bool mNormAfter = false;
     bool mUseSG = false;
     std::shared_ptr<MetalLayerNorm::Resource> mQNorm;
     std::shared_ptr<MetalLayerNorm::Resource> mKNorm;
@@ -669,15 +911,20 @@ public:
         int kvNumHead = 0;
         int headDim = 0;
         auto param = op == nullptr ? nullptr : op->main_as_RoPEParam();
+        bool interleaved = false;
+        bool normAfter = false;
         if (param != nullptr) {
             ropeCutHeadDim = param->rope_cut_head_dim();
             numHead = param->num_head();
             kvNumHead = param->kv_num_head();
             headDim = param->head_dim();
+            interleaved = param->interleaved();
+            normAfter = param->norm_after();
             qNorm = makeRopeNormResource(backend, param->q_norm());
             kNorm = makeRopeNormResource(backend, param->k_norm());
         }
-        return new MetalRopeExecution(backend, ropeCutHeadDim, qNorm, kNorm, numHead, kvNumHead, headDim);
+        return new MetalRopeExecution(backend, ropeCutHeadDim, qNorm, kNorm, numHead, kvNumHead, headDim,
+                                      interleaved, normAfter);
     }
 };
 REGISTER_METAL_OP_CREATOR(MetalRoPECreator, OpType_RoPE);

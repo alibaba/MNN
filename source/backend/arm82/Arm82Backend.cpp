@@ -36,7 +36,9 @@ Arm82Backend::~Arm82Backend() {
 Execution* Arm82Backend::onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                   const MNN::Op* op) {
     for (auto t : outputs) {
-        if (t->getType().code != halide_type_float) {
+        auto type = t->getType();
+        if (type.code != halide_type_float &&
+            !(op->type() == OpType_TopKV2 && type.code == halide_type_int && type.bits == 32)) {
             return nullptr;
         }
     }

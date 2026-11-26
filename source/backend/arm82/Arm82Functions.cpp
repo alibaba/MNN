@@ -1,5 +1,6 @@
 #if defined(__ANDROID__) || defined(__aarch64__)
 #include <math.h>
+#include <cmath>
 #include <float.h>
 #include "Arm82Functions.hpp"
 #include "Arm82OptFunc.hpp"
@@ -142,7 +143,16 @@ void MNNPackedMatMulRemainFP16_SME2(float* C, const float* A, const float* B, si
 void MNNDepthwiseConvFastKernelFP16(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
                                     size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, size_t height,
                                     size_t srcHStep, size_t dstHStep, const float* bias, const float* parameters);
+void MNNRoPEInterleavedComputeFP16(void* dst, const void* src, const void* cosRow, const void* sinRow, int numHead,
+                                   int headDim, int ropeCutHeadDim);
+void MNNRoPEComputeFP16(void* dst, const void* src, const void* cosEven, const void* cosOdd, const void* sinEven,
+                        const void* sinOdd, int numHead, int headDim, int ropeCutHeadDim);
 #endif
+void MNNRouteSigmoidFP16(const FLOAT16* src, const FLOAT16* bias, FLOAT16* probs, float* scores, int rowSize,
+                         int numRows);
+void MNNVectorTop1FP16(const FLOAT16* input, FLOAT16* maxValue, int32_t* maxIndex, size_t count);
+void findTopKFP16(int32_t rowSize, int32_t numRows, const FLOAT16* data, int32_t k, int32_t* outputIndexes,
+                  FLOAT16* outputValues, bool largest);
 
 void MNNConvRunForLineDepthwiseFP16(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
                                 size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, size_t height, size_t srcHStep, size_t dstHStep);
@@ -1089,6 +1099,36 @@ static void MNNScaleAndAddBiasFP16(FLOAT16* dst, const FLOAT16* src, const FLOAT
     }
 }
 
+extern "C" void findTopKFP16(int32_t rowSize, int32_t numRows, const FLOAT16* data, int32_t k, int32_t* outputIndexes,
+                             FLOAT16* outputValues, bool largest) {
+    struct DataType {
+        float value;
+        int index;
+    };
+    std::vector<DataType> cacheData(rowSize);
+    auto compareL = [](const DataType& A, const DataType& B) { return A.value > B.value; };
+    auto compareM = [](const DataType& A, const DataType& B) { return A.value < B.value; };
+    for (int row = 0; row < numRows; row++) {
+        const FLOAT16* valuesRow = data + row * rowSize;
+        int32_t* indexesRow = outputIndexes + row * k;
+        FLOAT16* outputRow = outputValues + row * k;
+        for (int i = 0; i < rowSize; ++i) {
+            cacheData[i].value = valuesRow[i];
+            cacheData[i].index = i;
+        }
+        if (largest) {
+            std::partial_sort(cacheData.begin(), cacheData.begin() + k, cacheData.end(), compareL);
+        } else {
+            std::partial_sort(cacheData.begin(), cacheData.begin() + k, cacheData.end(), compareM);
+        }
+        for (int i = 0; i < k; ++i) {
+            outputRow[i] = (FLOAT16)cacheData[i].value;
+            indexesRow[i] = cacheData[i].index;
+        }
+    }
+}
+
+#ifndef __aarch64__
 // fp16 port of MNNRoPEComputeBasic (CommonOptFunction.cpp); one call handles a
 // token's [numHead, headDim] elements, cos/sin tables are already fp16.
 static void MNNRoPEComputeFP16(void* dst, const void* src, const void* cosEven, const void* cosOdd,
@@ -1135,6 +1175,37 @@ static void MNNRoPEComputeFP16(void* dst, const void* src, const void* cosEven, 
         }
     }
 }
+
+static void MNNRoPEInterleavedComputeFP16(void* dst, const void* src, const void* cosRow, const void* sinRow,
+                                          int numHead, int headDim, int ropeCutHeadDim) {
+    int ropeDim = ropeCutHeadDim;
+    if (ropeDim <= 0 || ropeDim > headDim) {
+        ropeDim = headDim;
+    }
+    ropeDim = (ropeDim / 2) * 2;
+    const int ropeHalfDim = ropeDim / 2;
+
+    auto srcHalf = static_cast<const FLOAT16*>(src);
+    auto dstHalf = static_cast<FLOAT16*>(dst);
+    auto cosHalf = static_cast<const FLOAT16*>(cosRow);
+    auto sinHalf = static_cast<const FLOAT16*>(sinRow);
+    for (int h = 0; h < numHead; ++h) {
+        auto srcH = srcHalf + h * headDim;
+        auto dstH = dstHalf + h * headDim;
+        for (int i = 0; i < ropeHalfDim; ++i) {
+            float evenVal = srcH[2 * i];
+            float oddVal = srcH[2 * i + 1];
+            float c = cosHalf[2 * i];
+            float s = sinHalf[2 * i];
+            dstH[2 * i] = static_cast<FLOAT16>(evenVal * c - oddVal * s);
+            dstH[2 * i + 1] = static_cast<FLOAT16>(evenVal * s + oddVal * c);
+        }
+        if (ropeDim < headDim) {
+            ::memcpy(dstH + ropeDim, srcH + ropeDim, (headDim - ropeDim) * sizeof(FLOAT16));
+        }
+    }
+}
+#endif
 
 static void MNNGridSampleComputeCordFP16(FLOAT16* dst, const FLOAT16* src, size_t inH, size_t inW, size_t outH, size_t outW, size_t stride, bool alignCorners) {
     float16x8_t zero = vdupq_n_f16(0);
@@ -3643,6 +3714,7 @@ bool Arm82Functions::init() {
     FUNC_PTR_ASSIGN(gInstance->MNNNormPacked, MNNNormPackedFp16);
 #endif
     FUNC_PTR_ASSIGN(gInstance->MNNRoPECompute, MNNRoPEComputeFP16);
+    FUNC_PTR_ASSIGN(gInstance->MNNRoPEInterleavedCompute, MNNRoPEInterleavedComputeFP16);
 
     gInstance->MNNComputeMatMulForH_1 = _MNNComputeMatMulForH_1_FP16;
     gInstance->MNNComputeMatMulForE_1 = _MNNComputeMatMulForE_1_FP16;

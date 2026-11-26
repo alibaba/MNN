@@ -83,6 +83,17 @@ inline std::shared_ptr<BufferStorage> makeMulSiluOp(MNN_DATA_FORMAT fmt) {
     return finish(builder, opB.Finish());
 }
 
+inline std::shared_ptr<BufferStorage> makeMulOp(MNN_DATA_FORMAT fmt) {
+    flatbuffers::FlatBufferBuilder builder(256);
+    auto binary = CreateBinaryOp(builder, BinaryOpOperation_MUL);
+    OpBuilder op(builder);
+    op.add_type(OpType_BinaryOp);
+    op.add_main_type(OpParameter_BinaryOp);
+    op.add_main(binary.Union());
+    op.add_defaultDimentionFormat(fmt);
+    return finish(builder, op.Finish());
+}
+
 // Binary RMSNorm: in [residual, hidden], out [residual_out, normalized].
 inline std::shared_ptr<BufferStorage> makeLayerNormOp(const LayerNorm* ln, MNN_DATA_FORMAT fmt) {
     flatbuffers::FlatBufferBuilder builder(1024);
@@ -100,12 +111,16 @@ inline std::shared_ptr<BufferStorage> makeLayerNormOp(const LayerNorm* ln, MNN_D
 // gate and every creator must ask the same question: an op the geometry keeps
 // whole but a creator then refuses fails session creation outright, with
 // StaticModule::preRearrangeWeights having already stripped the member weights.
-inline bool nativeEnvelopeOk(const Op* op, size_t numInputs, size_t numOutputs) {
+inline bool nativeEnvelopeOk(const Op* op, size_t numInputs, size_t numOutputs, bool allowRowMul = false) {
     auto param = op->main_as_FusedLinearParam();
     if (nullptr == param || nullptr == param->convs()) {
         return false;
     }
     const int numConvs = (int)param->convs()->size();
+    if (param->row_mul()) {
+        return allowRowMul && numConvs == 1 && numInputs == 2 && numOutputs == 1 &&
+            !param->act_silu_mul() && !param->has_ln();
+    }
     // 2 members without act_silu_mul is the split-LoRA gate/up unfold; the
     // native executions drive members in a loop and only branch on
     // act_silu_mul for the SiLU-mul extra, so it needs no special casing.

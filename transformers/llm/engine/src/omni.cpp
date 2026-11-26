@@ -22,7 +22,7 @@
 #include <sstream>
 #include <MNN/AutoTime.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
-#include "core/AttentionMaskConvention.hpp"
+#include "core/AttentionCommon.hpp"
 #include "omni.hpp"
 #include "kvmeta.hpp"
 #include "llmconfig.hpp"

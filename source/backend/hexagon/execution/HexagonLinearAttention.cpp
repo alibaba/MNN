@@ -17,6 +17,7 @@
 #include "backend/hexagon/backend/HexagonRuntime.hpp"
 #include "core/KVMeta.hpp"
 #include "core/TensorUtils.hpp"
+#include "core/AttentionCommon.hpp"
 
 namespace MNN {
 
@@ -52,11 +53,12 @@ HexagonLinearAttention::HexagonLinearAttention(Backend* backend, const DSPLinear
 // with no tensors so prefill and decode share one state, so creation alone cannot rely on them.
 static bool _tensorsSupported(const DSPLinearAttnParam& p, const std::vector<Tensor*>& inputs,
                               const std::vector<Tensor*>& outputs) {
-    if (inputs.size() < 4 || outputs.size() != 1 || inputs[0] == nullptr || inputs[3] == nullptr) {
+    const int weightIndex = linearAttentionWeightIndex(p.type == DSP_LINEAR_ATTN_SHORT_CONV, inputs.size());
+    if (weightIndex < 0 || outputs.size() != 1 || inputs[0] == nullptr || inputs[weightIndex] == nullptr) {
         return false;
     }
     auto qkv = inputs[0];
-    auto convW = inputs[3];
+    auto convW = inputs[weightIndex];
     if (!_isC4(qkv) || !_isC4(outputs[0]) || HexagonBackend::getBytes(outputs[0]) != 2) {
         return false;
     }
@@ -138,11 +140,12 @@ ErrorCode HexagonLinearAttention::onBuildCmd(const std::vector<Tensor*>& inputs,
         return NOT_SUPPORT;
     }
     const int L = inputs[0]->length(0);
-    if (mParam.convDim != 0 && (mParam.convDim != inputs[0]->length(1) || mParam.kernelSize != inputs[3]->length(2))) {
+    auto convWeight = inputs[linearAttentionWeightIndex(!gdr, inputs.size())];
+    if (mParam.convDim != 0 && (mParam.convDim != inputs[0]->length(1) || mParam.kernelSize != convWeight->length(2))) {
         return NOT_SUPPORT; // the persistent state was sized for another shape
     }
     mParam.convDim = inputs[0]->length(1);
-    mParam.kernelSize = inputs[3]->length(2);
+    mParam.kernelSize = convWeight->length(2);
     mParam.seqLen = L;
     const int blocks = gdr ? mParam.convDim / 64 : mParam.convDim / 192;
 
@@ -206,7 +209,7 @@ ErrorCode HexagonLinearAttention::onBuildCmd(const std::vector<Tensor*>& inputs,
         HexagonBackend::getDevicePtr(inputs[0]),
         gdr ? HexagonBackend::getDevicePtr(inputs[1]) : none,
         gdr ? HexagonBackend::getDevicePtr(inputs[2]) : none,
-        HexagonBackend::getDevicePtr(inputs[3]),
+        HexagonBackend::getDevicePtr(convWeight),
         mState->gateConst ? HexagonBackend::getDevicePtr(mState->gateConst.get()) : none,
     };
     std::vector<std::pair<int, int>> outputFds = {
@@ -215,7 +218,7 @@ ErrorCode HexagonLinearAttention::onBuildCmd(const std::vector<Tensor*>& inputs,
         gdr ? HexagonBackend::getDevicePtr(mState->rnnState.get()) : none,
         gdr ? HexagonBackend::getDevicePtr(mWorkspace.get()) : none,
     };
-    std::vector<Tensor*> cmdInputs = {inputs[0], gdr ? inputs[1] : nullptr, gdr ? inputs[2] : nullptr, inputs[3],
+    std::vector<Tensor*> cmdInputs = {inputs[0], gdr ? inputs[1] : nullptr, gdr ? inputs[2] : nullptr, convWeight,
                                       mState->gateConst.get()};
     std::vector<Tensor*> cmdOutputs = {outputs[0], mState->convState.get(), mState->rnnState.get(), mWorkspace.get()};
     dst.emplace_back();
