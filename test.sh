@@ -367,7 +367,10 @@ trap _on_exit EXIT
 # Static checks
 # ─────────────────────────────────────────────────────────────────────────────
 _changed_files() {
-    git show --name-only --format= 2>/dev/null || true
+    # Only paths that still exist in the work tree: a HEAD commit that deletes a
+    # source file would otherwise hand cppcheck a missing path and fail the check.
+    git show --name-only --format= --diff-filter=d 2>/dev/null \
+        | while IFS= read -r f; do [[ -e "${f}" ]] && printf '%s\n' "${f}"; done
 }
 
 _emit_static_success() {
