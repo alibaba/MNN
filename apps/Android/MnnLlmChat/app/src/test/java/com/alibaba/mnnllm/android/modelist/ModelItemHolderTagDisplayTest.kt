@@ -9,6 +9,8 @@ import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.modelmarket.ModelMarketConfig
 import com.alibaba.mnnllm.android.modelmarket.TagMapper
 import io.mockk.mockk
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -44,7 +46,7 @@ class ModelItemHolderTagDisplayTest {
         val modelItem = ModelItem().apply {
             modelId = "ModelScope/MNN/Qwen3.5-0.8B-MNN"
             modelName = "Qwen3.5-0.8B-MNN"
-            tags = listOf("Think", "Vision")
+            tags = listOf("mnn", "hqq", "en", "Think", "custom_tag:Think", "image-text-to-text", "Vision")
         }
         val wrapper = ModelItemWrapper(
             modelItem = modelItem,
@@ -62,11 +64,28 @@ class ModelItemHolderTagDisplayTest {
 
         assertTrue(
             "Expected Think tag, actual=$renderedTags",
-            renderedTags.any { it == "Think" || it == "深度思考" }
+            renderedTags.contains(activity.getString(R.string.model_tag_think))
         )
         assertTrue(
             "Expected Vision tag, actual=$renderedTags",
-            renderedTags.any { it == "Vision" || it == "图像理解" }
+            renderedTags.contains(activity.getString(R.string.model_tag_vision))
+        )
+        assertEquals(3, renderedTags.size)
+        assertFalse(renderedTags.any { it in listOf("mnn", "hqq", "en", "custom_tag:Think", "image-text-to-text") })
+        assertEquals(listOf("mnn", "hqq", "en", "Think", "custom_tag:Think", "image-text-to-text", "Vision"), modelItem.tags)
+    }
+
+    @Test
+    @Config(qualifiers = "zh-rTW")
+    fun `capability labels use view context resources without CDN translations`() {
+        TagMapper.initializeFromConfig(
+            ModelMarketConfig("1", emptyMap(), emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), emptyList())
+        )
+        val activity = Robolectric.buildActivity(AppCompatActivity::class.java).setup().get()
+
+        assertEquals(
+            listOf(R.string.model_tag_chat, R.string.model_tag_vision, R.string.model_tag_audio_gen).map { activity.getString(it) },
+            TagMapper.getDisplayTagList(listOf("mnn", "text-generation", "Chat", "image-text-to-text", "text-to-speech"), activity)
         )
     }
 }

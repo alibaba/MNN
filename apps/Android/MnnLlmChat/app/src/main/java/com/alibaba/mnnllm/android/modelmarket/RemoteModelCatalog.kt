@@ -238,7 +238,7 @@ object RemoteModelCatalog {
         val sizeB = (label?.sizeB ?: 0.0).takeIf { it > 0.0 } ?: paramsBillions
         val fileSize = (ms?.fileSize ?: 0L).takeIf { it > 0L } ?: (label?.fileSize ?: 0L)
 
-        val tags = label?.tags?.takeIf { it.isNotEmpty() } ?: apiTags(ms, hf)
+        val tags = (label?.tags.orEmpty() + apiTags(ms, hf)).distinct()
         val categories = label?.categories?.takeIf { it.isNotEmpty() }
             ?: (ms?.tasks?.takeIf { it.isNotEmpty() } ?: listOfNotNull(hf?.pipelineTag))
 
@@ -278,6 +278,7 @@ object RemoteModelCatalog {
         "MiMo" to "MiMo",
         "MiniCPM" to "MiniCPM",
         "MiniMind" to "Nanbeige",
+        "MNN-Pocket" to "MNN",
         "MobileLLM" to "MobileLLM",
         "Nanbeige" to "Nanbeige",
         "Phi" to "Phi",
@@ -304,10 +305,12 @@ object RemoteModelCatalog {
     private fun apiTags(ms: MsRepo?, hf: HfRepo?): List<String> {
         val tags = LinkedHashSet<String>()
         ms?.tasks?.let { tags.addAll(it) }
-        ms?.tags?.forEach { if (it.startsWith("custom_tag:")) tags.add(it.removePrefix("custom_tag:")) }
-        if (tags.isEmpty()) {
-            hf?.tags?.forEach { if (!it.contains(":")) tags.add(it) }
+        ms?.tags?.forEach { tag ->
+            tags.add(tag)
+            if (tag.startsWith("custom_tag:")) tags.add(tag.removePrefix("custom_tag:"))
         }
+        hf?.pipelineTag?.let { tags.add(it) }
+        hf?.tags?.let { tags.addAll(it) }
         return tags.toList()
     }
 

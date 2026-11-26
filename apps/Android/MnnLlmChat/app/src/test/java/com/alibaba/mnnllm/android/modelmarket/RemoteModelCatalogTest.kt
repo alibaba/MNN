@@ -81,6 +81,7 @@ class RemoteModelCatalogTest {
             labelsByName = emptyMap()
         )
         assertEquals(1, merged.size)
+        assertEquals("Qwen", merged[0].vendor)
         val sources = merged[0].sources
         assertEquals("MNN/Qwen2.5-0.5B-Instruct-MNN", sources[ModelSources.sourceModelScope])
         assertEquals("taobao-mnn/Qwen2.5-0.5B-Instruct-MNN", sources[ModelSources.sourceHuffingFace])
@@ -172,6 +173,13 @@ class RemoteModelCatalogTest {
 
     @Test
     fun inferVendor_matchesFamilyPrefixes() {
+        assertEquals("MNN", RemoteModelCatalog.inferVendor("MNN-Pocket-0.3B-MNN"))
+        assertEquals("MNN", RemoteModelCatalog.inferVendor("MNN-Pocket-0.3B-DFlash"))
+        assertEquals("MNN", RemoteModelCatalog.inferVendor("MNN-Pocket-0.3B-QAT-MNN"))
+        assertEquals("MNN", RemoteModelCatalog.inferVendor("mnn-pocket-1b-qat"))
+        assertEquals("Other", RemoteModelCatalog.inferVendor("MNN-Unknown-MNN"))
+        assertEquals("Other", RemoteModelCatalog.inferVendor("PocketBook-not-ours-MNN"))
+        assertEquals("Qwen", RemoteModelCatalog.inferVendor("Qwen3-MNN-Pocket-MNN"))
         assertEquals("Qwen", RemoteModelCatalog.inferVendor("Qwen3-4B-MNN"))
         assertEquals("Qwen", RemoteModelCatalog.inferVendor("QwQ-32B-MNN"))
         assertEquals("DeepSeek", RemoteModelCatalog.inferVendor("DeepSeek-R1-7B-Qwen-MNN"))
@@ -195,18 +203,75 @@ class RemoteModelCatalogTest {
             label = label
         )
         assertEquals("Other", item.vendor)
+        val pocketName = "MNN-Pocket-0.3B-QAT-MNN"
+        val pocketItem = RemoteModelCatalog.toItem(
+            pocketName, ms(pocketName), null, label.copy(modelName = pocketName)
+        )
+        assertEquals("MNN", pocketItem.vendor)
     }
 
     @Test
-    fun toItem_extractsCustomTagsFromModelScope() {
+    fun toItem_preservesRawModelScopeMetadataButOnlyDisplaysCapabilities() {
         val repo = RemoteModelCatalog.MsRepo(
             id = "MNN/MNN-Pocket-0.3B",
             tasks = listOf("text-generation"),
             tags = listOf("license:apache-2.0", "custom_tag:mnn-pocket", "custom_tag:int4", "library:safetensors")
         )
         val item = RemoteModelCatalog.toItem("MNN-Pocket-0.3B", repo, null, null)
-        assertEquals(setOf("text-generation", "mnn-pocket", "int4"), item.tags.toSet())
+        assertEquals("MNN", item.vendor)
+        assertTrue(item.tags.containsAll(repo.tasks.orEmpty() + repo.tags.orEmpty()))
+        assertTrue(item.tags.containsAll(listOf("mnn-pocket", "int4")))
+        assertEquals(listOf("Chat"), item.structuredTags.map { it.key })
         assertEquals(listOf("text-generation"), item.categories)
+    }
+
+    @Test
+    fun toItem_huggingFacePipelineSurvivesModelScopeMetadata() {
+        val msRepo = ms("New-MNN").copy(tags = listOf("custom_tag:int4", "library:mnn"))
+        val hfRepo = hf("New-MNN").copy(
+            pipelineTag = "image-text-to-text",
+            tags = listOf("en", "hqq", "image-text-to-text", "license:apache-2.0")
+        )
+        val item = RemoteModelCatalog.toItem("New-MNN", msRepo, hfRepo, null)
+
+        assertEquals(listOf("Vision"), item.structuredTags.map { it.key })
+        assertTrue(item.tags.containsAll(msRepo.tags.orEmpty()))
+        assertTrue(item.tags.containsAll(hfRepo.tags.orEmpty()))
+        assertEquals(1, item.tags.count { it == "image-text-to-text" })
+    }
+
+    @Test
+    fun toItem_keepsCdnCapabilitiesAndMetadataAlongsideApiTasks() {
+        val label = ModelMarketItem(
+            modelName = "Known-MNN", vendor = "Known", sizeB = 1.0,
+            tags = listOf("Think", "Vision", "Safety"), categories = listOf("chat"), sources = emptyMap(),
+            extraTags = listOf("ThinkingSwitch")
+        )
+        val item = RemoteModelCatalog.toItem(
+            label.modelName,
+            ms(label.modelName).copy(tasks = listOf("text-generation"), tags = listOf("custom_tag:int4")),
+            hf(label.modelName).copy(pipelineTag = "image-text-to-text", tags = listOf("mnn", "en")),
+            label
+        )
+
+        assertEquals(listOf("Think", "Vision", "Safety", "Chat"), item.structuredTags.map { it.key })
+        assertEquals(label.tags, item.tags.take(label.tags.size))
+        assertTrue(item.tags.containsAll(listOf("text-generation", "custom_tag:int4", "image-text-to-text", "mnn", "en")))
+        assertEquals(label.categories, item.categories)
+        assertEquals(label.extraTags, item.extraTags)
+    }
+
+    @Test
+    fun toItem_metadataAndModelNameDoNotInventCapabilities() {
+        val name = "MNN-Pocket-Vision-Think-MNN"
+        val item = RemoteModelCatalog.toItem(
+            name, ms(name).copy(tags = listOf("custom_tag:mnn-pocket", "custom_tag:int4")),
+            hf(name).copy(tags = listOf("mnn", "en", "hqq", "custom metadata")), null
+        )
+
+        assertEquals("MNN", item.vendor)
+        assertEquals(emptyList<Tag>(), item.structuredTags)
+        assertTrue(item.tags.isNotEmpty())
     }
 
     @Test

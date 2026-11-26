@@ -149,14 +149,20 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
         }
         
         // Precision
-        binding.dropdownPrecision.setCurrentItem(currentConfig.precision ?: defaultConfig.precision!!)
         binding.dropdownPrecision.setDropDownItems(
             listOf("low", "high"),
-            itemToString = { it.toString() },
+            itemToString = {
+                when (it) {
+                    "low" -> getString(R.string.settings_precision_low)
+                    "high" -> getString(R.string.settings_precision_high)
+                    else -> it.toString()
+                }
+            },
             onDropdownItemSelected = { _, item ->
                 currentConfig.precision = item.toString()
             },
         )
+        binding.dropdownPrecision.setCurrentItem(currentConfig.precision ?: defaultConfig.precision!!)
 
         // Thread num
         val threadNum = currentConfig.threadNum ?: defaultConfig.threadNum!!
@@ -377,7 +383,7 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
         currentConfig.penalty = currentConfig.penalty ?: defaultConfig.penalty!!
         setupSliderSwitchRow(
             rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowMixedPenalty.root),
-            label = "Penalty",
+            label = getString(R.string.settings_penalty),
             initialValue = currentConfig.penalty!!,
             initialEnabled = isPenaltyEnabled,
             valueRange = 0f..5f,
@@ -392,7 +398,7 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
         currentConfig.nGram = currentConfig.nGram ?: defaultConfig.nGram!!
         setupSliderSwitchRow(
             rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowMixedNgramSize.root),
-            label = "N-gram Size",
+            label = getString(R.string.settings_ngram_size),
             initialValue = (currentConfig.nGram!!).toFloat(),
             initialEnabled = isPenaltyEnabled,
             valueRange = 1f..16f,
@@ -404,7 +410,7 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
         currentConfig.nGramFactor = currentConfig.nGramFactor ?: defaultConfig.nGramFactor!!
         setupSliderSwitchRow(
             rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowMixedNgramFactor.root),
-            label = "N-gram Factor",
+            label = getString(R.string.settings_ngram_factor),
             initialValue = currentConfig.nGramFactor!!,
             initialEnabled = isPenaltyEnabled,
             valueRange = 1f..2f,
@@ -414,7 +420,10 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
         )
 
         penaltySamplerValue = currentConfig.penaltySampler ?: defaultConfig.penaltySampler!!
-        binding.dropdownMixedPenaltySampler.setDropDownItems(listOf("greedy", "temperature")) { _, value ->
+        binding.dropdownMixedPenaltySampler.setDropDownItems(
+            listOf("greedy", "temperature"),
+            itemToString = ::penaltySamplerToString
+        ) { _, value ->
             penaltySamplerValue = value.toString()
             currentConfig.penaltySampler = penaltySamplerValue
         }
@@ -445,7 +454,7 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
     private fun setupPenaltySettings() {
         setupSliderSwitchRow(
             rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowPenaltyPenalty.root),
-            label = "Penalty",
+            label = getString(R.string.settings_penalty),
             initialValue = currentConfig.penalty ?: defaultConfig.penalty!!,
             initialEnabled = true,
             valueRange = 0f..5f,
@@ -456,7 +465,7 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
 
         setupSliderSwitchRow(
             rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowPenaltyNgramSize.root),
-            label = "N-gram Size",
+            label = getString(R.string.settings_ngram_size),
             initialValue = (currentConfig.nGram ?: defaultConfig.nGram!!).toFloat(),
             initialEnabled = true,
             valueRange = 1f..16f,
@@ -467,7 +476,7 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
 
         setupSliderSwitchRow(
             rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowPenaltyNgramFactor.root),
-            label = "N-gram Factor",
+            label = getString(R.string.settings_ngram_factor),
             initialValue = currentConfig.nGramFactor ?: defaultConfig.nGramFactor!!,
             initialEnabled = true,
             valueRange = 1f..2f,
@@ -476,7 +485,10 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
             switchVisible = false
         )
         penaltySamplerValue = currentConfig.penaltySampler ?: defaultConfig.penaltySampler!!
-        binding.dropdownPenaltySampler.setDropDownItems(listOf("greedy", "temperature")) { _, value ->
+        binding.dropdownPenaltySampler.setDropDownItems(
+            listOf("greedy", "temperature"),
+            itemToString = ::penaltySamplerToString
+        ) { _, value ->
             penaltySamplerValue = value.toString()
             currentConfig.penaltySampler = penaltySamplerValue
         }
@@ -496,6 +508,7 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
     ) {
         val valueFormat = "%.${decimalPlaces}f"
         rowBinding.labelSlider.text = label
+        rowBinding.switchSlider.contentDescription = label
         rowBinding.valueSlider.text = String.format(Locale.US, valueFormat, initialValue)
 
         val maxProgress = 1000
@@ -545,15 +558,23 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
 
     private fun samplerTypeToString(type: SamplerType): String {
         return when (type) {
-            SamplerType.Mixed -> "Mixed"
-            SamplerType.Penalty -> "Penalty"
+            SamplerType.Mixed -> getString(R.string.settings_sampler_mixed)
+            SamplerType.Penalty -> getString(R.string.settings_penalty)
             SamplerType.TopP -> "Top P"
-            SamplerType.Greedy -> "Greedy"
-            SamplerType.Temperature -> "Temperature"
+            SamplerType.Greedy -> getString(R.string.settings_sampler_greedy)
+            SamplerType.Temperature -> getString(R.string.settings_temperature)
             SamplerType.TopK -> "Top K"
             SamplerType.MinP -> "Min P"
             SamplerType.Tfs -> "TFS-Z"
-            SamplerType.Typical -> "Typical"
+            SamplerType.Typical -> getString(R.string.settings_sampler_typical)
+        }
+    }
+
+    private fun penaltySamplerToString(value: Any): String {
+        return when (value) {
+            SamplerType.Greedy.value -> samplerTypeToString(SamplerType.Greedy)
+            SamplerType.Temperature.value -> samplerTypeToString(SamplerType.Temperature)
+            else -> value.toString()
         }
     }
 

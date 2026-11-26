@@ -674,6 +674,7 @@ class ChatActivity : AppCompatActivity() {
             binding.tvContextUsage.visibility = View.GONE
             binding.btnToggleAudioOutput.visibility = View.GONE
         } else {
+            renderContextUsage(chatPresenter.contextUsage.value)
             binding.agentStepsScroll.visibility = View.GONE
             if (ModelTypeUtils.supportAudioOutput(modelName)) binding.btnToggleAudioOutput.visibility = View.VISIBLE
         }

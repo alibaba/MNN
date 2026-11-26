@@ -62,6 +62,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -223,6 +224,7 @@ class AgentChatIntegrationTest {
         val presenter = mockk<ChatPresenter>(relaxed = true)
         every { presenter.isAgentMode } returns true
         every { presenter.agentChat } returns chat
+        every { presenter.contextUsage } returns MutableStateFlow(ContextUsageState())
         field(activity, "chatPresenter", presenter)
         field(activity, "chatInputModule", mockk<ChatInputComponent>(relaxed = true))
         val item = assistant("").apply { loading = true }
@@ -598,6 +600,79 @@ class AgentChatIntegrationTest {
         verify(exactly = 0) { listener.onGenerateStart() }
         val data = ChatDataManager.getInstance(activity)
         verify(exactly = 0) { data.addChatData(any(), any()) }
+    }
+
+    @Test
+    fun leavingAgentTwice_restoresContextUsageWithoutAnotherEmissionOrMessage() = runTest {
+        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+        val chat = integration(StandardTestDispatcher(testScheduler))
+        val (activity, presenter) = ui(chat)
+        every { presenter.isAgentMode } answers { chat.mode.value.agent }
+        field(activity, "sessionId", "history")
+        val state = ContextUsageState(tokens = 18, limit = 8192)
+        val usage = MutableStateFlow(state)
+        every { presenter.contextUsage } returns usage
+        var emissions = 0
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            usage.collect { emissions++ }
+        }
+        val counter = activity.findViewById<TextView>(R.id.tv_context_usage)
+        val expected = activity.getString(R.string.context_usage_format, "18", "8K")
+        ChatActivity::class.java.getDeclaredMethod("renderContextUsage", ContextUsageState::class.java)
+            .apply { isAccessible = true }.invoke(activity, state)
+        assertEquals(View.VISIBLE, counter.visibility)
+        assertEquals(expected, counter.text.toString())
+        repeat(2) {
+            chat.changeMode("history", true)
+            activity.onLoadingChanged(false)
+            assertEquals(View.GONE, counter.visibility)
+            chat.changeMode("history", false)
+            usage.value = state.copy()
+            activity.onLoadingChanged(false)
+            assertEquals(1, emissions)
+            assertEquals(View.VISIBLE, counter.visibility)
+            assertEquals(expected, counter.text.toString())
+            assertEquals(activity.getString(R.string.context_usage_description, 18, 8192), counter.contentDescription)
+            assertEquals(state, usage.value)
+        }
+        verify(exactly = 0) { presenter.refreshContextUsage() }
+        verify(exactly = 0) { presenter.load() }
+    }
+
+    @Test
+    fun leavingAgent_preservesHiddenCompressingAndNearlyFullContextStates() = runTest {
+        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+        val chat = integration(StandardTestDispatcher(testScheduler))
+        val (activity, presenter) = ui(chat)
+        every { presenter.isAgentMode } answers { chat.mode.value.agent }
+        val usage = MutableStateFlow(ContextUsageState())
+        every { presenter.contextUsage } returns usage
+        val counter = activity.findViewById<TextView>(R.id.tv_context_usage)
+        for (state in listOf(
+            ContextUsageState(),
+            ContextUsageState(limit = 8192),
+            ContextUsageState(compressing = true),
+            ContextUsageState(tokens = 7000, limit = 8192)
+        )) {
+            chat.changeMode("history", true)
+            usage.value = state
+            activity.onLoadingChanged(false)
+            assertEquals(View.GONE, counter.visibility)
+            chat.changeMode("history", false)
+            activity.onLoadingChanged(false)
+            assertEquals(if (state.visible || state.compressing) View.VISIBLE else View.GONE, counter.visibility)
+            if (state.compressing) {
+                assertEquals(activity.getString(R.string.context_compressing), counter.text.toString())
+            } else if (state.visible) {
+                assertEquals(activity.getString(R.string.context_usage_format,
+                    ContextUsageFormat.tokens(state.tokens), ContextUsageFormat.tokens(state.limit)), counter.text.toString())
+            }
+            if (state.nearlyFull) {
+                assertEquals(com.google.android.material.color.MaterialColors.getColor(
+                    counter, androidx.appcompat.R.attr.colorError, counter.currentTextColor), counter.currentTextColor)
+            }
+            assertEquals(state, usage.value)
+        }
     }
 
     @Test

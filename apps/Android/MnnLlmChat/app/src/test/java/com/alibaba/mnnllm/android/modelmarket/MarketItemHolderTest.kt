@@ -3,6 +3,7 @@ package com.alibaba.mnnllm.android.modelmarket
 import android.view.LayoutInflater
 import android.view.MenuItem
 import android.widget.FrameLayout
+import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.PopupMenu
 import com.alibaba.mls.api.download.DownloadInfo
@@ -15,6 +16,7 @@ import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.unmockkObject
 import io.mockk.verify
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -25,6 +27,32 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class MarketItemHolderTest {
+
+    @Test
+    @Config(qualifiers = "zh-rCN")
+    fun bind_normalizesCachedRawTagsBeforeApplyingDisplayLimit() {
+        val activity = Robolectric.buildActivity(AppCompatActivity::class.java).setup().get()
+        activity.setTheme(R.style.AppTheme)
+        val itemView = LayoutInflater.from(activity)
+            .inflate(R.layout.recycle_item_market, FrameLayout(activity), false)
+        val holder = MarketItemHolder(itemView, mockk(relaxed = true))
+        val rawTags = listOf(
+            "mnn", "mnn-pocket", "int4", "hqq", "en", "custom metadata",
+            "text-generation", "Chat", "image-text-to-text", "Vision", "Safety"
+        )
+        val wrapper = createWrapper("ModelScope/Test/Cached", DownloadState.NOT_START)
+        val item = wrapper.modelMarketItem.copy(tags = rawTags)
+
+        holder.bind(ModelMarketItemWrapper(item, wrapper.downloadInfo))
+
+        val layout = itemView.findViewById<com.alibaba.mnnllm.android.widgets.TagsLayout>(R.id.tagsLayout)
+        val rendered = (0 until layout.childCount).mapNotNull { (layout.getChildAt(it) as? TextView)?.text?.toString() }
+        assertEquals(
+            listOf(R.string.model_tag_chat, R.string.model_tag_vision, R.string.model_tag_safety).map { activity.getString(it) },
+            rendered
+        )
+        assertEquals(rawTags, item.tags)
+    }
 
     @Test
     fun longPressDelete_pausedModel_confirmDelete_invokesListener() {

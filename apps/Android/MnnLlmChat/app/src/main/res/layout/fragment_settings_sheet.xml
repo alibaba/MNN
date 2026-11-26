@@ -342,8 +342,8 @@
                         android:paddingTop="16dp"
                         android:clickable="true"
                         android:layout_height="wrap_content"
-                        app:labelText="Sampler Type"
-                        app:valueText="Greedy"
+                        app:labelText="@string/settings_sampler_type"
+                        app:valueText="@string/settings_sampler_greedy"
                         app:icon="@drawable/baseline_arrow_drop_down_24" />
 
                     <LinearLayout
@@ -414,8 +414,8 @@
                                     android:layout_width="match_parent"
                                     android:clickable="true"
                                     android:layout_height="wrap_content"
-                                    app:labelText="Penalty Sampler"
-                                    app:valueText="Greedy"
+                                    app:labelText="@string/settings_penalty_sampler"
+                                    app:valueText="@string/settings_sampler_greedy"
                                     android:layout_marginBottom="8dp"
                                     app:icon="@drawable/baseline_arrow_drop_down_24" />
 
@@ -450,8 +450,8 @@
                             android:layout_width="match_parent"
                             android:clickable="true"
                             android:layout_height="wrap_content"
-                            app:labelText="Penalty Sampler"
-                            app:valueText="Greedy"
+                            app:labelText="@string/settings_penalty_sampler"
+                            app:valueText="@string/settings_sampler_greedy"
                             android:layout_marginBottom="8dp"
                             app:icon="@drawable/baseline_arrow_drop_down_24" />
 
@@ -524,7 +524,7 @@
                         android:layout_width="match_parent"
                         android:clickable="true"
                         android:layout_height="wrap_content"
-                        app:labelText="Backend"
+                        app:labelText="@string/backend_label"
                         app:valueText="cpu"
                         style="@style/SettingsRowContainer"
                         app:icon="@drawable/baseline_arrow_drop_down_24" />
@@ -535,8 +535,8 @@
                         style="@style/SettingsRowContainer"
                         android:clickable="true"
                         android:layout_height="wrap_content"
-                        app:labelText="Precision"
-                        app:valueText="low"
+                        app:labelText="@string/settings_precision"
+                        app:valueText="@string/settings_precision_low"
                         app:icon="@drawable/baseline_arrow_drop_down_24" />
 
                     <TextView

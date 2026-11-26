@@ -20,7 +20,18 @@ data class ModelMarketItem(
 ) {
     // Convert string tags to Tag objects with i18n support
     val structuredTags: List<Tag>
-        get() = tags.map { TagMapper.getTag(it) }
+        get() = TagMapper.getCapabilityTags(tags)
+
+    val displayVendor: String
+        get() = if (
+            modelName.startsWith("MNN-Pocket", ignoreCase = true) &&
+            (vendor.isBlank() || vendor.equals("Other", ignoreCase = true) ||
+                vendor.equals("MNN-Pocket", ignoreCase = true))
+        ) {
+            "MNN"
+        } else {
+            vendor
+        }
 }
 
 data class ModelMarketItemWrapper(

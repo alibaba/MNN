@@ -75,9 +75,10 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
     private fun applyCurrentFilters() {
         var filteredList = allModels
 
-        if (currentFilterState.tagKeys.isNotEmpty()) {
+        val selectedTagKeys = TagMapper.getCapabilityTags(currentFilterState.tagKeys).map { it.key }
+        if (selectedTagKeys.isNotEmpty()) {
             filteredList = filteredList.filter { wrapper ->
-                currentFilterState.tagKeys.all { tagKey -> 
+                selectedTagKeys.all { tagKey ->
                     wrapper.modelMarketItem.structuredTags.any { it.key == tagKey }
                 }
             }
@@ -85,7 +86,7 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
 
         if (currentFilterState.vendors.isNotEmpty()) {
             filteredList = filteredList.filter { wrapper ->
-                currentFilterState.vendors.contains(wrapper.modelMarketItem.vendor)
+                currentFilterState.vendors.contains(wrapper.modelMarketItem.displayVendor)
             }
         }
 
@@ -229,7 +230,7 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun getAvailableVendors(): List<String> {
-        val availableVendors = allModels.map { it.modelMarketItem.vendor }
+        val availableVendors = allModels.map { it.modelMarketItem.displayVendor }
             .filter { it.isNotBlank() }
             .distinct()
         val vendorOrder = modelMarketConfig?.vendorOrder ?: emptyList()

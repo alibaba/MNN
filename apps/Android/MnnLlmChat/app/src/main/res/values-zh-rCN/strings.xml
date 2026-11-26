@@ -266,7 +266,7 @@
     <string name="select_model">选择模型</string>
     <string name="start_voice_chat">开启语音会话</string>
     <string name="max_new_tokens">最大输出 token 数量</string>
-    <string name="system_prompt">System Prompt</string>
+    <string name="system_prompt">系统提示词</string>
     
     <!-- Voice Model Management Strings -->
     <string name="voice_model_settings">设置</string>
@@ -782,4 +782,29 @@
     <string name="agent_tool_turn_label">第 %1$d 轮 · %2$s</string>
     <string name="agent_tool_history_notice">仅保存工具名称与状态，不保留查询、参数或网页内容，也不会提供给推理。记忆和技能独立管理。</string>
     <string name="agent_clear_tool_history">清空本会话工具步骤</string>
+    <string name="model_tag_chat">文本对话</string>
+    <string name="model_tag_think">深度思考</string>
+    <string name="model_tag_vision">图像理解</string>
+    <string name="model_tag_image_gen">文生图</string>
+    <string name="model_tag_audio">音频理解</string>
+    <string name="model_tag_audio_gen">音频生成</string>
+    <string name="model_tag_code">代码</string>
+    <string name="model_tag_math">数学</string>
+    <string name="model_tag_video">视频理解</string>
+    <string name="model_tag_safety">内容安全</string>
+    <string name="thinking_mode_label">思考</string>
+    <string name="chat_attachment_options">附件选项</string>
+    <string name="chat_stop_generation">停止生成</string>
+    <string name="settings_sampler_type">采样类型</string>
+    <string name="settings_penalty_sampler">惩罚采样器</string>
+    <string name="settings_temperature">温度</string>
+    <string name="settings_penalty">重复惩罚</string>
+    <string name="settings_ngram_size">N-gram 长度</string>
+    <string name="settings_ngram_factor">N-gram 系数</string>
+    <string name="settings_sampler_greedy">贪心</string>
+    <string name="settings_sampler_mixed">混合</string>
+    <string name="settings_sampler_typical">典型采样</string>
+    <string name="settings_precision">精度</string>
+    <string name="settings_precision_low">低</string>
+    <string name="settings_precision_high">高</string>
 </resources>

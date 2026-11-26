@@ -228,6 +228,9 @@ class ChatInputComponent(
         )
         buttonSend.isEnabled = enabled
         buttonSend.setImageResource(if (!chatActivity.isGenerating) R.drawable.button_send else R.drawable.ic_stop)
+        buttonSend.contentDescription = chatActivity.getString(
+            if (chatActivity.isGenerating) R.string.chat_stop_generation else R.string.send
+        )
     }
 
     private fun sendUserMessage() {
