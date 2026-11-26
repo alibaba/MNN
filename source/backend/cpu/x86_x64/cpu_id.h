@@ -45,6 +45,8 @@ static const int kCpuHasAVX512VBMI2 = 0x40000;
 static const int kCpuHasAVX512VBITALG = 0x80000;
 static const int kCpuHasAVX512VPOPCNTDQ = 0x100000;
 static const int kCpuHasAVX512VNNI = 0x200000;
+// CPUID.(EAX=7,ECX=1):EAX[4]. Skips 0x200000-0x800000, which the MIPS flags reuse.
+static const int kCpuHasAVXVNNI = 0x1000000;
 
 // These flags are only valid on MIPS processors.
 static const int kCpuHasMIPS = 0x200000;

@@ -100,6 +100,12 @@ bool AVX2Functions::init(int cpuFlags) {
     *coreFunction = *MNNGetCoreFunctions();
     *gAVX2CoreInt8Functions = *MNNGetInt8CoreFunctions();
     _AVX_MNNInt8FunctionInit(gAVX2CoreInt8Functions);
+#if defined(MNN_LOW_MEMORY) && defined(MNN_AVX_VNNI)
+    // Same tile and packing as the AVX2 kernel; the AVX512 block below replaces it on AVX512 machines.
+    if (cpuFlags & libyuv::kCpuHasAVXVNNI) {
+        gAVX2CoreInt8Functions->Int8GemmKernel_W4 = _AVX_MNNGemmInt8AddBiasScale_16x4_w4_AVXVNNI;
+    }
+#endif
     // Init AVX2
     coreFunction->MNNGetMatMulPackMode = _MNNGetMatMulPackMode;
     geP = 24;

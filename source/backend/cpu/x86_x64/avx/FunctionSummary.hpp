@@ -60,6 +60,11 @@ void _AVX_MNNComputeMatMulForH_1(const float* A, const float* B, float* C, const
 
 void _AVX_ReorderInit(void* functions);
 void _AVX_MNNInt8FunctionInit(void* functions);
+#ifdef MNN_AVX_VNNI
+void _AVX_MNNGemmInt8AddBiasScale_16x4_w4_AVXVNNI(int8_t* dst, const int8_t* src, const int8_t* weight,
+                                                  size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
+                                                  const QuanPostTreatParameters* post, size_t realDst);
+#endif
 void _AVX_MNNPackCUnit(float* dst, const float* src, size_t area, size_t depth, int* areaOffset);
 void _AVX_MNNUnpackCUnit(float* dst, const float* src, size_t area, size_t depth, int* areaOffset);
 void _AVX_MNNPackCUnitTranspose(float* dst, const float* src, size_t area, size_t depth, int* areaOffset);
