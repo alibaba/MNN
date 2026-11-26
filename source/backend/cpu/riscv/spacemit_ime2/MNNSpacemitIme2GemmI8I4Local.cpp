@@ -5,6 +5,7 @@
 //  Spacemit IME2 i8 x i4 GEMM kernels adapted from llama.cpp's
 //  ggml-cpu/spacemit/ime2_kernels.cpp for MNN block64 W4 inference.
 //
+#include "MNNSpacemitIme2Half.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <algorithm>
@@ -1118,7 +1119,7 @@ static void MNNSpacemitIme2GemmI8I4HpM1AsymPairRef(size_t blk_len, const uint8_t
                                                    size_t count_m, size_t count_n, size_t k_blks, size_t ldc) {
     (void)count_m;
     (void)ldc;
-    if (blk_len != 261 || quant_b_zp != nullptr) {
+    if (blk_len != MNNIme2::kSharedBlock64Kernel || quant_b_zp != nullptr) {
         return;
     }
     constexpr size_t NB_COLS = 32;
@@ -1127,7 +1128,7 @@ static void MNNSpacemitIme2GemmI8I4HpM1AsymPairRef(size_t blk_len, const uint8_t
         size_t(256) + size_t(8) * sizeof(_Float16) + size_t(8) * sizeof(_Float16) + sizeof(_Float16);
     constexpr size_t B_SCALE_BYTES = sizeof(_Float16) * NB_COLS;
     constexpr size_t B_Q_BYTES = 16 * NB_COLS;
-    constexpr size_t B_PAIR_STRIDE = B_SCALE_BYTES * 2 + B_Q_BYTES * 2;
+    constexpr size_t B_PAIR_STRIDE = sizeof(MNNIme2::Block64Weight);
     constexpr size_t B_SUPER_STRIDE = B_PAIR_STRIDE * 4;
     const size_t b_tile_stride = k_blks * B_SUPER_STRIDE;
 
@@ -1147,10 +1148,11 @@ static void MNNSpacemitIme2GemmI8I4HpM1AsymPairRef(size_t blk_len, const uint8_t
             for (size_t pair = 0; pair < 4; ++pair) {
                 const uint8_t* b_pair = b_super + pair * B_PAIR_STRIDE;
                 const _Float16* b_scales = reinterpret_cast<const _Float16*>(b_pair);
-                const _Float16* b_centered_correction = reinterpret_cast<const _Float16*>(b_pair + B_SCALE_BYTES);
+                const _Float16* b_correction =
+                    reinterpret_cast<const _Float16*>(b_pair + offsetof(MNNIme2::Block64Weight, centeredOffset));
                 const uint8_t* b_q[2] = {
-                    b_pair + B_SCALE_BYTES * 2,
-                    b_pair + B_SCALE_BYTES * 2 + B_Q_BYTES,
+                    b_pair + offsetof(MNNIme2::Block64Weight, quants),
+                    b_pair + offsetof(MNNIme2::Block64Weight, quants) + B_Q_BYTES,
                 };
                 // The two K32 blocks share one block64 correction vector. Form its
                 // coefficient in FP32 so large A sums cannot overflow an FP16 product.
@@ -1169,14 +1171,16 @@ static void MNNSpacemitIme2GemmI8I4HpM1AsymPairRef(size_t blk_len, const uint8_t
                         int32_t low_dot = 0;
                         for (size_t p = 0; p < 16; ++p) {
                             const uint8_t packed = b_col[p];
+                            const int32_t w0 = (packed & 0x08) != 0 ? static_cast<int32_t>(packed & 0x0f) - 16
+                                                                    : static_cast<int32_t>(packed & 0x0f);
+                            const int32_t w1 = (packed & 0x80) != 0 ? static_cast<int32_t>(packed >> 4) - 16
+                                                                    : static_cast<int32_t>(packed >> 4);
                             const uint8_t a0 = static_cast<uint8_t>(a_q[p * 2]);
                             const uint8_t a1 = static_cast<uint8_t>(a_q[p * 2 + 1]);
                             const int32_t a0_high = (a0 & 0x80) != 0 ? static_cast<int32_t>(a0 >> 4) - 16 : a0 >> 4;
                             const int32_t a1_high = (a1 & 0x80) != 0 ? static_cast<int32_t>(a1 >> 4) - 16 : a1 >> 4;
-                            high_dot += a0_high * static_cast<int32_t>(packed & 0x0f) +
-                                        a1_high * static_cast<int32_t>((packed >> 4) & 0x0f);
-                            low_dot += static_cast<int32_t>(a0 & 0x0f) * static_cast<int32_t>(packed & 0x0f) +
-                                       static_cast<int32_t>(a1 & 0x0f) * static_cast<int32_t>((packed >> 4) & 0x0f);
+                            high_dot += a0_high * w0 + a1_high * w1;
+                            low_dot += static_cast<int32_t>(a0 & 0x0f) * w0 + static_cast<int32_t>(a1 & 0x0f) * w1;
                         }
                         const _Float16 scale = static_cast<_Float16>(b_scales[col] * a_relative_hp);
                         const _Float16 high_scale = static_cast<_Float16>(scale * static_cast<_Float16>(16.0f));
@@ -1192,7 +1196,7 @@ static void MNNSpacemitIme2GemmI8I4HpM1AsymPairRef(size_t blk_len, const uint8_t
                 }
                 pair_correction_factor *= a_average;
                 for (size_t col = 0; col < NB_COLS; ++col) {
-                    output[col] = __builtin_fmaf(pair_correction_factor, static_cast<float>(b_centered_correction[col]),
+                    output[col] = __builtin_fmaf(pair_correction_factor, static_cast<float>(b_correction[col]),
                                                  output[col]);
                 }
             }
@@ -1211,11 +1215,11 @@ static void MNNSpacemitIme2GemmI8I4HpM1AsymPair(size_t blk_len, const uint8_t* q
                                                 size_t k_blks, size_t ldc) {
     (void)count_m;
     (void)ldc;
-    if (blk_len != 261 || quant_b_zp != nullptr) {
+    if (blk_len != MNNIme2::kSharedBlock64Kernel || quant_b_zp != nullptr) {
         return;
     }
     constexpr size_t NB_COLS = 32;
-    constexpr size_t B_PAIR_STRIDE = sizeof(_Float16) * NB_COLS * 2 + 16 * NB_COLS * 2;
+    constexpr size_t B_PAIR_STRIDE = sizeof(MNNIme2::Block64Weight);
     constexpr size_t B_SUPER_STRIDE = B_PAIR_STRIDE * 4;
     const size_t b_tile_stride = k_blks * B_SUPER_STRIDE;
     const _Float16 hp_scale_16 = (_Float16)16.0f;
@@ -1225,12 +1229,10 @@ static void MNNSpacemitIme2GemmI8I4HpM1AsymPair(size_t blk_len, const uint8_t* q
         uint8_t* a_data = (uint8_t*)quant_a_ptr;
         float* dst_c = c_ptr + ni;
 
-        // B block64 pair:
-        //   scale[32] fp16, -weight_bias[32]/8 fp16, q(K32_0)[512], q(K32_1)[512].
-        // With A's a_sum=-8*sum(qA), each K32 contributes
-        //   da * (dot(qA,qW)*scale + a_sum*(-weight_bias/8)),
-        // which is da * dot(qA, qW*scale+weight_bias).
+        // B block64 pair: scales[32], centeredOffset[32], then two K32 x N32 panels.
+        // With A's a_sum = sum(qA), each K32 contributes da * (dot(qA, qW) * scale + a_sum * centeredOffset).
         asm volatile(
+            "li             t1, 240                      \n\t"
             "vsetvli        t0, x0, e16, m1              \n\t"
             "vxor.vv        v31, v31, v31                \n\t"
             "mv             t4, %[BK]                    \n\t"
@@ -1252,11 +1254,11 @@ static void MNNSpacemitIme2GemmI8I4HpM1AsymPair(size_t blk_len, const uint8_t* q
             "_ASYM_PAIR_LOOP%=:                          \n\t"
             "vsetvli        t0, x0, e16, mf2             \n\t"
             "vle16.v        v8, (%[B])                   \n\t"
-            "addi           s5, %[B], 64                 \n\t"
+            "addi           s5, %[B], %[COFF]            \n\t"
             "vle16.v        v10, (s5)                    \n\t"
             // Keep the shared correction in FP32 across both K32 dot products.
             "vfwcvt.f.f.v   v22, v10                     \n\t"
-            "addi           s5, s5, 64                   \n\t"
+            "addi           s5, %[B], %[QOFF]            \n\t"
             "fmv.w.x        fa2, x0                      \n\t"
             "li             t3, 2                        \n\t"
 
@@ -1281,21 +1283,21 @@ static void MNNSpacemitIme2GemmI8I4HpM1AsymPair(size_t blk_len, const uint8_t* q
             "vle8.v         v3, (%[A])                   \n\t"
             "addi           %[A], %[A], 32               \n\t"
             "vsetvli        t0, x0, e8, m1               \n\t"
-            "vl4r.v         v4, (s5)                     \n\t"
+            "vl4r.v         v24, (s5)                    \n\t"
             "addi           s5, s5, 512                  \n\t"
             "vsrl.vi        v28, v3, 4                   \n\t"
 
             "vsetvli        t0, x0, e16, m1              \n\t"
             "vnpack4.vv     v2, v3, v3, 3                \n\t"
             "vnpack4.vv     v3, v28, v28, 3              \n\t"
-            "vmadotsu.hp    v16, v3, v4, v0, 4, i4       \n\t"
-            "vmadotsu.hp    v17, v3, v5, v0, 5, i4       \n\t"
-            "vmadotsu.hp    v18, v3, v6, v0, 6, i4       \n\t"
-            "vmadotsu.hp    v19, v3, v7, v0, 7, i4       \n\t"
-            "vmadotu.hp     v16, v2, v4, v0, 0, i4       \n\t"
-            "vmadotu.hp     v17, v2, v5, v0, 1, i4       \n\t"
-            "vmadotu.hp     v18, v2, v6, v0, 2, i4       \n\t"
-            "vmadotu.hp     v19, v2, v7, v0, 3, i4       \n\t"
+            "vmadot.hp      v16, v3, v24, v0, 4, i4      \n\t"
+            "vmadot.hp      v17, v3, v25, v0, 5, i4      \n\t"
+            "vmadot.hp      v18, v3, v26, v0, 6, i4      \n\t"
+            "vmadot.hp      v19, v3, v27, v0, 7, i4      \n\t"
+            "vmadotus.hp    v16, v2, v24, v0, 0, i4      \n\t"
+            "vmadotus.hp    v17, v2, v25, v0, 1, i4      \n\t"
+            "vmadotus.hp    v18, v2, v26, v0, 2, i4      \n\t"
+            "vmadotus.hp    v19, v2, v27, v0, 3, i4      \n\t"
 
             "addi           t3, t3, -1                   \n\t"
             "bgtz           t3, _ASYM_SUB_LOOP%=         \n\t"
@@ -1320,8 +1322,10 @@ static void MNNSpacemitIme2GemmI8I4HpM1AsymPair(size_t blk_len, const uint8_t* q
             "vsetvli        t0, x0, e32, m1              \n\t"
             "vse32.v        v31, (%[DST])                \n\t"
             : [A] "+r"(a_data), [B] "+r"(b_data)
-            : [DST] "r"(dst_c), [BK] "r"(k_blks), [HP16] "f"(hp_scale_16)
-            : "cc", "memory", "t0", "t3", "t4", "t5", "t6", "s5", "v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8",
+            : [DST] "r"(dst_c), [BK] "r"(k_blks), [HP16] "f"(hp_scale_16),
+              [COFF] "i"(offsetof(MNNIme2::Block64Weight, centeredOffset)),
+              [QOFF] "i"(offsetof(MNNIme2::Block64Weight, quants))
+            : "cc", "memory", "t0", "t1", "t3", "t4", "t5", "t6", "s5", "v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8",
               "v9", "v10", "v11", "v12", "v13", "v14", "v15", "v16", "v17", "v18", "v19", "v20", "v21", "v22", "v23",
               "v24", "v25", "v26", "v27", "v28", "v29", "v30", "v31", "fa1", "fa2", "fa3", "ft0", "ft1", "ft2", "ft4");
     }
@@ -2056,7 +2060,9 @@ static void MNNSpacemitIme2GemmI8I4HpM4DirectC4(const uint8_t* quant_a_ptr, cons
     constexpr size_t B_RESIDUAL_SUB_STRIDE = B_SUB_STRIDE + sizeof(_Float16) * NB_COLS;
     constexpr size_t B_SUPER_STRIDE = 8 * B_RESIDUAL_SUB_STRIDE;
     const size_t b_tile_stride = k_blks * B_SUPER_STRIDE;
+    // The range packer keeps the real activation scale in input_scale.
     const _Float16 hp_scale_16 = (_Float16)16.0f;
+    const _Float16 hp_scale_1 = (_Float16)1.0f;
 
     for (size_t ni = 0; ni < count_n; ni += NB_COLS) {
         uint8_t* b_tile_base = (uint8_t*)quant_b_data + (ni / NB_COLS) * b_tile_stride;
@@ -2078,20 +2084,16 @@ static void MNNSpacemitIme2GemmI8I4HpM4DirectC4(const uint8_t* quant_a_ptr, cons
 
             ".align 4                                 \n\t"
             "_D4_BLK_LPST%=:                          \n\t"
-            "flh            fa1, 64(t2)               \n\t"
             "vsetvli        t0, x0, e32, m1           \n\t"
             "vxor.vv        v18, v30, v30             \n\t"
             "vxor.vv        v19, v31, v31             \n\t"
             "vxor.vv        v20, v30, v30             \n\t"
             "vxor.vv        v21, v31, v31             \n\t"
             "_D4_KSUB_LPST%=:                         \n\t"
-            "flh            fa0, 0(t6)                \n\t"
 
             "vsetvli        t0, x0, e16, mf2          \n\t"
-            "vle16.v        v12, (s5)                 \n\t"
-            "fmul.h         fa2, fa0, %[HP16]         \n\t"
-            "vfmul.vf       v16, v12, fa0             \n\t"
-            "vfmul.vf       v17, v12, fa2             \n\t"
+            "vle16.v        v16, (s5)                 \n\t"
+            "vfmul.vf       v17, v16, %[HP16]          \n\t"
 
             "flh            ft1, 0(t2)                \n\t"
             "flh            ft2, 16(t2)               \n\t"
@@ -2114,23 +2116,12 @@ static void MNNSpacemitIme2GemmI8I4HpM4DirectC4(const uint8_t* quant_a_ptr, cons
             "vupack.vv      v2, v12, v12, 2           \n\t"
 
             "vsetvli        t0, x0, e16, mf2          \n\t"
-            "vfmul.vf       v12, v16, ft1             \n\t"
-            "vfmul.vf       v13, v16, ft2             \n\t"
-            "vfmul.vf       v24, v16, ft3             \n\t"
-            "vfmul.vf       v25, v16, ft4             \n\t"
-            "vfwmacc.vf     v28, fa1, v12             \n\t"
-            "vfwmacc.vf     v29, fa1, v13             \n\t"
-            "vfwmacc.vf     v30, fa1, v24             \n\t"
-            "vfwmacc.vf     v31, fa1, v25             \n\t"
-
-            "vfmul.vf       v12, v14, ft1             \n\t"
-            "vfmul.vf       v13, v14, ft2             \n\t"
-            "vfmul.vf       v24, v14, ft3             \n\t"
-            "vfmul.vf       v25, v14, ft4             \n\t"
-            "vfwmacc.vf     v28, fa1, v12             \n\t"
-            "vfwmacc.vf     v29, fa1, v13             \n\t"
-            "vfwmacc.vf     v30, fa1, v24             \n\t"
-            "vfwmacc.vf     v31, fa1, v25             \n\t"
+            "vfadd.vv       v14, v14, v16             \n\t"
+            // Accumulate the residual directly in FP32 to avoid rounding the product to FP16.
+            "vfwmacc.vf     v28, ft1, v14             \n\t"
+            "vfwmacc.vf     v29, ft2, v14             \n\t"
+            "vfwmacc.vf     v30, ft3, v14             \n\t"
+            "vfwmacc.vf     v31, ft4, v14             \n\t"
 
             "vsetvli        t0, x0, e32, m1           \n\t"
             "vmadotsu.hp    v18, v3, v4, v0, 0, i4    \n\t"
@@ -2152,8 +2143,8 @@ static void MNNSpacemitIme2GemmI8I4HpM4DirectC4(const uint8_t* quant_a_ptr, cons
             "vpack.vv       v8, v18, v19, 1           \n\t"
             "vpack.vv       v12, v20, v21, 1          \n\t"
             "vpack.vv       v26, v8, v12, 2           \n\t"
-            "vfwmacc.vf     v28, fa1, v26             \n\t"
-            "vfwmacc.vf     v30, fa1, v27             \n\t"
+            "vfwmacc.vf     v28, %[HP1], v26           \n\t"
+            "vfwmacc.vf     v30, %[HP1], v27           \n\t"
 
             "li             t4, 8                     \n\t"
             "addi           t5, t5, -1                \n\t"
@@ -2209,12 +2200,12 @@ static void MNNSpacemitIme2GemmI8I4HpM4DirectC4(const uint8_t* quant_a_ptr, cons
             "addi           t5, t5, -1                \n\t"
             "bgtz           t5, _D4_C4_STORE%=        \n\t"
             : [A] "+r"(a_block), [B] "+r"(b_tile_base)
-            : [DST] "r"(direct_dst), [DSTEP] "r"(dst_step), [BK] "r"(k_blks), [HP16] "f"(hp_scale_16),
+            : [DST] "r"(direct_dst), [DSTEP] "r"(dst_step), [BK] "r"(k_blks), [HP16] "f"(hp_scale_16), [HP1] "f"(hp_scale_1),
               [ISCALE] "r"(input_scale), [BIAS] "r"(bias_tile), [CLAMP] "r"(need_clamp ? 1 : 0), [FMIN] "f"(fp32_min),
               [FMAX] "f"(fp32_max)
             : "t0", "t2", "t3", "t4", "t5", "t6", "s5", "v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v10",
               "v12", "v13", "v14", "v15", "v16", "v17", "v18", "v19", "v20", "v21", "v22", "v24", "v25", "v26", "v27",
-              "v28", "v29", "v30", "v31", "fa0", "fa1", "fa2", "ft1", "ft2", "ft3", "ft4", "memory");
+              "v28", "v29", "v30", "v31", "ft1", "ft2", "ft3", "ft4", "memory");
     }
 }
 
@@ -2354,11 +2345,11 @@ extern "C" __attribute__((aligned(64))) size_t MNNSpacemitIme2GemmI8I4HpM4Direct
 extern "C" __attribute__((aligned(64))) size_t MNNSpacemitIme2GemmI8I4HpM1NativeLocal(
     size_t blkLen, const uint8_t* quantAPtr, const uint8_t* quantBData, const uint8_t* quantBZp, float* cPtr,
     size_t countM, size_t countN, size_t kBlocks, size_t ldc) {
-    if ((blkLen != 256 && blkLen != 261) || quantAPtr == nullptr || quantBData == nullptr || quantBZp != nullptr ||
+    if ((blkLen != 256 && blkLen != MNNIme2::kSharedBlock64Kernel) || quantAPtr == nullptr || quantBData == nullptr || quantBZp != nullptr ||
         cPtr == nullptr || countM != 1 || countN == 0 || countN % 32 != 0 || kBlocks == 0) {
         return 0;
     }
-    if (blkLen == 261) {
+    if (blkLen == MNNIme2::kSharedBlock64Kernel) {
         const bool useRef = MNNSpacemitIme2HpRefEnabled();
         const size_t vlenb = MNNSpacemitIme2Vlenb();
         // The N32 IME2 assembly is intentionally a VLENB=128 AI-core kernel. Keep the scalar
@@ -2418,7 +2409,7 @@ extern "C" __attribute__((aligned(64))) size_t MNNSpacemitIme2GemmI8I4Local(size
         }
         return 0;
     }
-    if (blkLen == 261) {
+    if (blkLen == MNNIme2::kSharedBlock64Kernel) {
         if (quantAPtr == nullptr || quantBData == nullptr || quantBZp != nullptr || cPtr == nullptr || countM != 1 ||
             countN == 0 || countN % 32 != 0 || kBlocks == 0) {
             return 0;

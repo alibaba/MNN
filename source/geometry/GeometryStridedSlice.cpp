@@ -233,8 +233,9 @@ public:
             if (endMasks[i] > 0) {
                 endShape[shapeNum] = stridedShape[shapeNum] < 0 ? -1 : inputShape[shapeNum];
             } else {
-                endShape[shapeNum] = stridedShape[shapeNum] < 0 ? std::max(-1, std::min(inputDim, ends[i])) :
-                                                                  beginAndEndShapeLimit(ends[i], inputShape[shapeNum], true);
+                endShape[shapeNum] = stridedShape[shapeNum] < 0
+                                         ? std::max(-1, std::min(inputShape[shapeNum], ends[i]))
+                                         : beginAndEndShapeLimit(ends[i], inputShape[shapeNum], true);
             }
 
             if (shrinkAxisMasks[i] == 0) {

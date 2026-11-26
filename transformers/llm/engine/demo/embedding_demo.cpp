@@ -87,6 +87,10 @@ int main(int argc, const char* argv[]) {
     std::string config_path = argv[1];
     std::cout << "config path is " << config_path << std::endl;
     std::unique_ptr<Embedding> embedding(Embedding::createEmbedding(config_path, true));
+    if (!embedding) {
+        MNN_ERROR("Cannot load embedding model: %s\n", config_path.c_str());
+        return 1;
+    }
     if (argc > 2) {
         benchmark(embedding, argv[2]);
         return 0;

@@ -118,14 +118,14 @@ static ErrorCode fft_radix2(Backend* backend, const Tensor* X, Tensor* Y, size_t
         Y_data_stride = Y_stride;
     }
 
-    auto angular_velocity = compute_angular_velocity<T>(dft_length, inverse);
+    auto angular_velocity = compute_angular_velocity<double>(dft_length, inverse);
 
     // Create vandermonde matrix V ordered with the bit-reversed permutation
     if (V.size() != dft_length) {
         V.resize(dft_length);
         for (size_t i = 0; i < dft_length; i++) {
             size_t bit_reversed_index = bit_reverse(i, significant_bits);
-            V[bit_reversed_index] = compute_exponential(i, angular_velocity);
+            V[bit_reversed_index] = std::complex<T>(compute_exponential<double>(i, angular_velocity));
         }
     }
 
@@ -191,8 +191,6 @@ template <typename T, typename U>
 static ErrorCode dft_bluestein_z_chirp(Backend* bn, const Tensor* X, Tensor* Y, std::shared_ptr<Tensor>& b_fft_p, std::shared_ptr<Tensor>& chirp_p, size_t X_offset, size_t X_stride, size_t Y_offset, size_t Y_stride,
     int64_t axis, size_t dft_length, const Tensor* window, bool inverse, std::vector<std::complex<T>>& V,
     std::vector<std::complex<T>>& temp_output) {
-    static const T pi = static_cast<T>(M_PI);
-
     size_t N = static_cast<size_t>(dft_length);
     size_t M = next_power_of_2(2 * N - 1);
     auto dft_input_shape = std::vector<int>({1, (int)M, 2});
@@ -220,7 +218,9 @@ static ErrorCode dft_bluestein_z_chirp(Backend* bn, const Tensor* X, Tensor* Y, 
         for (size_t n = 0; n < N; n++) {
             std::complex<T>& chirp_n = *(chirp_data + n);
             // chirp
-            auto exponent = direction * pi * n * n / N;
+            // Reduce the quadratic phase in double before casting the twiddle to T.
+            // Float phase rounding leaks strong low-frequency energy into quiet bins.
+            double exponent = direction * M_PI * std::fmod(static_cast<double>(n) * n, 2.0 * N) / N;
             chirp_n = std::complex<T>(cos(exponent), sin(exponent));
 
             // b

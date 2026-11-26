@@ -31,10 +31,23 @@ float Embedding::cos_sim(VARP var0, VARP var1) {
 }
 
 Embedding* Embedding::createEmbedding(const std::string& config_path, bool load) {
-    std::shared_ptr<LlmConfig> config(new LlmConfig(config_path));
+    std::shared_ptr<LlmResources> resources;
+    std::shared_ptr<LlmConfig> config;
+    if (tryOpenLlmFile(config_path, resources)) {
+        if (!resources) {
+            return nullptr;
+        }
+        config.reset(new LlmConfig(std::move(resources)));
+        if (!config->config_.is_object()) {
+            return nullptr;
+        }
+    } else {
+        config.reset(new LlmConfig(config_path));
+    }
     Embedding* embedding = config->is_visual() ? static_cast<Embedding*>(new Omni(config)) : new Embedding(config);
-    if (load) {
-        embedding->load();
+    if (load && !embedding->load()) {
+        delete embedding;
+        return nullptr;
     }
     return embedding;
 }
@@ -50,17 +63,23 @@ bool Embedding::load() {
     MNN::Express::ExecutorScope s(mExecutor);
     if (mConfig->config_.value("load_disk_embedding_only", false)) {
         mDiskEmbedding.reset(new DiskEmbedding(mConfig));
+        if (!mDiskEmbedding->valid()) {
+            return false;
+        }
         return true;
     }
 
     initRuntime();
     // 1. load vocab
-    mTokenizer.reset(Tokenizer::createTokenizer(mConfig->tokenizer_file()));
+    mTokenizer.reset(Tokenizer::createTokenizer(mConfig->resource(mConfig->tokenizer_file())));
     if (mTokenizer == nullptr) {
         MNN_ERROR("[Error]: Failed to load tokenizer from: %s\n", mConfig->tokenizer_file().c_str());
         return false;
     }
     mDiskEmbedding.reset(new DiskEmbedding(mConfig));
+    if (!mDiskEmbedding->valid()) {
+        return false;
+    }
     setChatTemplate();
     // 2. load model
     Module::Config module_config;
@@ -73,10 +92,8 @@ bool Embedding::load() {
     auto model_path            = mConfig->llm_model();
     auto weight_path = mConfig->llm_weight();
     MNN_PRINT("load %s ... ", model_path.c_str());
-    mRuntimeManager->setExternalFile(weight_path);
-    mModule.reset(Module::load({"input_ids", "attention_mask", "position_ids"}, {"sentence_embeddings"},
-                                   model_path.c_str(), mRuntimeManager, &module_config));
-    mRuntimeManager->setExternalFile("");
+    mModule.reset(mConfig->loadModule({"input_ids", "attention_mask", "position_ids"}, {"sentence_embeddings"},
+                                      model_path, mRuntimeManager, &module_config, weight_path));
     if (nullptr == mModule.get()) {
         return false;
     }

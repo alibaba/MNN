@@ -25,6 +25,8 @@ using namespace MNN::Transformer;
 
 class PostProcessorTestTokenizer : public Tokenizer {
 public:
+    using Tokenizer::encode;
+    void setPrefixTokens(const std::vector<int>& ids) { prefix_tokens_ = ids; }
     void setPostProcessor(bool prefix, bool suffix) {
         post_single_ops_.clear();
         if (prefix) {
@@ -47,7 +49,7 @@ public:
     std::string decode(int id) override { return std::to_string(id); }
 
 protected:
-    bool load_vocab(std::ifstream&) override { return true; }
+    bool load_vocab(std::istream&) override { return true; }
     void encode(const std::string&, std::vector<int>&) override {}
 };
 
@@ -70,7 +72,37 @@ static bool testPostProcessorMropePositions() {
         return false;
     }
 
+    tokenizer.setPrefixTokens({3});
+    if (!tokenizer.encode("", false).empty() || tokenizer.encode("") != std::vector<int>({3})) {
+        std::cerr << "Prefix token add_special_tokens regression" << std::endl;
+        return false;
+    }
+    auto prefixInfo = tokenizer.post_process(rawIds);
+    if (prefixInfo.prefix_size != 1 || prefixInfo.suffix_size != 0 || rawIds != std::vector<int>({3, 10, 11, 12})) {
+        std::cerr << "Legacy prefix post-processor regression" << std::endl;
+        return false;
+    }
+    tokenizer.setPostProcessor(true, true);
+    rawIds = {10, 11, 12};
+    auto combinedInfo = tokenizer.post_process(rawIds);
+    if (combinedInfo.prefix_size != 2 || combinedInfo.suffix_size != 1 ||
+        rawIds != std::vector<int>({1, 3, 10, 11, 12, 2})) {
+        std::cerr << "Combined prefix post-processor regression" << std::endl;
+        return false;
+    }
+    tokenizer.set_chat_template(
+        "{{ messages[0].get('role') }}:{{ messages[0].get('content', '') }}|"
+        "{{ messages[0].get('missing', 'fallback') }}|"
+        "{% if messages[0].get('missing') is none %}none{% endif %}|"
+        "{% for key, value in messages[0].items() %}{% if key == 'content' %}{{ value }}{% endif %}{% endfor %}");
+    if (tokenizer.apply_chat_template(ChatMessages{{"user", "hello"}}, false) != "user:hello|fallback|none|hello") {
+        std::cerr << "Chat template dict methods regression" << std::endl;
+        return false;
+    }
+
+    tokenizer.setPrefixTokens({});
     tokenizer.setPostProcessor(false, true);
+    rawIds = {10, 11, 12};
     auto tailInfo = tokenizer.post_process(rawIds);
     if (!tailInfo.has_single_sequence_a || tailInfo.prefix_size != 0 || tailInfo.suffix_size != 1 ||
         rawIds != std::vector<int>({10, 11, 12, 2})) {

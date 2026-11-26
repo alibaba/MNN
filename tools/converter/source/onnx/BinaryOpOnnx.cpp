@@ -27,7 +27,7 @@ void BinaryOpOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode, OnnxSco
         DLOG(FATAL) << "Not support 1 input for " << originalType << " op";
         return;
     }
-    std::vector<std::string> moreOps = {"Max", "Min", "Sum", "Mean"};
+    std::vector<std::string> moreOps = {"Max", "Min", "Sum"};
     if (inputSize > 2 && std::find(moreOps.begin(), moreOps.end(), originalType) == moreOps.end()) {
         DLOG(FATAL) << "Not support more than 2 input for " << originalType << " op";
         return;
@@ -42,10 +42,6 @@ void BinaryOpOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode, OnnxSco
 #define TO_BINARY_OP(src, dst)       \
     if (originalType == src) {      \
         ((MNN::BinaryOpT*)param)->opType = dst; \
-    }
-#define TO_REDUCE_OP(src, dst) \
-    if (originalType == src) {      \
-        ((MNN::ReductionParamT*)param)->operation = dst; \
     }
 #define TO_BINARY_OR_REDUCE_OP(src, dst0, dst1) \
     if (originalType == src) { \
@@ -79,7 +75,6 @@ void BinaryOpOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode, OnnxSco
     TO_BINARY_OP("Pow", MNN::BinaryOpOperation_POW);
     TO_BINARY_OP("Sub", MNN::BinaryOpOperation_SUB);
     TO_BINARY_OR_REDUCE_OP("Sum", MNN::BinaryOpOperation_ADD, MNN::ReductionType_SUM);
-    TO_REDUCE_OP("Mean", MNN::ReductionType_MEAN);
     TO_BINARY_OP("Or", MNN::BinaryOpOperation_LOGICALOR);
     TO_BINARY_OP("Xor", MNN::BinaryOpOperation_LOGICALXOR);
     
@@ -115,7 +110,7 @@ void BinaryOpOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode, OnnxSco
     pack->outputIndexes.assign({packedInput});
     scope->oplists().emplace_back(std::move(pack));
     
-    // Reduce(Max/Min/Sum/Mean) along axis 0
+    // Reduce(Max/Min/Sum) along axis 0
     dstOp->type = MNN::OpType_Reduction;
     dstOp->main.type = MNN::OpParameter_ReductionParam;
     ((MNN::ReductionParamT*)param)->dim.assign({0});
@@ -143,4 +138,3 @@ REGISTER_CONVERTER(BinaryOpOnnx, Mod);
 REGISTER_CONVERTER(BinaryOpOnnx, Or);
 REGISTER_CONVERTER(BinaryOpOnnx, Xor);
 REGISTER_CONVERTER(BinaryOpOnnx, BitShift);
-REGISTER_CONVERTER(BinaryOpOnnx, Mean);

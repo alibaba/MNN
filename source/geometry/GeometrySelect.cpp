@@ -20,7 +20,7 @@ public:
         auto output     = outputs[0];
         auto inputL0    = input0->elementSize();
         auto inputL1    = input1->elementSize();
-        auto inputL2    = input1->elementSize();
+        auto inputL2    = input2->elementSize();
         auto outputSize = output->elementSize();
         // Need Broadcast or same shape
         if (outputSize != inputL0) {
@@ -39,7 +39,8 @@ public:
             input1 = newTensor.get();
             res.extras.emplace_back(newTensor);
         }
-        if (outputSize != inputL2) {
+        // A one-element input2 is handled by the backend kernels with stride 0.
+        if (inputL2 != 1 && outputSize != inputL2) {
             std::shared_ptr<Tensor> newTensor(new Tensor);
             TensorUtils::copyShape(output, newTensor.get(), true);
             newTensor->buffer().type = output->buffer().type;

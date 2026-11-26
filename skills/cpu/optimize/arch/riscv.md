@@ -47,10 +47,11 @@ RISC-V 侧的路径分叉比 ARM / x86_64 多一层（构建门 × 架构门 × 
 
 ## 二、诊断需要的结构常识
 
-### 2.1 RISC-V 既没有第二张表，也没有第二个 Backend
+### 2.1 RVVBackend 与 CPUBackend 共用函数表
 
-RVV 与 vendor 都是**在基表 `gCoreFunction` / `gCoreFunc` 上逐字段覆盖**，不像 ARM fp16（arm82）
-或 x86_64 AVX2 那样另起一张表 + 一个 Backend。
+RVV 与 vendor 在基表 `gCoreFunction` / `gCoreFunc` 上逐字段覆盖。常规 CPU 推理在检测到 RVV 时
+创建 `RVVBackend`，专用执行器由其 `onCreate` 选择，其余算子交给 `CPUBackend::onCreate`。
+显式请求默认 CPU 后端时，运行时直接创建 `CPUBackend`。
 
 推论：**RISC-V 上「结果错」几乎不可能是表的问题**（最坏只是某个字段没被覆盖、退回标量，慢但对），
 和 x86_64 同类；出现数值错要去查 pack/ABI 与 vendor 门禁，不要花时间核对函数表。

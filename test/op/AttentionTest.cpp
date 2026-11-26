@@ -954,6 +954,156 @@ public:
 };
 MNNTestSuiteRegister(AttentionPrefixCacheChunkedWriteTest, "op/attention_prefix_cache_chunked_write");
 
+class AttentionCapacityTest : public AttentionTest {
+public:
+    bool run(int precision) override {
+        OpenCLBufferScope clBufferScope;
+        KVMeta baselineMeta;
+        KVMeta plannedMeta;
+        auto baseline = _makeAttentionModule(8, false, false, -1, &baselineMeta);
+        auto planned = _makeAttentionModule(8, false, false, -1, &plannedMeta);
+        if (!baseline || !planned) {
+            return false;
+        }
+        std::shared_ptr<Module> baselineDecode;
+        std::shared_ptr<Module> plannedDecode;
+        for (size_t capacity : {512, 8192, 128}) {
+            baselineMeta.remove = baselineMeta.previous;
+            plannedMeta.remove = plannedMeta.previous;
+            plannedMeta.capacity = capacity;
+            for (int seqLen : {64, 64, 1, 1, 1, 1, 1, 1, 129, 1, 1, 1, 1, 1, 1}) {
+                generateInput(seqLen, precision);
+                generateMask(seqLen, seqLen);
+                baselineMeta.add = seqLen;
+                plannedMeta.add = seqLen;
+                std::vector<float> expected;
+                std::vector<float> actual;
+                auto baselineModule = seqLen == 1 ? baselineDecode : baseline;
+                auto plannedModule = seqLen == 1 ? plannedDecode : planned;
+                if (!readAttentionOutput(baselineModule, {Query, Key, Value, Mask}, expected) ||
+                    !readAttentionOutput(plannedModule, {Query, Key, Value, Mask}, actual)) {
+                    return false;
+                }
+                if (!baselineDecode) {
+                    // Shape-less test modules create their executions on the first forward.
+                    baselineDecode.reset(Module::clone(baseline.get()));
+                    plannedDecode.reset(Module::clone(planned.get()));
+                    if (!baselineDecode || !plannedDecode) {
+                        return false;
+                    }
+                }
+                baselineMeta.sync();
+                plannedMeta.sync();
+                for (float value : actual) {
+                    if (!std::isfinite(value)) {
+                        return false;
+                    }
+                }
+                if (!compareAttentionOutputs(expected, actual, precision == 2 ? 0.05f : 0.001f,
+                                             "attention_capacity")) {
+                    return false;
+                }
+            }
+            plannedMeta.capacity = plannedMeta.previous + 4096;
+            baselineMeta.add = 64;
+            plannedMeta.add = 64;
+            generateInput(64, precision);
+            generateMask(64, 64);
+            std::vector<float> expected;
+            std::vector<float> actual;
+            if (!readAttentionOutput(baseline, {Query, Key, Value, Mask}, expected) ||
+                !readAttentionOutput(planned, {Query, Key, Value, Mask}, actual) ||
+                !compareAttentionOutputs(expected, actual, precision == 2 ? 0.05f : 0.001f,
+                                         "attention_capacity_append")) {
+                return false;
+            }
+            baselineMeta.sync();
+            plannedMeta.sync();
+            int reserve[] = {5, 17};
+            baselineMeta.remove = plannedMeta.remove = 128;
+            baselineMeta.reserve = plannedMeta.reserve = reserve;
+            baselineMeta.n_reserve = plannedMeta.n_reserve = 1;
+            baselineMeta.add = plannedMeta.add = 32;
+            plannedMeta.capacity = plannedMeta.previous + 8192;
+            generateInput(32, precision);
+            generateMask(32, 32);
+            if (!readAttentionOutput(baseline, {Query, Key, Value, Mask}, expected) ||
+                !readAttentionOutput(planned, {Query, Key, Value, Mask}, actual) ||
+                !compareAttentionOutputs(expected, actual, precision == 2 ? 0.05f : 0.001f,
+                                         "attention_capacity_reserve")) {
+                return false;
+            }
+            baselineMeta.sync();
+            plannedMeta.sync();
+        }
+        // Stable input bindings let decode replay arm on Metal. Compare a planned
+        // capacity against the organic baseline on the same backend path so fp16
+        // rounding cancels; a reserve compaction run twice on replay fallback would
+        // make the planned module diverge.
+        KVMeta baseMeta;
+        KVMeta planMeta;
+        auto baseMod = _makeAttentionModule(8, false, false, -1, &baseMeta);
+        auto planMod = _makeAttentionModule(8, false, false, -1, &planMeta);
+        if (!baseMod || !planMod) {
+            return false;
+        }
+        generateInput(200, precision);
+        generateMask(200, 200);
+        ::memset(Query->writeMap<float>(), 0, Query->getInfo()->size * sizeof(float));
+        ::memset(Key->writeMap<float>(), 0, Key->getInfo()->size * sizeof(float));
+        auto values = Value->writeMap<float>();
+        for (int token = 0; token < 200; ++token) {
+            for (int i = 0; i < KvNumHead * HeadDim; ++i) {
+                values[token * KvNumHead * HeadDim + i] = token;
+            }
+        }
+        baseMeta.add = planMeta.add = 200;
+        std::vector<float> expected;
+        std::vector<float> actual;
+        if (!readAttentionOutput(baseMod, {Query, Key, Value, Mask}, expected) ||
+            !readAttentionOutput(planMod, {Query, Key, Value, Mask}, actual)) {
+            return false;
+        }
+        baseMeta.sync();
+        planMeta.sync();
+        generateInput(1, precision);
+        generateMask(1, 1);
+        ::memset(Query->writeMap<float>(), 0, Query->getInfo()->size * sizeof(float));
+        ::memset(Key->writeMap<float>(), 0, Key->getInfo()->size * sizeof(float));
+        int reserve[] = {5, 17};
+        for (int step = 0; step < 17; ++step) {
+            if (step == 8) {
+                baseMeta.remove = planMeta.remove = 40;
+                baseMeta.reserve = planMeta.reserve = reserve;
+                baseMeta.n_reserve = planMeta.n_reserve = 1;
+                planMeta.capacity = 4096;
+            }
+            values = Value->writeMap<float>();
+            for (int i = 0; i < KvNumHead * HeadDim; ++i) {
+                values[i] = 200 + step;
+            }
+            baseMeta.add = planMeta.add = 1;
+            if (!readAttentionOutput(baseMod, {Query, Key, Value, Mask}, expected) ||
+                !readAttentionOutput(planMod, {Query, Key, Value, Mask}, actual)) {
+                return false;
+            }
+            baseMeta.sync();
+            planMeta.sync();
+            for (float value : actual) {
+                if (!std::isfinite(value)) {
+                    return false;
+                }
+            }
+            if (!compareAttentionOutputs(expected, actual, precision == 2 ? 0.05f : 0.001f,
+                                         "attention_capacity_decode_reserve")) {
+                return false;
+            }
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(AttentionCapacityTest, "op/attention_capacity");
+
 class AttentionPrefixCachePartialLoadTest : public AttentionTest {
 public:
     virtual bool run(int precision) {
@@ -1092,7 +1242,9 @@ public:
                 pass = false;
             }
         }
-        return pass;
+        const auto biased = maxRelError(64, 8, 2, 256, 4, kBiasedWindow);
+        MNN_PRINT("[attention_nocache_mask] GQA biased window max_rel=%g\n", biased);
+        return pass && biased < tol;
     }
 
 private:
@@ -1110,7 +1262,8 @@ private:
     //                          a no-op, so the sentinel may only remove work. If this
     //                          case diverges while kAllVisibleDense passes, a backend
     //                          has read the sentinel as causal.
-    enum MaskKind { kAllVisibleDense = 0, kCausalDense = 1, kWindowBlockDense = 2, kBidirectionalSentinel = 3 };
+    enum MaskKind { kAllVisibleDense, kCausalDense, kWindowBlockDense, kBidirectionalSentinel, kBiasedWindow };
+    static float attentionBias(int i, int j) { return float((i + 3 * j) % 7 - 3) * 0.5f; }
     // maskRank: 3 = [1,seq,seq], 4 = [1,1,seq,seq]. The no-mask form is covered by
     // AttentionTest unit test 3; CPUAttention does not support it yet.
     static float maxRelError(int seqLen, int numHead, int kvNumHead, int headDim, int maskRank, MaskKind maskKind) {
@@ -1118,6 +1271,7 @@ private:
         const float scale = 1.0f / sqrtf((float)headDim);
         const float kMaskNegative = -1e9f;
         const int blockSize = std::max(4, seqLen / 4);
+        const bool window = maskKind == kWindowBlockDense || maskKind == kBiasedWindow;
 
         uint32_t state = 12345;
         auto next = [&state]() {
@@ -1162,8 +1316,8 @@ private:
                 for (int i = 0; i < seqLen; ++i) {
                     for (int j = 0; j < seqLen; ++j) {
                         const bool masked = (kCausalDense == maskKind && j > i) ||
-                                            (kWindowBlockDense == maskKind && j / blockSize != i / blockSize);
-                        maskPtr[i * seqLen + j] = masked ? kMaskNegative : 0.0f;
+                                            (window && j / blockSize != i / blockSize);
+                        maskPtr[i * seqLen + j] = masked ? kMaskNegative : maskKind == kBiasedWindow ? attentionBias(i, j) : 0.f;
                     }
                 }
             }
@@ -1182,9 +1336,9 @@ private:
             for (int i = 0; i < seqLen; ++i) {
                 // Visible key range for query i. scores[] is indexed by absolute key
                 // position, so a non-zero kBegin needs no renumbering.
-                const int kBegin = (kWindowBlockDense == maskKind) ? (i / blockSize) * blockSize : 0;
+                const int kBegin = window ? (i / blockSize) * blockSize : 0;
                 const int kEnd   = (kCausalDense == maskKind)      ? (i + 1)
-                                 : (kWindowBlockDense == maskKind) ? std::min((i / blockSize + 1) * blockSize, seqLen)
+                                 : window ? std::min((i / blockSize + 1) * blockSize, seqLen)
                                                                    : seqLen;
                 float maxScore = -std::numeric_limits<float>::max();
                 for (int j = kBegin; j < kEnd; ++j) {
@@ -1192,7 +1346,7 @@ private:
                     for (int d = 0; d < headDim; ++d) {
                         dot += q[(i * numHead + h) * headDim + d] * k[(j * kvNumHead + kvh) * headDim + d];
                     }
-                    scores[j] = dot * scale;
+                    scores[j] = dot * scale + (maskKind == kBiasedWindow ? attentionBias(i, j) : 0.f);
                     maxScore = std::max(maxScore, scores[j]);
                 }
                 float sum = 0.0f;
@@ -1208,6 +1362,7 @@ private:
                     acc /= sum;
                     float out = got[(i * numHead + h) * headDim + d];
                     float denom = std::max(fabsf(acc), 0.05f);
+                    if (!std::isfinite(out)) return std::numeric_limits<float>::infinity();
                     maxRel = std::max(maxRel, fabsf(out - acc) / denom);
                 }
             }
@@ -1710,6 +1865,7 @@ public:
                 for (int d = 0; d < HeadDim; ++d) {
                     int c = h * HeadDim + d;
                     int logicalIndex = i * hidden + c;
+                    if (!std::isfinite(resultPtr[logicalIndex])) return false;
                     actual[logicalIndex] = resultPtr[logicalIndex];
                     expected[logicalIndex] = expected_result[i][h][d];
                 }
@@ -1722,9 +1878,13 @@ public:
         return true;
     }
 
-    bool runOne(int seqLen, int precision) {
+    bool runOne(int seqLen, int precision, float largeValue = 0.0f) {
         std::shared_ptr<NaiveAttention> naiveAttention(new NaiveAttention);
         generateInput(seqLen, precision);
+        if (largeValue > 0.0f) {
+            value[0][0][0] = largeValue;
+            Value = vector_to_var(value);
+        }
         generateMask(seqLen, seqLen);
         expected_result = naiveAttention->onExecute(query, key, value, mask, seqLen);
 
@@ -1843,7 +2003,7 @@ public:
 // kv-cache causal prefill, which is what selects the fused prefill kernels, so
 // this is the correctness gate for the 8-output-tile tc path. 100 is a multiple
 // of neither the 64-wide q tile nor the 32-wide kv tile.
-class AttentionHeadDim256Test : public AttentionTest {
+class AttentionHeadDim256Test : public AttentionC4Test {
 public:
     virtual bool run(int precision) {
         const int originalNumHead = NumHead;
@@ -1869,6 +2029,16 @@ public:
                 pass = false;
                 break;
             }
+        }
+        if (pass && MNNTestSuite::get()->pStaus.forwardType == MNN_FORWARD_CPU) {
+            // The K3 matrix path writes packed C4 output and carries the KV cache into decode.
+            // Keep the portable stress value representable in native FP16 KV storage.
+#ifdef MNN_USE_RVV
+            constexpr float largeValue = 131072.0f; // RVV stores FP32 KV and narrows only inside the fast path.
+#else
+            constexpr float largeValue = 32768.0f;
+#endif
+            pass = runOne(192, precision) && runOne(64, precision, largeValue);
         }
         NumHead = originalNumHead;
         KvNumHead = originalKvNumHead;
@@ -2407,4 +2577,68 @@ private:
 
 MNNTestSuiteRegister(AttentionDecodeTest, "op/attention_decode");
 MNNTestSuiteRegister(AttentionPrefillPathTest, "op/attention_prefill_paths");
+
+class AttentionKvCacheOOMTest : public MNNTestCase {
+    static VARP scalarMask() {
+        auto m = _Input({}, NCHW, halide_type_of<float>());
+        m->writeMap<float>()[0] = 0.0f;
+        return m;
+    }
+
+public:
+    AttentionKvCacheOOMTest() = default;
+    virtual ~AttentionKvCacheOOMTest() = default;
+
+    virtual bool run(int precision) {
+        auto status = MNNTestSuite::get()->pStaus;
+        if (MNN_FORWARD_METAL != (MNNForwardType)status.forwardType) {
+            MNNTestSuite::get()->skipped++;
+            MNN_PRINT("\tskip: Metal-only case, backend=%d\n", status.forwardType);
+            return true;
+        }
+        MNN::BackendConfig bnConfig;
+        bnConfig.memory = (MNN::BackendConfig::MemoryMode)status.memory;
+        bnConfig.precision = (MNN::BackendConfig::PrecisionMode)status.precision;
+        bnConfig.power = (MNN::BackendConfig::PowerMode)status.power;
+        auto exe = Executor::newExecutor((MNNForwardType)status.forwardType, bnConfig,
+                                         status.thread > 0 ? status.thread : 1);
+        std::shared_ptr<ExecutorScope> scope(new ExecutorScope(exe));
+
+        const int savedNumHead = NumHead, savedKvNumHead = KvNumHead, savedHeadDim = HeadDim;
+        NumHead = 8;
+        KvNumHead = 8;
+        HeadDim = 128;
+        const int kRealSeq = 8;
+        const size_t kClaimedSeq = 2000000000;
+
+        gMeta.previous = 0;
+        gMeta.remove = 0;
+        gMeta.add = kClaimedSeq;
+        auto module = _makeAttentionModule();
+        bool pass = true;
+        if (nullptr == module) {
+            MNN_PRINT("\tattention_kv_oom: module load reported failure\n");
+        } else {
+            auto q = generateRandTensor(kRealSeq, NumHead, HeadDim, precision);
+            auto k = generateRandTensor(kRealSeq, KvNumHead, HeadDim, precision);
+            auto v = generateRandTensor(kRealSeq, KvNumHead, HeadDim, precision);
+            auto outputs = module->onForward({vector_to_var(q), vector_to_var(k), vector_to_var(v), scalarMask()});
+            if (!outputs.empty()) {
+                MNN_PRINT("Error: attention_kv_oom produced %d output(s) after a failed kv alloc\n",
+                          (int)outputs.size());
+                pass = false;
+            }
+        }
+        module.reset();
+        gMeta.sync();
+        gMeta.previous = 0;
+        gMeta.remove = 0;
+        gMeta.add = 0;
+        NumHead = savedNumHead;
+        KvNumHead = savedKvNumHead;
+        HeadDim = savedHeadDim;
+        return pass;
+    }
+};
+MNNTestSuiteRegister(AttentionKvCacheOOMTest, "op/attention_kv_oom");
 #endif

@@ -2,6 +2,8 @@
 
 This directory contains the Hexagon backend implementation for MNN. It supports accelerating model inference on Qualcomm Hexagon DSPs.
 
+For the full build / deploy / troubleshooting flow (host and device requirements, `htp-ops-lib` build variables, remote Linux build, App packaging, LLM usage), see the Chinese guide [`docs/inference/npu.md`](../../../docs/inference/npu.md#hexagon).
+
 ## Prerequisites
 
 - **Hexagon SDK**: Ensure you have downloaded and installed the Qualcomm Hexagon SDK.

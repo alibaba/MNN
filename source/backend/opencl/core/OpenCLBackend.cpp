@@ -487,6 +487,44 @@ float OpenCLBackend::getBytes(const Tensor* tensor) {
     return bytes;
 }
 
+// Buffer-mode allocation in elements; NC4HW4 carries tail padding that kernels may touch.
+static size_t _bufferElementCount(const Tensor* tensor) {
+    auto tensorShape = OpenCL::tensorShapeFormat(tensor);
+    int N = tensorShape.at(0);
+    int H = tensorShape.at(1);
+    int W = tensorShape.at(2);
+    int C = tensorShape.at(3);
+    size_t size;
+    if (MNN_DATA_FORMAT_NC4HW4 == TensorUtils::getDescribe(tensor)->dimensionFormat && tensor->dimensions() >= 2) {
+        auto alignC = ROUND_UP(C, 4);
+        auto hR = ROUND_UP(H + 3, 4) - H;
+        auto wR = ROUND_UP(W + 3, 4) - W;
+        size = N * alignC * W * H;
+        size = size + hR * W * 4 + wR * 4;
+    } else {
+        size = N * H * W * C;
+        size = ROUND_UP(size, 4);
+    }
+    return size;
+}
+
+bool OpenCLBackend::onCanShareBuffer(const Tensor* source, const Tensor* view) const {
+#ifndef MNN_OPENCL_BUFFER_CLOSED
+    if (mMemType != BUFFER) {
+        return false;
+    }
+#ifdef MNN_SUPPORT_INTEL_SUBGROUP
+    if (mOpenCLRuntime->isSupportedIntelSubgroup()) {
+        return false;
+    }
+#endif
+    return TensorUtils::isBufferLayoutCompatible(source, view, 4) &&
+        _bufferElementCount(source) >= _bufferElementCount(view);
+#else
+    return false;
+#endif
+}
+
 Backend::MemObj* OpenCLBackend::onAcquire(const Tensor* nativeTensor, StorageType storageType) {
 #ifdef LOG_VERBOSE
     MNN_PRINT("Start OpenCLBackend::onAcquireBuffer !\n");
@@ -504,20 +542,8 @@ Backend::MemObj* OpenCLBackend::onAcquire(const Tensor* nativeTensor, StorageTyp
 
 #ifndef MNN_OPENCL_BUFFER_CLOSED
     if (mMemType == BUFFER) {
-        size_t size;
         float typeSize = getBytes(nativeTensor);
-        if (MNN_DATA_FORMAT_NC4HW4 == TensorUtils::getDescribe(nativeTensor)->dimensionFormat &&
-            nativeTensor->dimensions() >= 2) {
-            auto alignC = ROUND_UP(C, 4);
-            // increment of height and width
-            auto hR = ROUND_UP(H + 3, 4) - H;
-            auto wR = ROUND_UP(W + 3, 4) - W;
-            size = N * alignC * W * H;
-            size = size + hR * W * 4 + wR * 4;
-        } else {
-            size = N * H * W * C;
-            size = ROUND_UP(size, 4);
-        }
+        size_t size = _bufferElementCount(nativeTensor);
 #ifdef MNN_SUPPORT_INTEL_SUBGROUP
         if (mOpenCLRuntime->isSupportedIntelSubgroup()) {
             int cPack = TensorUtils::getTensorChannelPack(nativeTensor);

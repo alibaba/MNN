@@ -120,9 +120,9 @@ ErrorCode VulkanRaster::onEncode(const std::vector<Tensor *> &____inputs, const 
         OpCommonUtils::rasterInputReset(____inputs, outputs[0]);
     }
     auto output = outputs[0];
-    auto des = TensorUtils::getDescribe(output);
     bool needZero = !TensorUtils::regionIsFull(output);
     _recycle();
+    auto des = TensorUtils::getDescribe(output);
     auto vkBn = static_cast<VulkanBackend*>(backend());
     auto bufferAlloc = vkBn->getDynamicMemoryPool();
     auto vkRt = ((VulkanRuntime*)(vkBn->getRuntime()));

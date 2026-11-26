@@ -10,8 +10,15 @@
 #define MNN_SPACEMIT_IME2_CONV_INT8_EXECUTOR_HPP
 
 #include "backend/cpu/compute/ConvInt8TiledExecutor.hpp"
+#include <vector>
 
 namespace MNN {
+
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+Execution* MNNSpacemitIme2WrapFusedProjection(Execution* inner, bool isGateUp = false);
+bool MNNSpacemitIme2TryExecuteFusedGateUp(const Backend* backend, const void* gateDst, const void* upDst,
+                                         Tensor* outTensor);
+#endif
 
 class SpacemitIme2ConvInt8Executor : public DenseConvInt8TiledExecutor {
 public:
@@ -32,10 +39,15 @@ private:
                                  std::shared_ptr<LinearResource> linearResource);
     SpacemitIme2ConvInt8Executor(Backend* backend, const Op* op, const SpacemitIme2ConvInt8Executor& exe);
     bool tryExecuteFast(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
+    bool tryExecuteNarrowPrefill(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
 
     std::shared_ptr<LinearResource> mLinearResource;
     bool mUsePrefill = false;
+    bool mUseNarrowPrefill = false;
+    std::vector<float> mNarrowOutput;
+    MemChunk mHalfWorkspace;
     bool mLinear1x1 = false;
+    bool mIsLmHead = false;
     bool mDecodeBiasChecked = false;
     bool mDecodeBiasAllZero = false;
 };

@@ -402,7 +402,12 @@ public:
                     {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0},
                     {3.0, 4.0},
                     {1, 1, 0, 0, 0, 0, 0, 0},
-                    {4, 2}, {2}, {4, 2});
+                    {4, 2}, {2}, {4, 2}) &&
+               test<float, int>(MNN::Express::_Less, "LessNegativeFloatTest", 0,
+                    {-3.0f, -2.0f, -1.49f, -0.5f, 0.0f, 2.0f},
+                    {-1.5f},
+                    {1, 1, 0, 0, 0, 0},
+                    {6}, {1}, {6});
     }
 };
 class FloorDivTest : public BinaryTestCommon {

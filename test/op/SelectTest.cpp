@@ -10,6 +10,7 @@
 
 #include <MNN/expr/Expr.hpp>
 #include <cmath>
+#include <cstring>
 #include <MNN/expr/ExprCreator.hpp>
 #include "MNNTestSuite.h"
 #include "MNN_generated.h"
@@ -119,6 +120,50 @@ bool SelectTester4D(int N, int C, int H, int W, int precision) {
     return true;
 }
 
+bool SelectTesterPartialBroadcast() {
+    auto select = _Input({2, 3}, NCHW, halide_type_of<int>());
+    auto input0 = _Input({2, 3}, NCHW);
+    auto input1 = _Input({3}, NCHW);
+
+    const int condition[] = {1, 0, 1, 0, 1, 0};
+    const float data0[]   = {0.f, 1.f, 2.f, 3.f, 4.f, 5.f};
+    const float data1[]   = {10.f, 20.f, 30.f};
+    memcpy(select->writeMap<int>(), condition, sizeof(condition));
+    memcpy(input0->writeMap<float>(), data0, sizeof(data0));
+    memcpy(input1->writeMap<float>(), data1, sizeof(data1));
+
+    auto output = _Select(select, input0, input1);
+    auto info   = output->getInfo();
+    CHECK_OR_RETURN(info->dim.size() == 2 && info->dim[0] == 2 && info->dim[1] == 3);
+
+    const float expected[] = {0.f, 20.f, 2.f, 10.f, 4.f, 30.f};
+    auto outputPtr = output->readMap<float>();
+    CHECK_OR_RETURN(checkVectorByRelativeError(outputPtr, expected, 6, 0.0001));
+    return true;
+}
+
+bool SelectTesterScalarInput2() {
+    auto select = _Input({2, 3}, NCHW, halide_type_of<int>());
+    auto input0 = _Input({2, 3}, NCHW);
+    auto input1 = _Input({1}, NCHW);
+
+    const int condition[] = {1, 0, 1, 0, 1, 0};
+    const float data0[]   = {0.f, 1.f, 2.f, 3.f, 4.f, 5.f};
+    const float data1[]   = {99.f};
+    memcpy(select->writeMap<int>(), condition, sizeof(condition));
+    memcpy(input0->writeMap<float>(), data0, sizeof(data0));
+    memcpy(input1->writeMap<float>(), data1, sizeof(data1));
+
+    auto output = _Select(select, input0, input1);
+    auto info   = output->getInfo();
+    CHECK_OR_RETURN(info->dim.size() == 2 && info->dim[0] == 2 && info->dim[1] == 3);
+
+    const float expected[] = {0.f, 99.f, 2.f, 99.f, 4.f, 99.f};
+    auto outputPtr = output->readMap<float>();
+    CHECK_OR_RETURN(checkVectorByRelativeError(outputPtr, expected, 6, 0.0001));
+    return true;
+}
+
 class SelectTester : public MNNTestCase {
 public:
     bool run(int precision) override {
@@ -128,6 +173,8 @@ public:
         CHECK_OR_RETURN(SelectTester4D(1, 1, 1, 1, precision));
         CHECK_OR_RETURN(SelectTester4D(1, 2, 3, 1, precision));
         CHECK_OR_RETURN(SelectTester4D(2, 3, 4, 5, precision));
+        CHECK_OR_RETURN(SelectTesterPartialBroadcast());
+        CHECK_OR_RETURN(SelectTesterScalarInput2());
         return true;
     }
 };

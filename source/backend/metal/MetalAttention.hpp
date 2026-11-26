@@ -67,8 +67,10 @@ class AttentionBufExecution : public MetalExecution {
 public:
     AttentionBufExecution(Backend* backend, bool kvCache, bool outputC4,
                           std::shared_ptr<KVQuantParameter> kvQuantParam);
-    virtual ~AttentionBufExecution() = default;
+    virtual ~AttentionBufExecution();
+    void invalidateReplay() override;
     virtual ErrorCode onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
+    virtual ErrorCode onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
 
     virtual void onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                           id<MTLComputeCommandEncoder> encoder) override;
@@ -88,7 +90,9 @@ public:
         }
         auto exe = new AttentionBufExecution(bn, mKVCache, mOutputC4, mKVQuantParameter);
         if (canShare) {
+            exe->mKVCacheManager->removeReplayUser(exe);
             exe->mKVCacheManager = mKVCacheManager;
+            exe->mKVCacheManager->addReplayUser(exe);
             exe->mIsKVShared = kvShared;
         }
         *dst = exe;
@@ -98,16 +102,19 @@ public:
 
 private:
     void _init();
-    void compilerShader(const std::vector<Tensor*>& inputs);
-    void handleKVAllocMemory();
+    bool compilerShader(const std::vector<Tensor*>& inputs);
+    ErrorCode handleKVAllocMemory();
+    // onEncode cannot return a code, so a KV alloc failure there is parked here and
+    // surfaced by onExecute instead of letting the encode run on unallocated memory.
+    ErrorCode mKVAllocError = NO_ERROR;
     // How many q-sequence pieces the three-stage prefill splits into, so that
     // mTempQK + mTempSoftMax stay inside a byte budget. Requires mSeqLen and
-    // mKvMaxLen to be current. Always a power of two; 1 means no split.
+    // mKvSeqLen to be current. Always a power of two; 1 means no split.
     int _resolveQseqSplit() const;
     // Per-token encode-path decisions (split-kv / fused decode-qk-softmax /
     // simd flags / causal flags) + KV memory bookkeeping. Shared by onEncode
     // and onReplayUpdate so replayed tokens recompute identical state.
-    void _computePathFlags(const std::vector<Tensor*>& inputs);
+    bool _computePathFlags(const std::vector<Tensor*>& inputs);
     AttentionCopyParam _makeCopyParam(const Tensor* key, const Tensor* value) const;
     AttentionQKVParam _makeQKVParam(const std::vector<Tensor*>& inputs, int seqLenPiece) const;
     AttentionSoftmaxParam _makeSoftmaxParam(int seqLenPiece) const;

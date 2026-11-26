@@ -8,6 +8,7 @@
 
 #include "backend/cpu/compute/CommonOptFunction.h"
 #include "backend/cpu/compute/CPUExtension.hpp"
+#include "MNNRvvPrefill.hpp"
 
 #ifdef MNN_LOW_MEMORY
 #include "MNNSpacemitIme2ConvInt8Executor.hpp"
@@ -31,6 +32,7 @@ extern void MNNSpacemitIme2GemmInt8AddBiasScaleW4(int8_t* dst, const int8_t* src
 namespace MNN {
 
 void MNNRvvInitializeFastPathFunctions(CoreFunctions* core) {
+    MNNRvvInitPackedNorm(core);
     core->MNNSoftmax = MNNSpacemitIme2AttentionSoftmax;
 #ifdef MNN_LOW_MEMORY
     constexpr CPUExtension::CreateInt8GemmExecution createInt8Gemm = MNNSpacemitIme2CreateInt8GemmExecution;

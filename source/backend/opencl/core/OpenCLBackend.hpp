@@ -102,6 +102,7 @@ public:
 
     OpenCLRuntime *getOpenCLRuntime();
     virtual Backend::MemObj* onAcquire(const Tensor *nativeTensor, StorageType storageType) override;
+    bool onCanShareBuffer(const Tensor* source, const Tensor* view) const override;
     virtual bool onClearBuffer() override;
 
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,

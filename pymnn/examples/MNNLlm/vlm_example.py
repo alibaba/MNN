@@ -6,7 +6,7 @@ import sys
 
 def generate_example(model, prompt):
     prompt['text'] = model.apply_chat_template(prompt['text'])
-    ids = model.tokenizer_encode(prompt)
+    ids = model.tokenizer_encode(prompt, not model.has_chat_template())
     model.generate_init()
     logits = model.forward(ids)
     token = np.argmax(logits)

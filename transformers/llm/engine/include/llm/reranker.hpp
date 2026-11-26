@@ -84,13 +84,18 @@ public:
      */
     void initialize(const std::string& config_path) override {
         mLlm.reset(Llm::createLLM(config_path));
-        mLlm->set_config("{\"all_logits\":true}");
+        if (mLlm) {
+            mLlm->set_config("{\"all_logits\":true}");
+        }
     }
 
     /**
      * @brief Loads the LLM and initializes token IDs.
      */
     void load() override {
+        if (!mLlm) {
+            return;
+        }
         mLlm->load();
         mTokenTrueId = mLlm->tokenizer_encode("yes")[0];
         mTokenFalseId = mLlm->tokenizer_encode("no")[0];
@@ -111,6 +116,9 @@ public:
      * @return A vector of float scores, one for each document.
      */
     std::vector<float> compute_scores(const std::string& query, const std::vector<std::string>& documents) override {
+        if (!mLlm) {
+            return {};
+        }
         CHECK_LLM_RUNNING_RET(mLlm->getContext(), std::vector<float>());
         std::string prefix = "<|im_start|>system\nJudge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be \"yes\" or \"no\".<|im_end|>\n<|im_start|>user\n";
         prefix = prefix + "<Instruct>: " + mInstruct + "\n<Query>: " + query + "\n<Document>: ";
@@ -229,7 +237,9 @@ public:
      * @brief Loads the reranker model after initialization.
      */
     void load() override {
-        mLlm->load();
+        if (mLlm) {
+            mLlm->load();
+        }
     }
 
     /**
@@ -245,6 +255,9 @@ public:
      * @return A vector of float scores, one for each document.
      */
     std::vector<float> compute_scores(const std::string& query, const std::vector<std::string>& documents) override {
+        if (!mLlm) {
+            return {};
+        }
         CHECK_LLM_RUNNING_RET(mLlm->getContext(), std::vector<float>());
         constexpr int pad_token_id = 1;
         constexpr int eos_token_id = 2;

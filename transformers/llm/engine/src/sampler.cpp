@@ -225,7 +225,7 @@ void Sampler::SamplerConfig::configMixed(std::shared_ptr<LlmConfig> llmConfig) {
     }
     mixedSamplers = std::move(newSamplers);
     // set select type from last sampler
-    if (mixedSamplers.back() == "greedy") {
+    if (!mixedSamplers.empty() && mixedSamplers.back() == "greedy") {
         select_type = "greedy";
     } else {
         select_type = "temperature";
@@ -238,10 +238,17 @@ Sampler* Sampler::createSampler(std::shared_ptr<LlmContext> context, std::shared
 
 Sampler::Sampler(std::shared_ptr<LlmContext> context, std::shared_ptr<LlmConfig> config)
     : mContext(context), mRng(std::random_device{}()) {
+    setConfig(config);
+}
+
+void Sampler::setConfig(std::shared_ptr<LlmConfig> config) {
+    mConfig = SamplerConfig();
     mConfig.max_all_tokens = config->max_all_tokens();
     mConfig.max_new_tokens = config->max_new_tokens();
     mConfig.type = config->sampler_type();
     mConfig.configSampler(mConfig.type, config);
+    mPipeline.clear();
+    mTopKPrefilter = false;
     buildPipeline();
 }
 
@@ -585,6 +592,10 @@ void Sampler::stepMinP(SamplerState& state) {
 
 void Sampler::stepTfs(SamplerState& state) {
     float z = mConfig.tfsZ;
+    // z >= 1 means no trimming; the cutoff loop below would still drop the token that completes the sum.
+    if (z >= 1.0f) {
+        return;
+    }
     state.ensureProbs(mConfig.temperature);
     int size = (int)state.probs.size();
     if (size < 3) return;

@@ -33,6 +33,9 @@
 #ifdef MNN_HEXAGON_ENABLED
 #include "backend/hexagon/htp-ops-lib/include/htp_gated_rms_norm_params.h"
 #endif
+#if defined(__riscv) && defined(MNN_USE_RVV)
+#include "backend/cpu/compute/CommonOptFunction.h"
+#endif
 
 #define DEFAULT_ALLOCATE_SIZE 32
 
@@ -104,7 +107,18 @@ public:
 #else
         const bool hexagonWhole = false;
 #endif
-        if (openCLWhole || hexagonWhole ||
+#if defined(__riscv) && defined(MNN_USE_RVV)
+        int rvvInside = 0;
+        const auto* rvvCore = MNNGetCoreFunctions();
+        const bool rvvWhole =
+            context.forwardType() == MNN_FORWARD_CPU &&
+            rvvCore != nullptr && rvvCore->supportRVV && rvvCore->bytes == 4 && rvvCore->pack == 4 &&
+            OpCommonUtils::gatedRMSNormOpenCLOk(op, inputs, outputs, nullptr, &rvvInside, nullptr, true) &&
+            rvvInside % 4 == 0;
+#else
+        const bool rvvWhole = false;
+#endif
+        if (openCLWhole || hexagonWhole || rvvWhole ||
             (context.forwardType() == MNN_FORWARD_METAL &&
              OpCommonUtils::gatedRMSNormFusable(op, inputs, outputs,
                                                 0 != context.runtimeStatus(STATUS_SUPPORT_SIMD_GROUP_REDUCE)))) {

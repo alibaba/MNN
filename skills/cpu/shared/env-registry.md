@@ -13,6 +13,9 @@
 | 名称 | 类型 | 位置 | 默认 | 语义 | 状态 |
 |---|---|---|---|---|---|
 | `MNN_CPU_TARGET` | env | ARM：`cpu/compute/CommonOptFunction.cpp`；x86_64：`cpu/x86_x64/FunctionDispatcher.cpp` | unset = 不降档 | ISA 能力位降档。ARM clamp 到 0..3（`≥1` 放行 fp16+sdot、`≥2` i8mm、`≥3` sme2，关 sme2 时同时把 `smeCoreNumber` 置 0）；x86_64 clamp 到 0..4（`≥1` AVX2、`≥2` FMA3、`≥3` AVX512、`≥4` AVX512VNNI）。**只屏蔽运行时能力位，屏蔽不掉"没编进来"**。用法见 [`optimize/arch/arm.md`](../optimize/arch/arm.md) §三 / [`optimize/arch/x86_64.md`](../optimize/arch/x86_64.md) §三 | 在用；**仅在 `-DMNN_PIPELINE_PROFILE=ON` 构建下存在** |
+| `MNN_CPU_DISABLE_IME2_HALF_PREFILL` | env | `riscv/spacemit_ime2/MNNSpacemitIme2Half.hpp` | 未设 | 进程启动前置为 `1` 可关闭 Low 模式的 FP16 投影、因果 attention 和 gated-delta 面板，继续使用整数投影及 FP32 attention | 首次使用时读取 |
+| `MNN_CPU_ENABLE_TIED_BIT` | env | `riscv/spacemit_ime2/MNNSpacemitIme2Half.hpp` | 未设（关） | 仅当值为字符串 `1` 时为 `/lm/lm_head/Linear` 单 token decode 启用 Q1 粗筛 + Q4 精算（非候选 logits 置 `-FLT_MAX`）；不兼容或 `plane > 1` 自动回退精确 Q4 | 首次使用时读取 |
+| `MNN_CPU_TIED_BIT_TOP_M` | env | `riscv/spacemit_ime2/MNNSpacemitIme2Half.hpp` | `512` | TiedBit 全局候选预算 M（正整数，含阈值并列项；非法值回退 512；`>= vocabSize` 时回退精确 Q4） | 首次使用时读取 |
 | `MNN_PIPELINE_PROFILE` | 编译宏（**无 `option()` 声明**） | 消费方 `cpu/CMakeLists.txt`（只 `target_compile_options` 给 `MNNCPU`）；使用点 `CommonOptFunction.cpp`、`FunctionDispatcher.cpp` | 默认构建里**不存在** | CPU 侧唯一作用是放行 `MNN_CPU_TARGET` 的读取与打印，不引入任何计时开销，可放心常开跑路径覆盖 | 在用；必须手动 `cmake -DMNN_PIPELINE_PROFILE=ON`（根 `CMakeLists.txt` 里搜不到它，因为没人声明过） |
 | `MNN_GEMVBW_M` / `MNN_GEMVBW_K` | env | `test/speed/GemvBWTest.cpp` | M=4096 / K=14336（Llama-3-8B 风格 FFN 投影） | 覆盖 `speed/GemvBW` 的 GEMV 形状。GEMV 效率强 shape 相关，测目标模型必须改形状。**`atoi(e) > 0` 才生效**，写 `0`/非数字会被静默忽略而不是报错 | 在用（`142f294b0c`） |
 | `MNN_GEMVBW_BITS` | env | `test/speed/GemvBWTest.cpp` | unset = 扫 `{8,4,3,2}` 四档 | 只跑单个权重位宽，用于把一档单独拎出来做 A/B 而不等整轮四档。**`atoi(e) > 0` 才生效**，同样静默忽略非法值 | 在用（`0f82c6ff7a`） |

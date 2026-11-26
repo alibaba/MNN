@@ -45,8 +45,8 @@ bool DFlashGeneration::load(Module::Config module_config) {
         Module::Config kc;
         kc.shapeMutable = true;
         kc.rearrange = true;
-        mKvMatModule.reset(Module::load({"new_context", "position_ids"}, {},
-            mLlm->mConfig->dflash_kvmat().c_str(), mLlm->mRuntimeManager, &kc));
+        mKvMatModule.reset(mLlm->mConfig->loadModule({"new_context", "position_ids"}, {}, mLlm->mConfig->dflash_kvmat(),
+                                                     mLlm->mRuntimeManager, &kc));
         if (mKvMatModule == nullptr) {
             MNN_ERROR("DFlash: failed to load %s. The draft attention consumes per-layer "
                       "kv_k_i/kv_v_i, so this module is mandatory; re-export the draft with "
@@ -90,10 +90,8 @@ bool DFlashGeneration::load(Module::Config module_config) {
     }
     dflashInputNames.insert(dflashInputNames.end(), {"attention_mask", "position_ids"});
     std::vector<std::string> dflashOutputNames{"hidden_states"};
-    mDFlashModule.reset(Module::load(
-        dflashInputNames, dflashOutputNames,
-        mLlm->mConfig->dflash_model().c_str(),
-        mLlm->mRuntimeManager, &module_config));
+    mDFlashModule.reset(mLlm->mConfig->loadModule(dflashInputNames, dflashOutputNames, mLlm->mConfig->dflash_model(),
+                                                  mLlm->mRuntimeManager, &module_config));
     if (mDFlashModule == nullptr) {
         MNN_ERROR("DFlash: failed to load draft %s with %d per-layer KV inputs (output '%s'). "
                   "%s and the draft must come from the same export.\n",
@@ -114,10 +112,8 @@ bool DFlashGeneration::load(Module::Config module_config) {
         lm_cfg.base = mLlm->mModule.get();
         std::vector<std::string> lmInputNames{sharedLmHeadInput};
         std::vector<std::string> lmOutputNames{"logits"};
-        mLmHeadModule.reset(Module::load(
-            lmInputNames, lmOutputNames,
-            mLlm->mConfig->llm_model().c_str(),
-            mLlm->mRuntimeManager, &lm_cfg));
+        mLmHeadModule.reset(mLlm->mConfig->loadModule(lmInputNames, lmOutputNames, mLlm->mConfig->llm_model(),
+                                                      mLlm->mRuntimeManager, &lm_cfg, mLlm->mConfig->llm_weight()));
         if (mLmHeadModule == nullptr) {
             MNN_ERROR("DFlash: failed to load shared lm_head subgraph {%s -> logits} from %s. "
                       "Set dflash_shared_lmhead_input to the target's post-final-norm tensor name.\n",
@@ -135,10 +131,8 @@ bool DFlashGeneration::load(Module::Config module_config) {
         fc_config.rearrange = true;
         std::vector<std::string> fcInputNames{"target_hidden"};
         std::vector<std::string> fcOutputNames{"context_hidden"};
-        mFcModule.reset(Module::load(
-            fcInputNames, fcOutputNames,
-            mLlm->mConfig->dflash_fc().c_str(),
-            mLlm->mRuntimeManager, &fc_config));
+        mFcModule.reset(mLlm->mConfig->loadModule(fcInputNames, fcOutputNames, mLlm->mConfig->dflash_fc(),
+                                                  mLlm->mRuntimeManager, &fc_config));
         if (mFcModule == nullptr) {
             MNN_ERROR("DFlash: failed to load %s (every draft step projects target hidden "
                       "states through it, so this module is mandatory)\n",

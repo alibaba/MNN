@@ -12,7 +12,7 @@
 
 - [2026/11/04] 我们发布了 **MNN-Pocket-0.3B**，一款支持中英文指令交互的 **3 亿参数手机应用原生大模型**。MNN 团队从手机应用的任务需求与资源预算出发，协同设计模型结构、训练方法与推理引擎。支持 **32K 上下文**；INT4（W4A16）QAT MNN 版本体积仅 **173 MB**，在 iPhone 18 Pro 上实测解码速度为 **350 tok/s**。以 **Apache 2.0** 许可证开源。
 
-  [ModelScope](https://modelscope.cn/collections/MNN/MNN-Pocket-03B) | [Hugging Face](https://huggingface.co/collections/taobao-mnn/mnn-pocket-03b) | [Technical report](https://modelscope.cn/models/MNN/MNN-Pocket-0.3B/resolve/master/MNN-Pocket-0.3B-Technical-Report.pdf)
+  [ModelScope](https://modelscope.cn/collections/MNN/MNN-Pocket-03B) | [Hugging Face](https://huggingface.co/collections/taobao-mnn/mnn-pocket-03b) | [Technical report](https://arxiv.org/pdf/2611.12311)
 
 ## 简介
 

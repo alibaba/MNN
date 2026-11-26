@@ -65,11 +65,14 @@ public:
 };
 class MmapAllocator : public BufferAllocator::Allocator {
 private:
-    std::map<void*, std::tuple<file_t,size_t, std::string>> mCache;
+    std::map<void*, std::tuple<file_t,size_t, std::string, int>> mCache;
     std::string mFileName;
     std::string mPrefix;
     std::string mPosfix;
-    int mAllocTimes = 0;
+    // Lowest-free-index naming: a live block keeps its index, so a release can never
+    // hand its file to a new alloc, while an untouched load still names files 0,1,2...
+    // and stays reusable across processes.
+    std::set<int> mUsedIndex;
     bool mRemove;
     bool mNewMmap = false;
     bool mSynced = false;
@@ -104,7 +107,11 @@ public:
     virtual MemChunk onAlloc(size_t size, size_t align) override {
         MNN_ASSERT(size > 0);
         MNN_ASSERT(!mSynced);
-        std::string name = mPrefix + std::to_string(mAllocTimes) + "." + mPosfix;
+        int index = 0;
+        while (mUsedIndex.find(index) != mUsedIndex.end()) {
+            ++index;
+        }
+        std::string name = mPrefix + std::to_string(index) + "." + mPosfix;
         std::string fileName = MNNFilePathConcat(mFileName, name);
         file_t file;
         size = UP_DIV(size, align) * align;
@@ -138,8 +145,8 @@ public:
             MNNCloseFile(file);
             return MemChunk(nullptr, 0);
         }
-        mCache.insert(std::make_pair(ptr, std::make_tuple(file, size, fileName)));
-        mAllocTimes++;
+        mCache.insert(std::make_pair(ptr, std::make_tuple(file, size, fileName, index)));
+        mUsedIndex.insert(index);
         return MemChunk(ptr, 0);
     }
     virtual void onRelease(MemChunk chunk) override {
@@ -155,8 +162,8 @@ public:
         if (mRemove) {
             MNNRemoveFile(std::get<2>(iter->second).c_str());
         }
+        mUsedIndex.erase(std::get<3>(iter->second));
         mCache.erase(iter);
-        mAllocTimes = 0;
     }
     virtual void sync() override {
         if (mSynced) {
@@ -213,8 +220,20 @@ std::shared_ptr<BufferAllocator::Allocator> BufferAllocator::Allocator::createRe
 }
 
 EagerBufferAllocator::Node::~Node() {
-    if (nullptr == parent.get()) {
+    if (nullptr == parent.get() && nullptr != outside) {
         outside->onRelease(pointer);
+    }
+    while (true) {
+        Node* node = parent.get();
+        if (nullptr == node || node->count() != 1) {
+            break;
+        }
+        Node* next = node->parent.get();
+        if (nullptr != next) {
+            next->addRef();
+        }
+        node->parent = nullptr;
+        parent = next;
     }
 }
 MemChunk EagerBufferAllocator::alloc(size_t size, bool separate, size_t align) {
@@ -238,6 +257,9 @@ MemChunk EagerBufferAllocator::alloc(size_t size, bool separate, size_t align) {
         if (nullptr != pointer.first) {
             return MemChunk(pointer);
         }
+    }
+    if (mReleaseFreeOnMiss && mGroups.empty()) {
+        release(false);
     }
     auto allocSize = size;
     if (mMinAllocSize != 0) {

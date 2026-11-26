@@ -352,6 +352,58 @@ bool TensorUtils::isCopyRegion(const Tensor::InsideDescribe::Region& region) {
     return eq;
 }
 
+bool TensorUtils::isFullBufferView(const Tensor* source, const Tensor* view) {
+    auto src = getDescribe(source);
+    auto dst = getDescribe(view);
+    if (source->getType() != view->getType() || source->getType().code == halide_type_handle ||
+        src->quantAttr || dst->quantAttr || src->applyQuant || dst->applyQuant ||
+        dst->regions.size() != 1 || src->tensorArrayAttr || dst->tensorArrayAttr) {
+        return false;
+    }
+    const auto& region = dst->regions[0];
+    if (region.src.offset != 0 || region.dst.offset != 0) {
+        return false;
+    }
+    int64_t count = 1;
+    for (int i = 2; i >= 0; --i) {
+        if (region.size[i] <= 0 || (region.size[i] > 1 &&
+            (region.src.stride[i] != count || region.dst.stride[i] != count))) {
+            return false;
+        }
+        count *= region.size[i];
+    }
+    return count == getRawSize(source) && count == getRawSize(view);
+}
+
+bool TensorUtils::isBufferLayoutCompatible(const Tensor* source, const Tensor* view, int channelPack) {
+    auto srcFormat = getDescribe(source)->dimensionFormat;
+    auto dstFormat = getDescribe(view)->dimensionFormat;
+    if (srcFormat == dstFormat && srcFormat != MNN_DATA_FORMAT_NC4HW4) {
+        return true;
+    }
+    if (channelPack <= 0 || source->getType().code != halide_type_float) {
+        return false;
+    }
+    if (srcFormat == dstFormat) {
+        if (source->dimensions() < 2 || source->dimensions() != view->dimensions() ||
+            source->length(1) % channelPack != 0) {
+            return false;
+        }
+        for (int i = 0; i < source->dimensions(); ++i) {
+            if (source->length(i) != view->length(i)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    auto packed = srcFormat == MNN_DATA_FORMAT_NC4HW4 ? source : view;
+    auto plain = packed == source ? view : source;
+    return getDescribe(packed)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 &&
+        getDescribe(plain)->dimensionFormat == MNN_DATA_FORMAT_NCHW && packed->dimensions() == 4 &&
+        packed->length(0) == 1 && packed->length(1) % channelPack == 0 &&
+        packed->length(2) == 1 && packed->length(3) == 1;
+}
+
 bool TensorUtils::isTransposeRegion(const Tensor::InsideDescribe::Region& region) {
     int srcOne = -1, dstOne = -1;
     for (int i = 0; i < 3; i++) {

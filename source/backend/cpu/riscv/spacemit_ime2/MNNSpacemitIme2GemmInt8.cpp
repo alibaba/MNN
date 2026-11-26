@@ -6,6 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 #include <riscv_vector.h>
+#include "MNNSpacemitIme2Half.hpp"
 #include <algorithm>
 #include <atomic>
 #include <condition_variable>
@@ -211,7 +212,7 @@ static inline bool MNNSpacemitIme2OuterTileParallel() {
 }
 
 static inline bool MNNSpacemitIme2IsHpBlkLen(size_t blkLen) {
-    return blkLen == 256 || blkLen == 257 || blkLen == 258 || blkLen == 259 || blkLen == 260 || blkLen == 261;
+    return blkLen == 256 || blkLen == 257 || blkLen == 258 || blkLen == 259 || blkLen == 260 || blkLen == MNNIme2::kSharedBlock64Kernel;
 }
 
 static constexpr bool MNNSpacemitIme2BindTidEnabled() {
@@ -968,6 +969,9 @@ static inline void MNNSpacemitIme2TcmRelease(size_t index, void* buffer) {
 
 static inline size_t MNNSpacemitIme2BStrideForJob(const MNNSpacemitIme2Job& job) {
     const bool useZp = job.bZp != nullptr;
+    if (job.blkLen == MNNIme2::kSharedBlock64Kernel) {
+        return job.kBlks * 4 * sizeof(MNNIme2::Block64Weight);
+    }
     if (job.blkLen == 258) {
         return job.kBlks * size_t(8) * (sizeof(uint16_t) * 32 + 32 * 32 / 2 + sizeof(uint16_t) * 32);
     }
@@ -1198,6 +1202,75 @@ static inline size_t MNNSpacemitIme2RunDirectC4Epilogue(const MNNSpacemitIme2Job
 #endif
 }
 
+// Keep one N panel in each worker's TCM while visiting its complete M4 row blocks.
+// The original row schedule handles tails and every shape that cannot fit A plus one B tile.
+static inline bool MNNSpacemitIme2RunLinearTcmPanels(const MNNSpacemitIme2Job& job, void* tcmBuffer,
+                                                    size_t tcmSize, size_t* handledRows) {
+    if (!MNNSpacemitIme2TcmEnabled() || tcmBuffer == nullptr || job.a == nullptr || job.b == nullptr ||
+        job.linearRowsPerBlock != 4 || job.linearRowStart % 4 != 0 || job.linearRowStep % 4 != 0 ||
+        job.linearRowStep == 0 || job.linearRowEnd > job.linearTotalRows || job.kBlks == 0 ||
+        !MNNSpacemitIme2CanRunDirectC4Epilogue(job)) {
+        return false;
+    }
+    const size_t fullRowEnd = std::min(job.linearRowEnd, job.linearTotalRows & ~size_t(3));
+    if (job.linearRowStart >= fullRowEnd) {
+        return false;
+    }
+    const size_t fullBlockCount = (fullRowEnd - 1 - job.linearRowStart) / job.linearRowStep + 1;
+    if (fullBlockCount < 2) {
+        return false;
+    }
+
+    const size_t aRowStride = MNNSpacemitIme2ARowStrideForJob(job);
+    const size_t bGroupStride = MNNSpacemitIme2BStrideForJob(job);
+    if (aRowStride == 0 || aRowStride > tcmSize / 4 || bGroupStride == 0) {
+        return false;
+    }
+    const size_t aBytes = aRowStride * 4;
+    const size_t aPadding = (64 - aBytes % 64) % 64;
+    if (aPadding > tcmSize - aBytes) {
+        return false;
+    }
+    const size_t alignedABytes = aBytes + aPadding;
+    const size_t groupCount = job.countN / 32;
+    const size_t groupsPerPanel = std::min(groupCount, (tcmSize - alignedABytes) / bGroupStride);
+    if (groupsPerPanel == 0) {
+        return false;
+    }
+    auto* localA = static_cast<uint8_t*>(tcmBuffer);
+    auto* localB = localA + alignedABytes;
+    for (size_t groupOffset = 0; groupOffset < groupCount; groupOffset += groupsPerPanel) {
+        const size_t panelGroups = std::min(groupsPerPanel, groupCount - groupOffset);
+        const size_t panelChannels = panelGroups * 32;
+        const size_t channelOffset = groupOffset * 32;
+        MNNSpacemitIme2RvvMemcpy1d(localB, job.b + groupOffset * bGroupStride, panelGroups * bGroupStride);
+        for (size_t rowOffset = job.linearRowStart; rowOffset < fullRowEnd; rowOffset += job.linearRowStep) {
+            MNNSpacemitIme2RvvMemcpy1d(localA, job.a + rowOffset * aRowStride, aBytes);
+            MNNSpacemitIme2Job chunk = job;
+            QuanPostTreatParameters chunkPost = *job.post;
+            chunk.linearStride = false;
+            chunk.a = localA;
+            chunk.b = localB;
+            chunk.countM = 4;
+            chunk.countN = panelChannels;
+            chunk.fullCountN = panelChannels;
+            // dstStep remains the global C4 depth stride, including all input rows.
+            chunk.dst = job.dst + (channelOffset / GEMM_INT8_UNIT) * job.dstStep +
+                        rowOffset * GEMM_INT8_UNIT * sizeof(float);
+            chunk.biasPtr = job.biasPtr == nullptr ? nullptr : job.biasPtr + channelOffset;
+            chunkPost.inputScale = job.post->inputScale + rowOffset;
+            chunk.post = &chunkPost;
+            // A and B already occupy disjoint TCM regions; the generic staging helper must not recopy them.
+            if (MNNSpacemitIme2RunDirectC4Epilogue(chunk, nullptr, 0) != 4) {
+                // The caller replays every row with the original path, overwriting any completed panels.
+                return false;
+            }
+        }
+    }
+    *handledRows = fullBlockCount * 4;
+    return true;
+}
+
 static inline size_t MNNSpacemitIme2RunLinearStrideJob(const MNNSpacemitIme2Job& job, void* tcmBuffer = nullptr,
                                                        size_t tcmSize = 0) {
     if (!job.linearStride || job.post == nullptr || job.linearRowsPerBlock == 0 || job.linearRowStep == 0 ||
@@ -1206,8 +1279,12 @@ static inline size_t MNNSpacemitIme2RunLinearStrideJob(const MNNSpacemitIme2Job&
     }
     const size_t aRowStride = MNNSpacemitIme2ARowStrideForJob(job);
     size_t handled = 0;
+    const bool stagedPanels = MNNSpacemitIme2RunLinearTcmPanels(job, tcmBuffer, tcmSize, &handled);
     for (size_t rowOffset = job.linearRowStart; rowOffset < job.linearRowEnd; rowOffset += job.linearRowStep) {
         const size_t rows = std::min(job.linearRowsPerBlock, job.linearTotalRows - rowOffset);
+        if (stagedPanels && rows == 4) {
+            continue;
+        }
         MNNSpacemitIme2Job chunk = job;
         QuanPostTreatParameters chunkPost = *job.post;
         chunk.linearStride = false;
@@ -1635,6 +1712,38 @@ extern "C" size_t MNNSpacemitIme2RunTcmTasks(size_t taskCount, MNNSpacemitIme2Tc
     return completed;
 }
 
+extern "C" size_t MNNSpacemitIme2RunDecodeTasks(size_t taskCount, MNNSpacemitIme2TcmTask task, void* context) {
+    if (task == nullptr || taskCount == 0) {
+        return 0;
+    }
+    const bool spinWorker = MNNSpacemitIme2TcmTaskSpinEnabled();
+    const size_t workerCount = spinWorker ? MNNSpacemitIme2SpinWorker::count() : MNNSpacemitIme2Worker::count();
+    if (taskCount > workerCount) {
+        return 0;
+    }
+    // Spread <=4 decode tasks across both A100 L2 clusters (workers 0,2,4,6 -> CPUs 8,10,12,14).
+    const size_t stride = (taskCount <= 4 && workerCount >= 8) ? 2 : 1;
+    std::unique_lock<std::mutex> dispatchLock(MNNSpacemitIme2DispatchMutex());
+    for (size_t i = 0; i < taskCount; ++i) {
+        MNNSpacemitIme2Job job;
+        job.tcmTask = task;
+        job.tcmTaskContext = context;
+        job.tcmTaskIndex = i;
+        const size_t w = i * stride;
+        if (spinWorker) {
+            MNNSpacemitIme2SpinWorker::get(w).startJob(job);
+        } else {
+            MNNSpacemitIme2Worker::get(w).startJob(job);
+        }
+    }
+    size_t completed = 0;
+    for (size_t i = 0; i < taskCount; ++i) {
+        const size_t w = i * stride;
+        completed += spinWorker ? MNNSpacemitIme2SpinWorker::get(w).wait() : MNNSpacemitIme2Worker::get(w).wait();
+    }
+    return completed;
+}
+
 static inline uint16_t MNNFloatToHalfBits(float value) {
     uint32_t bits = 0;
     std::memcpy(&bits, &value, sizeof(bits));
@@ -1749,13 +1858,7 @@ static inline size_t MNNIme2Q4HpResidualSuperBlockSize() {
 }
 
 static inline size_t MNNIme2Q4HpAsymPairSuperBlockSize() {
-    // A HP super-block covers eight K32 blocks. For block64 weights, store four pairs as
-    // [scale N32, -weight_bias/8 N32, q(K32_0), q(K32_1)]. Replacing the duplicated
-    // scale of the second K32 keeps the exact same 4608-byte super-block footprint.
-    constexpr size_t size = size_t(4) * (sizeof(uint16_t) * 32 + sizeof(uint16_t) * 32 + 2 * (32 * 32 / 2));
-    static_assert(size == size_t(8) * (sizeof(uint16_t) * 32 + 32 * 32 / 2),
-                  "asymmetric pair layout must preserve the HP B stride");
-    return size;
+    return 4 * sizeof(MNNIme2::Block64Weight);
 }
 
 static inline uint8_t MNNIme2ChooseZp(float scale, float weightBias) {
@@ -2480,58 +2583,80 @@ static void MNNPackIme2B32HpResidualAllBlocks(uint8_t* dst, const int8_t* weight
     }
 }
 
+static void MNNPackIme2B32Q1AllBlocks(uint8_t* dst, const int8_t* weight, size_t srcDepthQuad, size_t blockNum,
+                                      size_t dzStart) {
+    MNN_ASSERT(srcDepthQuad == 4);
+    const size_t k16Bytes = GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT / 2;
+    const size_t srcStride = srcDepthQuad * k16Bytes + 2 * GEMM_INT8_UNIT * sizeof(float);
+    auto blocks = reinterpret_cast<MNNIme2::Block64Q1Weight*>(dst);
+    for (size_t bk = 0; bk < blockNum; ++bk) {
+        std::memset(blocks[bk].q1, 0, sizeof(blocks[bk].q1));
+    }
+    // Iterate dz outer so each [dz, bk] weight slice is read sequentially once.
+    for (size_t dz = 0; dz < 8; ++dz) {
+        const auto dzBase = reinterpret_cast<const uint8_t*>(weight) + (dzStart + dz) * blockNum * srcStride;
+        const size_t r = dz >> 1;
+        const size_t cBase = dz * 4;
+        const size_t cInRBase = (dz & 1u) * 4;
+        for (size_t bk = 0; bk < blockNum; ++bk) {
+            const uint8_t* src = dzBase + bk * srcStride;
+            const auto params = reinterpret_cast<const float*>(src + srcDepthQuad * k16Bytes);
+            auto& block = blocks[bk];
+            for (size_t lane = 0; lane < 4; ++lane) {
+                const float scale = params[lane];
+                const float offset = params[4 + lane];
+                block.scales[cBase + lane] = static_cast<_Float16>(scale);
+                block.offset35[cBase + lane] = static_cast<_Float16>(offset + 3.5f * scale);
+                const size_t laneOffset = (lane & 1u) * 16;
+                const bool upper = lane < 2;
+                const size_t cInR = cInRBase + lane;
+                for (size_t k32 = 0; k32 < 2; ++k32) {
+                    uint8_t* dstPanel = block.q1[k32] + cInR * 16;
+                    for (size_t half = 0; half < 2; ++half) {
+                        const uint8_t* k16Ptr = src + (k32 * 2 + half) * k16Bytes + laneOffset;
+                        for (size_t p = 0; p < 8; ++p) {
+                            const uint8_t raw0 = k16Ptr[2 * p];
+                            const uint8_t raw1 = k16Ptr[2 * p + 1];
+                            const uint8_t b0 = upper ? ((raw0 >> 7) & 1u) : ((raw0 >> 3) & 1u);
+                            const uint8_t b1 = upper ? ((raw1 >> 7) & 1u) : ((raw1 >> 3) & 1u);
+                            dstPanel[half * 8 + p] |= static_cast<uint8_t>((b0 << r) | (b1 << (r + 4)));
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 static void MNNPackIme2B32HpAsymPairAllBlocks(uint8_t* dst, const int8_t* weight, size_t srcDepthQuad, size_t blockNum,
                                               size_t dzStart) {
-    const int weightStepY = (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT) / 2;
-    const int weightStepZ = weightStepY * srcDepthQuad + 4 * 2 * GEMM_INT8_UNIT;
-    const size_t kBlocksPerBlock = srcDepthQuad / 2;
-    const size_t kBlocks = kBlocksPerBlock * blockNum;
-    const size_t superBlocks = kBlocks / 8;
-    constexpr size_t pairCount = 4;
-    constexpr size_t scaleBytes = sizeof(uint16_t) * 32;
-    constexpr size_t qBytes = 32 * 32 / 2;
-    constexpr size_t pairBytes = scaleBytes * 2 + qBytes * 2;
-    const size_t superBlockSize = MNNIme2Q4HpAsymPairSuperBlockSize();
     MNN_ASSERT(srcDepthQuad == 4);
-    MNN_ASSERT(kBlocksPerBlock == 2);
-    MNN_ASSERT(kBlocks % 8 == 0);
-    MNN_ASSERT(pairCount * pairBytes == superBlockSize);
-
-    for (size_t super = 0; super < superBlocks; ++super) {
-        uint8_t* superBlock = dst + super * superBlockSize;
-        for (size_t pair = 0; pair < pairCount; ++pair) {
-            const size_t bk = super * pairCount + pair;
-            uint8_t* pairBlock = superBlock + pair * pairBytes;
-            uint16_t* scales = reinterpret_cast<uint16_t*>(pairBlock);
-            uint16_t* centeredCorrection = reinterpret_cast<uint16_t*>(pairBlock + scaleBytes);
-            uint8_t* qs0 = pairBlock + scaleBytes * 2;
-            uint8_t* qs1 = qs0 + qBytes;
-
-            for (int dz = 0; dz < 8; ++dz) {
-                const int8_t* weightDz = weight + (dzStart + dz) * blockNum * weightStepZ + bk * weightStepZ;
-                const float* scaleDz = reinterpret_cast<const float*>(weightDz + srcDepthQuad * weightStepY);
-                const float* weightBiasDz = scaleDz + GEMM_INT8_UNIT;
-                for (int j = 0; j < GEMM_INT8_UNIT; ++j) {
-                    const int col = dz * GEMM_INT8_UNIT + j;
-                    const float scale = scaleDz[j];
-                    scales[col] = MNNFloatToHalfBits(scale);
-                    // aSum is -8 * sum(qA). Multiplying it by -weightBias / 8 supplies
-                    // sum(qA) * weightBias and avoids a second rounded FP16 addition in the kernel.
-                    centeredCorrection[col] = MNNFloatToHalfBits(-weightBiasDz[j] * 0.125f);
-
-                    for (int kb = 0; kb < 2; ++kb) {
-                        uint8_t* qs = kb == 0 ? qs0 : qs1;
-                        for (int packed = 0; packed < 16; ++packed) {
-                            const int kk0 = packed * 2;
-                            const int kk1 = kk0 + 1;
-                            const uint8_t* weight0 = reinterpret_cast<const uint8_t*>(
-                                weightDz + weightStepY * (kb * 2 + kk0 / GEMM_INT8_SRC_UNIT));
-                            const uint8_t* weight1 = reinterpret_cast<const uint8_t*>(
-                                weightDz + weightStepY * (kb * 2 + kk1 / GEMM_INT8_SRC_UNIT));
-                            const uint8_t q0 = MNNReadW4(weight0, j, kk0 % GEMM_INT8_SRC_UNIT);
-                            const uint8_t q1 = MNNReadW4(weight1, j, kk1 % GEMM_INT8_SRC_UNIT);
-                            qs[col * 16 + packed] = static_cast<uint8_t>(q0 | (q1 << 4));
-                        }
+    const size_t k16Bytes = GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT / 2;
+    const size_t srcStride = srcDepthQuad * k16Bytes + 2 * GEMM_INT8_UNIT * sizeof(float);
+    auto block = reinterpret_cast<MNNIme2::Block64Weight*>(dst);
+    for (size_t bk = 0; bk < blockNum; ++bk, ++block) {
+        for (size_t c = 0; c < 32; ++c) {
+            const size_t dz = c / GEMM_INT8_UNIT;
+            const size_t lane = c % GEMM_INT8_UNIT;
+            const auto src = reinterpret_cast<const uint8_t*>(weight) + ((dzStart + dz) * blockNum + bk) * srcStride;
+            const auto params = reinterpret_cast<const float*>(src + srcDepthQuad * k16Bytes);
+            const float scale = params[lane];
+            const float offset = params[GEMM_INT8_UNIT + lane];
+            const float centeredOffset = offset + 8.0f * scale;
+            block->scales[c] = static_cast<_Float16>(scale);
+            block->centeredOffset[c] = static_cast<_Float16>(centeredOffset);
+            const size_t laneOffset = (lane % 2) * 16;
+            const bool upper = lane < 2;
+            for (size_t k32 = 0; k32 < 2; ++k32) {
+                uint8_t* dstCol = block->quants[k32] + c * 16;
+                for (size_t half = 0; half < 2; ++half) {
+                    const uint8_t* k16Ptr = src + (k32 * 2 + half) * k16Bytes + laneOffset;
+                    for (size_t p = 0; p < 8; ++p) {
+                        const uint8_t raw0 = k16Ptr[2 * p];
+                        const uint8_t raw1 = k16Ptr[2 * p + 1];
+                        const uint8_t q0 = (upper ? (raw0 >> 4) : (raw0 & 15)) ^ 8u;
+                        const uint8_t q1 = (upper ? (raw1 >> 4) : (raw1 & 15)) ^ 8u;
+                        dstCol[half * 8 + p] = static_cast<uint8_t>(q0 | (q1 << 4));
                     }
                 }
             }
@@ -2640,6 +2765,7 @@ struct MNNIme2LinearResource {
     MNNIme2BPackCache<uint8_t> packedBHpAllBlocks;
     MNNIme2BPackCache<uint8_t> packedBHpResidualAllBlocks;
     MNNIme2BPackCache<uint8_t> packedBHpAsymPairAllBlocks;
+    MNNIme2BPackCache<uint8_t> packedBQ1AllBlocks;
     MNNIme2BPackCache<uint8_t> packedBHpSymAllBlocks;
     MNNIme2ResidualCache residualAllBlocks;
     MNNIme2ResidualCache weightBiasResidualAllBlocks;
@@ -2937,6 +3063,10 @@ static std::shared_ptr<std::vector<uint8_t>> MNNGetIme2PackedBHpResidualAllBlock
         });
 }
 
+static uint8_t* MNNIme2Block64Data(std::vector<uint8_t>& storage) {
+    return reinterpret_cast<uint8_t*>((reinterpret_cast<uintptr_t>(storage.data()) + 127) & ~uintptr_t(127));
+}
+
 static std::shared_ptr<std::vector<uint8_t>> MNNGetIme2PackedBHpAsymPairAllBlocks(const int8_t* weight,
                                                                                   size_t srcDepthQuad,
                                                                                   size_t dstDepthQuad, size_t blockNum,
@@ -2954,9 +3084,10 @@ static std::shared_ptr<std::vector<uint8_t>> MNNGetIme2PackedBHpAsymPairAllBlock
             const size_t bStride = MNNIme2Q4HpAsymPairSuperBlockSize() * superBlocks;
             const size_t groupCount = dstDepthQuad / 8;
             auto packed = std::make_shared<std::vector<uint8_t>>();
-            packed->resize(groupCount * bStride);
+            packed->resize(groupCount * bStride + 127);
+            auto data = MNNIme2Block64Data(*packed);
             for (size_t dzGroup = 0; dzGroup < dstDepthQuad; dzGroup += 8) {
-                auto dst = packed->data() + (dzGroup / 8) * bStride;
+                auto dst = data + (dzGroup / 8) * bStride;
                 MNNPackIme2B32HpAsymPairAllBlocks(dst, weight, srcDepthQuad, blockNum, dzGroup);
             }
             return packed;
@@ -3142,7 +3273,7 @@ static bool MNNGemmInt8AddBiasScale_16x4_w4_Unit_IME2(int8_t* dst, const int8_t*
     const bool packedAInput = directFloatHp || (MNNSpacemitIme2PackedAInputEnabled() && useHp && !useZp && !useA4 &&
                                                 !useSymW4 && !useFusedResidual && realCount > 1);
     const size_t kernelBlkLen =
-        useHpM1AsymPair ? 261 : (useA4 ? 257 : (useFusedResidual ? 258 : (useFixedAScale ? 260 : (useHp ? 256 : 32))));
+        useHpM1AsymPair ? MNNIme2::kSharedBlock64Kernel : (useA4 ? 257 : (useFusedResidual ? 258 : (useFixedAScale ? 260 : (useHp ? 256 : 32))));
     const bool useHpM1RawDot = useHp && realCount == 1 && !directFloatHp;
     const bool canUseHpM1Centered = useHpM1RawDot && !useZp;
     const size_t kernelKBlocks = useHp ? kBlocks / 8 : kBlocks;
@@ -3197,6 +3328,7 @@ static bool MNNGemmInt8AddBiasScale_16x4_w4_Unit_IME2(int8_t* dst, const int8_t*
                                                                   useZp, context)
                                    : MNNGetIme2PackedBAllBlocks(weight, srcDepthQuad, ime2DstDepthQuad, blockNum, useZp,
                                                                 context))));
+    const auto packedBase = useHpM1AsymPair ? MNNIme2Block64Data(*packedB) : packedB->data();
     std::shared_ptr<MNNIme2Residual> centeredResidual;
     bool useHpM1Centered = false;
     if (directFloatHp) {
@@ -3286,8 +3418,8 @@ static bool MNNGemmInt8AddBiasScale_16x4_w4_Unit_IME2(int8_t* dst, const int8_t*
         job.gemm = gemm;
         job.blkLen = callKernelBlkLen;
         job.a = packedAPtr;
-        job.b = packedB->data();
-        job.bZp = useZp ? packedB->data() : nullptr;
+        job.b = packedBase;
+        job.bZp = useZp ? packedBase : nullptr;
         job.c = gemmOutput;
         job.countM = realCount;
         job.countN = countN;
@@ -3297,7 +3429,9 @@ static bool MNNGemmInt8AddBiasScale_16x4_w4_Unit_IME2(int8_t* dst, const int8_t*
     } else {
         std::unique_lock<std::mutex> serialDispatchLock;
         const bool spinWorker = MNNSpacemitIme2SpinEnabled();
-        const bool decodeTcmPipelineEnabled = MNNSpacemitIme2TcmDecodePipelineEnabled();
+        const bool directDecode4Core =
+            realCount == 1 && spinWorker && useHpM1AsymPair && MNNSpacemitIme2SpinWorker::count() >= 8;
+        const bool decodeTcmPipelineEnabled = MNNSpacemitIme2TcmDecodePipelineEnabled() && !directDecode4Core;
         // The copy/compute barriers only amortize once packed-B exceeds the cache-friendly working set.
         constexpr size_t decodeTcmMinPackedBBytes = 2 * 1024 * 1024;
         const bool decodeTcmPipelineRequested = decodeTcmPipelineEnabled && spinWorker && useHpM1AsymPair &&
@@ -3311,7 +3445,7 @@ static bool MNNGemmInt8AddBiasScale_16x4_w4_Unit_IME2(int8_t* dst, const int8_t*
             workerCount = 1;
         }
         if (realCount == 1) {
-            constexpr size_t decodeWorkers = 6;
+            const size_t decodeWorkers = directDecode4Core ? 4 : (useHpM1AsymPair ? 8 : 6);
             workerCount = std::min(workerCount, std::max<size_t>(decodeWorkers, 1));
         }
         constexpr size_t smallN = 384;
@@ -3355,7 +3489,7 @@ static bool MNNGemmInt8AddBiasScale_16x4_w4_Unit_IME2(int8_t* dst, const int8_t*
                     job.gemm = gemm;
                     job.blkLen = callKernelBlkLen;
                     job.a = packedAPtr;
-                    job.b = packedB->data() + group * bStride;
+                    job.b = packedBase + group * bStride;
                     job.bZp = useZp ? job.b : nullptr;
                     job.c = gemmOutput + group * 32;
                     job.countM = 1;
@@ -3389,8 +3523,8 @@ static bool MNNGemmInt8AddBiasScale_16x4_w4_Unit_IME2(int8_t* dst, const int8_t*
                 const size_t group = decodeTcmGroupCount;
                 const size_t tailGroups = groupCount - group;
                 handled += MNNSpacemitIme2SpinWorker::get(0).run(
-                    gemm, callKernelBlkLen, packedAPtr, packedB->data() + group * bStride,
-                    useZp ? packedB->data() + group * bStride : nullptr, gemmOutput + group * 32, 1, tailGroups * 32,
+                    gemm, callKernelBlkLen, packedAPtr, packedBase + group * bStride,
+                    useZp ? packedBase + group * bStride : nullptr, gemmOutput + group * 32, 1, tailGroups * 32,
                     kernelKBlocks, countN, workerPost, dst, dstStep, group * 8, countN, residualPtr, postForIme2,
                     biasPtr, fp32min, fp32max, skipPostResidual);
                 expected += 1;
@@ -3433,7 +3567,7 @@ static bool MNNGemmInt8AddBiasScale_16x4_w4_Unit_IME2(int8_t* dst, const int8_t*
                     const Task2D& task = tasks[taskOffset + i];
                     const size_t nOffset = task.groupOffset * 32;
                     const uint8_t* aPtr = packedAPtr + task.rowOffset * aRowStride;
-                    const uint8_t* bPtr = packedB->data() + task.groupOffset * bStride;
+                    const uint8_t* bPtr = packedBase + task.groupOffset * bStride;
                     float* cPtr = gemmOutput + task.rowOffset * countN + nOffset;
                     expected += task.rows;
                     if (spinWorker) {
@@ -3467,12 +3601,12 @@ static bool MNNGemmInt8AddBiasScale_16x4_w4_Unit_IME2(int8_t* dst, const int8_t*
                 const uint8_t* aPtr = packedAPtr + rowOffset * aRowStride;
                 float* cPtr = gemmOutput + rowOffset * countN;
                 if (spinWorker) {
-                    MNNSpacemitIme2SpinWorker::get(i).start(gemm, callKernelBlkLen, aPtr, packedB->data(),
-                                                            useZp ? packedB->data() : nullptr, cPtr, rows, countN,
+                    MNNSpacemitIme2SpinWorker::get(i).start(gemm, callKernelBlkLen, aPtr, packedBase,
+                                                            useZp ? packedBase : nullptr, cPtr, rows, countN,
                                                             kernelKBlocks, countN);
                 } else {
-                    MNNSpacemitIme2Worker::get(i).start(gemm, callKernelBlkLen, aPtr, packedB->data(),
-                                                        useZp ? packedB->data() : nullptr, cPtr, rows, countN,
+                    MNNSpacemitIme2Worker::get(i).start(gemm, callKernelBlkLen, aPtr, packedBase,
+                                                        useZp ? packedBase : nullptr, cPtr, rows, countN,
                                                         kernelKBlocks, countN);
                 }
                 rowOffset += rows;
@@ -3482,15 +3616,15 @@ static bool MNNGemmInt8AddBiasScale_16x4_w4_Unit_IME2(int8_t* dst, const int8_t*
             }
         } else if (workerCount <= 1) {
             static std::atomic<size_t> workerIndex(0);
-            const size_t index = workerIndex.fetch_add(1, std::memory_order_relaxed);
+            const size_t index = directDecode4Core ? 0 : workerIndex.fetch_add(1, std::memory_order_relaxed);
             if (spinWorker) {
                 handled = MNNSpacemitIme2SpinWorker::get(index).run(
-                    gemm, callKernelBlkLen, packedAPtr, packedB->data(), useZp ? packedB->data() : nullptr, gemmOutput,
+                    gemm, callKernelBlkLen, packedAPtr, packedBase, useZp ? packedBase : nullptr, gemmOutput,
                     realCount, countN, kernelKBlocks, countN, workerPost, dst, dstStep, 0, countN, residualPtr,
                     postForIme2, biasPtr, fp32min, fp32max, skipPostResidual);
             } else {
                 handled = MNNSpacemitIme2Worker::get(index).run(
-                    gemm, callKernelBlkLen, packedAPtr, packedB->data(), useZp ? packedB->data() : nullptr, gemmOutput,
+                    gemm, callKernelBlkLen, packedAPtr, packedBase, useZp ? packedBase : nullptr, gemmOutput,
                     realCount, countN, kernelKBlocks, countN, workerPost, dst, dstStep, 0, countN, residualPtr,
                     postForIme2, biasPtr, fp32min, fp32max, skipPostResidual);
             }
@@ -3498,27 +3632,32 @@ static bool MNNGemmInt8AddBiasScale_16x4_w4_Unit_IME2(int8_t* dst, const int8_t*
             expected = workerCount * realCount;
             const size_t baseGroups = groupCount / workerCount;
             const size_t extraGroups = groupCount % workerCount;
+            // Spread 4-core decode across both A100 L2 clusters (workers 0,2,4,6 -> CPUs 8,10,12,14).
+            const size_t workerStride = directDecode4Core ? 2 : 1;
             size_t groupOffset = 0;
             for (size_t i = 0; i < workerCount; ++i) {
                 const size_t groups = baseGroups + (i < extraGroups ? 1 : 0);
                 const size_t nOffset = groupOffset * 32;
+                const size_t workerIdx = i * workerStride;
                 if (spinWorker) {
-                    MNNSpacemitIme2SpinWorker::get(i).start(
-                        gemm, callKernelBlkLen, packedAPtr, packedB->data() + groupOffset * bStride,
-                        useZp ? packedB->data() + groupOffset * bStride : nullptr, gemmOutput + nOffset, realCount,
+                    MNNSpacemitIme2SpinWorker::get(workerIdx).start(
+                        gemm, callKernelBlkLen, packedAPtr, packedBase + groupOffset * bStride,
+                        useZp ? packedBase + groupOffset * bStride : nullptr, gemmOutput + nOffset, realCount,
                         groups * 32, kernelKBlocks, countN, workerPost, dst, dstStep, groupOffset * 8, countN,
                         residualPtr, postForIme2, biasPtr, fp32min, fp32max, skipPostResidual);
                 } else {
-                    MNNSpacemitIme2Worker::get(i).start(
-                        gemm, callKernelBlkLen, packedAPtr, packedB->data() + groupOffset * bStride,
-                        useZp ? packedB->data() + groupOffset * bStride : nullptr, gemmOutput + nOffset, realCount,
+                    MNNSpacemitIme2Worker::get(workerIdx).start(
+                        gemm, callKernelBlkLen, packedAPtr, packedBase + groupOffset * bStride,
+                        useZp ? packedBase + groupOffset * bStride : nullptr, gemmOutput + nOffset, realCount,
                         groups * 32, kernelKBlocks, countN, workerPost, dst, dstStep, groupOffset * 8, countN,
                         residualPtr, postForIme2, biasPtr, fp32min, fp32max, skipPostResidual);
                 }
                 groupOffset += groups;
             }
             for (size_t i = 0; i < workerCount; ++i) {
-                handled += spinWorker ? MNNSpacemitIme2SpinWorker::get(i).wait() : MNNSpacemitIme2Worker::get(i).wait();
+                const size_t workerIdx = i * workerStride;
+                handled += spinWorker ? MNNSpacemitIme2SpinWorker::get(workerIdx).wait()
+                                      : MNNSpacemitIme2Worker::get(workerIdx).wait();
             }
         }
     }
@@ -3771,7 +3910,9 @@ extern "C" int MNNSpacemitIme2LinearPackedAGemm(int8_t* dst, const uint8_t* pack
         (useFusedResidual ? MNNIme2Q4HpResidualSuperBlockSize() : MNNIme2Q4HpSuperBlockSize(useZp)) * kernelKBlocks;
     constexpr size_t minCountN = 128;
     constexpr size_t minKBlocks = 2;
-    if (countN < minCountN || kernelKBlocks < minKBlocks) {
+    // The vendor executor supplies explicit zero-padded N16 weights/output scratch for this shape.
+    const bool paddedN16 = countN == 32 && srcDepthQuad == 4 && blockNum == 32;
+    if ((countN < minCountN && !paddedN16) || kernelKBlocks < minKBlocks) {
         return 0;
     }
 
@@ -3851,38 +3992,46 @@ extern "C" int MNNSpacemitIme2LinearPackedAGemm(int8_t* dst, const uint8_t* pack
         const bool directC4Epilogue = MNNSpacemitIme2DirectC4EpilogueEnabled() && callKernelBlkLen == 258 &&
                                       useFusedResidual && skipPostResidual && post->useInt8 == 0 &&
                                       post->inputScale != nullptr && post->inputBias == nullptr && countN % 32 == 0;
+        // Give each worker a disjoint weight stripe on full tiles so TCM only
+        // needs to stage each packed panel once across the whole GEMM.
+        const bool splitColumns = directC4Epilogue && realCount >= 64 && realCount % 4 == 0 &&
+                                  groupCount >= 2 * workerCount && MNNSpacemitIme2Tcm().available;
         std::vector<std::vector<float>> cBuffers(workerCount);
         std::vector<size_t> activeWorkers;
         activeWorkers.reserve(workerCount);
         size_t expected = 0;
         for (size_t i = 0; i < workerCount; ++i) {
-            const size_t rowStart = i * mStride;
+            const size_t groupBegin = splitColumns ? groupCount * i / workerCount : 0;
+            const size_t groupEnd = splitColumns ? groupCount * (i + 1) / workerCount : groupCount;
+            const size_t localCountN = (groupEnd - groupBegin) * 32;
+            const size_t rowStart = splitColumns ? 0 : i * mStride;
+            const size_t rowStep = splitColumns ? mStride : workerCount * mStride;
             if (rowStart >= realCount) {
                 continue;
             }
-            for (size_t rowOffset = rowStart; rowOffset < realCount; rowOffset += workerCount * mStride) {
+            for (size_t rowOffset = rowStart; rowOffset < realCount; rowOffset += rowStep) {
                 expected += std::min(mStride, realCount - rowOffset);
             }
-            cBuffers[i].resize(mStride * countN);
+            cBuffers[i].resize(mStride * localCountN);
             MNNSpacemitIme2Job job;
             job.gemm = gemm;
             job.blkLen = callKernelBlkLen;
             job.a = packedA;
-            job.b = packedB->data();
-            job.bZp = useZp ? packedB->data() : nullptr;
+            job.b = packedB->data() + groupBegin * bStride;
+            job.bZp = useZp ? job.b : nullptr;
             job.c = cBuffers[i].data();
             job.countM = mStride;
-            job.countN = countN;
+            job.countN = localCountN;
             job.kBlks = kernelKBlocks;
-            job.ldc = countN;
+            job.ldc = localCountN;
             job.doPost = true;
-            job.dst = dst;
+            job.dst = dst + groupBegin * 8 * dstStep;
             job.dstStep = dstStep;
             job.dzStart = 0;
-            job.fullCountN = countN;
+            job.fullCountN = localCountN;
             job.residual = residualPtr;
             job.post = post;
-            job.biasPtr = biasPtr;
+            job.biasPtr = biasPtr == nullptr ? nullptr : biasPtr + groupBegin * 32;
             job.fp32min = fp32min;
             job.fp32max = fp32max;
             job.skipResidual = skipPostResidual;
@@ -3892,7 +4041,7 @@ extern "C" int MNNSpacemitIme2LinearPackedAGemm(int8_t* dst, const uint8_t* pack
             job.linearStride = true;
             job.linearRowStart = rowStart;
             job.linearRowEnd = realCount;
-            job.linearRowStep = workerCount * mStride;
+            job.linearRowStep = rowStep;
             job.linearRowsPerBlock = mStride;
             job.linearTotalRows = realCount;
             if (spinWorker) {
@@ -3907,7 +4056,7 @@ extern "C" int MNNSpacemitIme2LinearPackedAGemm(int8_t* dst, const uint8_t* pack
             handled +=
                 spinWorker ? MNNSpacemitIme2SpinWorker::get(index).wait() : MNNSpacemitIme2Worker::get(index).wait();
         }
-        if (handled != expected || handled != realCount) {
+        if (handled != expected || handled != realCount * (splitColumns ? workerCount : 1)) {
             return 0;
         }
         return 1;
@@ -4038,7 +4187,8 @@ static inline bool MNNIme2QuantFloat32K32RneSingleLoad(int8_t* dst, const float*
     return true;
 }
 
-static bool MNNIme2PackFloatA1HierarchicalHp(uint8_t* dst, const float* src, size_t superBlocks) {
+static bool MNNIme2PackFloatA1HierarchicalHp(uint8_t* dst, const float* src, size_t superBlocks,
+                                             float sumScale = -8.0f) {
     constexpr size_t kSubBlockSize = sizeof(uint16_t) + 32;
     constexpr size_t kSumOffset = 8 * kSubBlockSize;
     const size_t hpBlockSize = MNNIme2Q8HpBlockSize();
@@ -4054,7 +4204,8 @@ static bool MNNIme2PackFloatA1HierarchicalHp(uint8_t* dst, const float* src, siz
                                                      subScales + sub, &sum)) {
                 return false;
             }
-            MNNIme2StoreNativeHalfRne(block + kSumOffset + sub * sizeof(uint16_t), -8.0f * static_cast<float>(sum));
+            MNNIme2StoreNativeHalfRne(block + kSumOffset + sub * sizeof(uint16_t),
+                                      sumScale * static_cast<float>(sum));
         }
         float scaleAverage = 0.0f;
         for (float scale : subScales) {
@@ -4252,10 +4403,16 @@ extern "C" int MNNSpacemitIme2PackFloatAHpStridedRowsRangeWithSum(uint8_t* dst, 
     const size_t superBlocks = kBlocks / 8;
     const size_t hpRowStride = MNNIme2Q8HpBlockSize() * superBlocks;
     const size_t c4Stride = 4 * srcRows;
+    const size_t tileVl = __riscv_vsetvl_e32m2(16);
     for (size_t rowBase = rowBegin; rowBase < rowEnd;) {
         const size_t rows = std::min<size_t>(4, rowEnd - rowBase);
         if (rows == 4) {
             uint8_t* tileDst = dst + rowBase * hpRowStride;
+            float scales[16];
+            for (size_t r = 0; r < 4; ++r) {
+                std::fill_n(scales + r * 4, 4, quantScale[rowBase + r]);
+            }
+            const auto qScales = __riscv_vle32_v_f32m2(scales, tileVl);
             for (size_t super = 0; super < superBlocks; ++super) {
                 uint8_t* block = tileDst + super * MNNIme2Q8HpBlockSize() * 4;
                 std::memset(block, 0, MNNIme2Q8HpBlockSize() * 4);
@@ -4267,12 +4424,40 @@ extern "C" int MNNSpacemitIme2PackFloatAHpStridedRowsRangeWithSum(uint8_t* dst, 
                     uint8_t* subBlock = block + sub * (sizeof(uint16_t) * 4 + 32 * 4);
                     MNNIme2StoreHalf(subBlock, 1.0f);
                     int8_t* q = reinterpret_cast<int8_t*>(subBlock + sizeof(uint16_t) * 4);
+                    const size_t c4Base = (bk * srcDepthQuad + kb * 2) * 4;
+                    const float* srcTile = src + c4Base * c4Stride + rowBase * 4;
+                    int32_t rowSums[4];
+                    if (tileVl == 16) {
+                        // Each load takes four contiguous C4 values for each of
+                        // four rows. Store one packed int8 C4 per row with stride K32.
+                        auto sums = __riscv_vmv_v_x_i16m1(0, tileVl);
+                        for (size_t c4 = 0; c4 < 8; ++c4) {
+                            auto values = __riscv_vle32_v_f32m2(srcTile + c4 * c4Stride, tileVl);
+                            values = __riscv_vfmul_vv_f32m2(values, qScales, tileVl);
+                            values = __riscv_vfmin_vf_f32m2(
+                                __riscv_vfmax_vf_f32m2(values, -128.0f, tileVl), 127.0f, tileVl);
+                            const auto quant = __riscv_vncvt_x_x_w_i8mf2(
+                                __riscv_vfncvt_x_f_w_i16m1(values, tileVl), tileVl);
+                            sums = __riscv_vwadd_wv_i16m1(sums, quant, tileVl);
+                            const auto packed =
+                                __riscv_vreinterpret_v_u8mf2_u32mf2(__riscv_vreinterpret_v_i8mf2_u8mf2(quant));
+                            __riscv_vsse32_v_u32mf2(reinterpret_cast<uint32_t*>(q + c4 * 4), 32, packed, 4);
+                        }
+                        int16_t laneSums[16];
+                        __riscv_vse16_v_i16m1(laneSums, sums, tileVl);
+                        for (size_t r = 0; r < 4; ++r) {
+                            const auto lane = laneSums + r * 4;
+                            rowSums[r] = lane[0] + lane[1] + lane[2] + lane[3];
+                        }
+                    } else {
+                        for (size_t r = 0; r < 4; ++r) {
+                            rowSums[r] = MNNIme2QuantFloatC4x8ToInt8(
+                                q + r * 32, srcTile + r * 4, c4Stride, quantScale[rowBase + r]);
+                        }
+                    }
                     for (size_t r = 0; r < 4; ++r) {
                         const size_t srcRow = rowBase + r;
-                        const float qScale = quantScale[srcRow];
-                        const size_t c4Base = (bk * srcDepthQuad + kb * 2) * 4;
-                        const int32_t sum = MNNIme2QuantFloatC4x8ToInt8(
-                            q + r * 32, src + c4Base * c4Stride + srcRow * 4, c4Stride, qScale);
+                        const int32_t sum = rowSums[r];
                         MNNIme2StoreHalf(sumBase + (r * 8 + sub) * sizeof(uint16_t), static_cast<float>(-sum * 8));
                         if (srcKernelSum != nullptr) {
                             float* dstSum = srcKernelSum + bk * srcRows + srcRow;
@@ -4325,70 +4510,22 @@ extern "C" int MNNSpacemitIme2PackFloatAHpStridedRowsRangeWithSum(uint8_t* dst, 
     return 1;
 }
 
-static inline float MNNIme2FloatRowAbsMax(const float* src, size_t srcDepthQuad, size_t blockNum, size_t srcRows,
-                                          size_t srcRow) {
-    const size_t c4Count = srcDepthQuad * blockNum * 4;
-    const size_t c4Stride = 4 * srcRows;
-    const size_t vl = __riscv_vsetvl_e32m1(4);
-    vfloat32m1_t maxV = __riscv_vfmv_v_f_f32m1(0.0f, vl);
+// C4 keeps four channels for consecutive tokens contiguous. Use tokens as
+// vector lanes, avoiding a strided gather and four separate reductions per tile.
+static inline void MNNIme2FloatRowsAbsMax(float* absMax, const float* src, size_t c4Count,
+                                          size_t c4Stride, size_t vl) {
+    auto maximum = __riscv_vfmv_v_f_f32m1(0.0f, vl);
     for (size_t c4 = 0; c4 < c4Count; ++c4) {
-        const float* srcC4 = src + c4 * c4Stride + srcRow * 4;
-        const vfloat32m1_t value = __riscv_vfabs_v_f32m1(__riscv_vle32_v_f32m1(srcC4, vl), vl);
-        maxV = __riscv_vfmax_vv_f32m1(maxV, value, vl);
+        const auto values = __riscv_vlseg4e32_v_f32m1x4(src + c4 * c4Stride, vl);
+        const auto x = __riscv_vfabs_v_f32m1(__riscv_vget_v_f32m1x4_f32m1(values, 0), vl);
+        const auto y = __riscv_vfabs_v_f32m1(__riscv_vget_v_f32m1x4_f32m1(values, 1), vl);
+        const auto z = __riscv_vfabs_v_f32m1(__riscv_vget_v_f32m1x4_f32m1(values, 2), vl);
+        const auto w = __riscv_vfabs_v_f32m1(__riscv_vget_v_f32m1x4_f32m1(values, 3), vl);
+        const auto xy = __riscv_vfmax_vv_f32m1(x, y, vl);
+        const auto zw = __riscv_vfmax_vv_f32m1(z, w, vl);
+        maximum = __riscv_vfmax_vv_f32m1(maximum, __riscv_vfmax_vv_f32m1(xy, zw, vl), vl);
     }
-    const vfloat32m1_t reduced = __riscv_vfredmax_vs_f32m1_f32m1(maxV, __riscv_vfmv_s_f_f32m1(0.0f, vl), vl);
-    return __riscv_vfmv_f_s_f32m1_f32(reduced);
-}
-
-static inline vfloat32m1_t MNNIme2FloatC4GroupAbsMax(const float* src, size_t c4StrideBytes, size_t vl) {
-    const vfloat32m1x4_t values = __riscv_vlsseg4e32_v_f32m1x4(src, c4StrideBytes, vl);
-    vfloat32m1_t maximum = __riscv_vfabs_v_f32m1(__riscv_vget_v_f32m1x4_f32m1(values, 0), vl);
-    maximum = __riscv_vfmax_vv_f32m1(maximum, __riscv_vfabs_v_f32m1(__riscv_vget_v_f32m1x4_f32m1(values, 1), vl), vl);
-    maximum = __riscv_vfmax_vv_f32m1(maximum, __riscv_vfabs_v_f32m1(__riscv_vget_v_f32m1x4_f32m1(values, 2), vl), vl);
-    return __riscv_vfmax_vv_f32m1(maximum, __riscv_vfabs_v_f32m1(__riscv_vget_v_f32m1x4_f32m1(values, 3), vl), vl);
-}
-
-static inline void MNNIme2FloatRows4AbsMax(float* absMax, const float* src, size_t srcDepthQuad, size_t blockNum,
-                                           size_t srcRows, size_t srcRow) {
-    const size_t c4Count = srcDepthQuad * blockNum * 4;
-    const size_t c4Stride = 4 * srcRows;
-    const size_t vl = __riscv_vsetvl_e32m1(8);
-    vfloat32m1_t max0 = __riscv_vfmv_v_f_f32m1(0.0f, vl);
-    vfloat32m1_t max1 = max0;
-    vfloat32m1_t max2 = max0;
-    vfloat32m1_t max3 = max0;
-    size_t c4 = 0;
-    for (; c4 + vl <= c4Count; c4 += vl) {
-        const float* srcC4 = src + c4 * c4Stride + srcRow * 4;
-        const size_t c4StrideBytes = c4Stride * sizeof(float);
-        max0 = __riscv_vfmax_vv_f32m1(max0, MNNIme2FloatC4GroupAbsMax(srcC4, c4StrideBytes, vl), vl);
-        max1 = __riscv_vfmax_vv_f32m1(max1, MNNIme2FloatC4GroupAbsMax(srcC4 + 4, c4StrideBytes, vl), vl);
-        max2 = __riscv_vfmax_vv_f32m1(max2, MNNIme2FloatC4GroupAbsMax(srcC4 + 8, c4StrideBytes, vl), vl);
-        max3 = __riscv_vfmax_vv_f32m1(max3, MNNIme2FloatC4GroupAbsMax(srcC4 + 12, c4StrideBytes, vl), vl);
-    }
-    const vfloat32m1_t zero = __riscv_vfmv_s_f_f32m1(0.0f, vl);
-    absMax[0] = __riscv_vfmv_f_s_f32m1_f32(__riscv_vfredmax_vs_f32m1_f32m1(max0, zero, vl));
-    absMax[1] = __riscv_vfmv_f_s_f32m1_f32(__riscv_vfredmax_vs_f32m1_f32m1(max1, zero, vl));
-    absMax[2] = __riscv_vfmv_f_s_f32m1_f32(__riscv_vfredmax_vs_f32m1_f32m1(max2, zero, vl));
-    absMax[3] = __riscv_vfmv_f_s_f32m1_f32(__riscv_vfredmax_vs_f32m1_f32m1(max3, zero, vl));
-    if (c4 < c4Count) {
-        const size_t tailVl = __riscv_vsetvl_e32m1(c4Count - c4);
-        const float* srcC4 = src + c4 * c4Stride + srcRow * 4;
-        const size_t c4StrideBytes = c4Stride * sizeof(float);
-        const vfloat32m1_t tailZero = __riscv_vfmv_s_f_f32m1(0.0f, tailVl);
-        const vfloat32m1_t tail0 = MNNIme2FloatC4GroupAbsMax(srcC4, c4StrideBytes, tailVl);
-        const vfloat32m1_t tail1 = MNNIme2FloatC4GroupAbsMax(srcC4 + 4, c4StrideBytes, tailVl);
-        const vfloat32m1_t tail2 = MNNIme2FloatC4GroupAbsMax(srcC4 + 8, c4StrideBytes, tailVl);
-        const vfloat32m1_t tail3 = MNNIme2FloatC4GroupAbsMax(srcC4 + 12, c4StrideBytes, tailVl);
-        absMax[0] =
-            std::max(absMax[0], __riscv_vfmv_f_s_f32m1_f32(__riscv_vfredmax_vs_f32m1_f32m1(tail0, tailZero, tailVl)));
-        absMax[1] =
-            std::max(absMax[1], __riscv_vfmv_f_s_f32m1_f32(__riscv_vfredmax_vs_f32m1_f32m1(tail1, tailZero, tailVl)));
-        absMax[2] =
-            std::max(absMax[2], __riscv_vfmv_f_s_f32m1_f32(__riscv_vfredmax_vs_f32m1_f32m1(tail2, tailZero, tailVl)));
-        absMax[3] =
-            std::max(absMax[3], __riscv_vfmv_f_s_f32m1_f32(__riscv_vfredmax_vs_f32m1_f32m1(tail3, tailZero, tailVl)));
-    }
+    __riscv_vse32_v_f32m1(absMax, maximum, vl);
 }
 
 extern "C" int MNNSpacemitIme2PackFloatAHpStridedRowsRangeDynamicQuant(uint8_t* dst, float* srcKernelSum,
@@ -4400,11 +4537,13 @@ extern "C" int MNNSpacemitIme2PackFloatAHpStridedRowsRangeDynamicQuant(uint8_t* 
         rowBegin > rowEnd || rowEnd > srcRows) {
         return 0;
     }
-    size_t row = rowBegin;
-    for (; row + 4 <= rowEnd; row += 4) {
-        float absMax[4];
-        MNNIme2FloatRows4AbsMax(absMax, src, srcDepthQuad, blockNum, srcRows, row);
-        for (size_t r = 0; r < 4; ++r) {
+    constexpr size_t rowBatch = 32;
+    const size_t c4Count = srcDepthQuad * blockNum * 4;
+    for (size_t row = rowBegin; row < rowEnd;) {
+        const size_t vl = __riscv_vsetvl_e32m1(std::min(rowBatch, rowEnd - row));
+        float absMax[rowBatch];
+        MNNIme2FloatRowsAbsMax(absMax, src + row * 4, c4Count, srcRows * 4, vl);
+        for (size_t r = 0; r < vl; ++r) {
             if (absMax[r] < 1e-7f) {
                 quantScale[row + r] = 1.0f;
                 inputScale[row + r] = 1.0f;
@@ -4413,19 +4552,79 @@ extern "C" int MNNSpacemitIme2PackFloatAHpStridedRowsRangeDynamicQuant(uint8_t* 
                 inputScale[row + r] = absMax[r] / 127.0f;
             }
         }
-    }
-    for (; row < rowEnd; ++row) {
-        const float absMax = MNNIme2FloatRowAbsMax(src, srcDepthQuad, blockNum, srcRows, row);
-        if (absMax < 1e-7f) {
-            quantScale[row] = 1.0f;
-            inputScale[row] = 1.0f;
-        } else {
-            quantScale[row] = 127.0f / absMax;
-            inputScale[row] = absMax / 127.0f;
-        }
+        row += vl;
     }
     return MNNSpacemitIme2PackFloatAHpStridedRowsRangeWithSum(dst, srcKernelSum, inputScale, quantScale, src,
                                                               srcDepthQuad, blockNum, srcRows, rowBegin, rowEnd);
+}
+
+namespace {
+struct DecodePackCache {
+    bool active = false;
+    const float* src = nullptr;
+    size_t superBlocks = 0;
+    bool useAsym = false;
+    std::vector<uint8_t> data;
+};
+static thread_local DecodePackCache gDecodePackCache;
+
+static const uint8_t* MNNIme2GetOrPackDecodeA(const float* src, size_t superBlocks, bool useAsym) {
+    const size_t packedABytes = superBlocks * MNNIme2Q8HpBlockSize();
+    if (gDecodePackCache.active) {
+        if (gDecodePackCache.src == src && gDecodePackCache.superBlocks == superBlocks &&
+            gDecodePackCache.useAsym == useAsym && gDecodePackCache.data.size() >= packedABytes) {
+            return gDecodePackCache.data.data();
+        }
+        if (gDecodePackCache.data.size() < packedABytes) {
+            gDecodePackCache.data.resize(packedABytes);
+        }
+        if (!MNNIme2PackFloatA1HierarchicalHp(gDecodePackCache.data.data(), src, superBlocks, useAsym ? 1.0f : -8.0f)) {
+            gDecodePackCache.src = nullptr;
+            return nullptr;
+        }
+        gDecodePackCache.src = src;
+        gDecodePackCache.superBlocks = superBlocks;
+        gDecodePackCache.useAsym = useAsym;
+        return gDecodePackCache.data.data();
+    }
+    thread_local std::vector<uint8_t> packedA;
+    if (packedA.size() < packedABytes) {
+        packedA.resize(packedABytes);
+    }
+    if (!MNNIme2PackFloatA1HierarchicalHp(packedA.data(), src, superBlocks, useAsym ? 1.0f : -8.0f)) {
+        return nullptr;
+    }
+    return packedA.data();
+}
+} // namespace
+
+extern "C" int MNNSpacemitIme2SetDecodePackCache(int active) {
+    const int prev = gDecodePackCache.active ? 1 : 0;
+    gDecodePackCache.active = (active != 0);
+    gDecodePackCache.src = nullptr;
+    return prev;
+}
+
+extern "C" int MNNSpacemitIme2LinearPackedADecode(int8_t* dst, const uint8_t* packedA, const int8_t* weight,
+                                                  size_t srcDepthQuad, size_t dstStep, size_t dstDepthQuad,
+                                                  const QuanPostTreatParameters* post, void* context) {
+#if defined(MNN_USE_SPACEMIT_IME2)
+    if (context == nullptr || !MNNSpacemitIme2Enabled() || dst == nullptr || packedA == nullptr || weight == nullptr ||
+        post == nullptr || post->useInt8 != 0 || post->blockNum <= 0 || srcDepthQuad != 4 ||
+        post->blockNum % 4 != 0 || dstDepthQuad == 0 || dstDepthQuad % 8 != 0 ||
+        dstStep != GEMM_INT8_UNIT * sizeof(float) || post->inputScale != nullptr || post->inputBias != nullptr ||
+        !MNNSpacemitIme2HpM1AsymPairEnabled()) {
+        return 0;
+    }
+    return MNNGemmInt8AddBiasScale_16x4_w4_Unit_IME2(dst, reinterpret_cast<const int8_t*>(packedA), weight,
+                                                     srcDepthQuad, dstStep, dstDepthQuad, post, 1, true, context)
+               ? 1
+               : 0;
+#else
+    (void)dst; (void)packedA; (void)weight; (void)srcDepthQuad;
+    (void)dstStep; (void)dstDepthQuad; (void)post; (void)context;
+    return 0;
+#endif
 }
 
 extern "C" int MNNSpacemitIme2LinearFloatHpDecode(int8_t* dst, const float* src, const int8_t* weight,
@@ -4453,15 +4652,11 @@ extern "C" int MNNSpacemitIme2LinearFloatHpDecode(int8_t* dst, const float* src,
         }
     }
 
-    thread_local std::vector<uint8_t> packedA;
-    const size_t packedABytes = superBlocks * MNNIme2Q8HpBlockSize();
-    if (packedA.size() < packedABytes) {
-        packedA.resize(packedABytes);
-    }
-    if (!MNNIme2PackFloatA1HierarchicalHp(packedA.data(), src, superBlocks)) {
+    const uint8_t* packedA = MNNIme2GetOrPackDecodeA(src, superBlocks, useHpM1AsymPair);
+    if (packedA == nullptr) {
         return 0;
     }
-    return MNNGemmInt8AddBiasScale_16x4_w4_Unit_IME2(dst, reinterpret_cast<const int8_t*>(packedA.data()), weight,
+    return MNNGemmInt8AddBiasScale_16x4_w4_Unit_IME2(dst, reinterpret_cast<const int8_t*>(packedA), weight,
                                                      srcDepthQuad, dstStep, dstDepthQuad, post, 1, true, context)
                ? 1
                : 0;
@@ -4474,6 +4669,310 @@ extern "C" int MNNSpacemitIme2LinearFloatHpDecode(int8_t* dst, const float* src,
     (void)dstDepthQuad;
     (void)post;
     (void)context;
+    return 0;
+#endif
+}
+
+extern "C" int MNNSpacemitIme2LinearFloatHpDecodeFusedGateUp(
+    float* dst, uint8_t* outPackedA, const float* src, const int8_t* wGate, const float* biasGate,
+    const float* clampGate, void* ctxGate, const int8_t* wUp, const float* biasUp, const float* clampUp, void* ctxUp,
+    size_t srcDepthQuad, size_t dstDepthQuad, size_t blockNum) {
+#if defined(MNN_USE_SPACEMIT_IME2)
+    if (!MNNSpacemitIme2Enabled() || !MNNSpacemitIme2HpM1AsymPairEnabled() || dst == nullptr || src == nullptr ||
+        wGate == nullptr || ctxGate == nullptr || wUp == nullptr || ctxUp == nullptr || srcDepthQuad != 4 ||
+        blockNum == 0 || blockNum % 4 != 0 || dstDepthQuad == 0 || dstDepthQuad % 8 != 0 || __riscv_vlenb() != 32) {
+        return 0;
+    }
+    const size_t kBlks = blockNum / 4;
+    const size_t groupCount = dstDepthQuad / 8;
+    const size_t bStride = MNNIme2Q4HpAsymPairSuperBlockSize() * kBlks;
+    const uint8_t* packedA = MNNIme2GetOrPackDecodeA(src, kBlks, true);
+    if (packedA == nullptr) {
+        return 0;
+    }
+    auto packedBGate = MNNGetIme2PackedBHpAsymPairAllBlocks(wGate, srcDepthQuad, dstDepthQuad, blockNum, ctxGate);
+    auto packedBUp = MNNGetIme2PackedBHpAsymPairAllBlocks(wUp, srcDepthQuad, dstDepthQuad, blockNum, ctxUp);
+    if (packedBGate == nullptr || packedBUp == nullptr) {
+        return 0;
+    }
+    const bool needClampG = clampGate != nullptr && !MNNRvvFp32MinMaxIsFullRange(clampGate[0], clampGate[1]);
+    const bool needClampU = clampUp != nullptr && !MNNRvvFp32MinMaxIsFullRange(clampUp[0], clampUp[1]);
+    const size_t workers = std::min<size_t>(4, groupCount);
+    if (outPackedA != nullptr && (groupCount % (workers * 8)) != 0) {
+        return 0;
+    }
+    const size_t aBytes = kBlks * MNNIme2Q8HpBlockSize();
+    struct FusedDecodeCtx {
+        const uint8_t* packedA;
+        size_t aBytes;
+        const uint8_t* bGate;
+        const uint8_t* bUp;
+        const float* biasGate;
+        const float* biasUp;
+        float gMin, gMax, uMin, uMax;
+        bool clampG, clampU;
+        float* dst;
+        uint8_t* outPackedA;
+        size_t groupCount;
+        size_t kBlks;
+        size_t bStride;
+        size_t workers;
+        std::atomic<bool> ok{true};
+    };
+    FusedDecodeCtx fctx;
+    fctx.packedA = packedA;
+    fctx.aBytes = aBytes;
+    fctx.bGate = MNNIme2Block64Data(*packedBGate);
+    fctx.bUp = MNNIme2Block64Data(*packedBUp);
+    fctx.biasGate = biasGate;
+    fctx.biasUp = biasUp;
+    fctx.gMin = needClampG ? clampGate[0] : 0.0f;
+    fctx.gMax = needClampG ? clampGate[1] : 0.0f;
+    fctx.uMin = needClampU ? clampUp[0] : 0.0f;
+    fctx.uMax = needClampU ? clampUp[1] : 0.0f;
+    fctx.clampG = needClampG;
+    fctx.clampU = needClampU;
+    fctx.dst = dst;
+    fctx.outPackedA = outPackedA;
+    fctx.groupCount = groupCount;
+    fctx.kBlks = kBlks;
+    fctx.bStride = bStride;
+    fctx.workers = workers;
+
+    auto task = [](size_t id, void* tcmBuffer, size_t tcmSize, void* user) {
+        auto& p = *static_cast<FusedDecodeCtx*>(user);
+        const size_t base = p.groupCount / p.workers;
+        const size_t rem = p.groupCount % p.workers;
+        const size_t gBegin = id * base + std::min(id, rem);
+        const size_t gEnd = gBegin + base + (id < rem ? 1 : 0);
+        if (gBegin >= gEnd) {
+            return;
+        }
+        const uint8_t* aPtr = p.packedA;
+        if (tcmBuffer != nullptr && tcmSize >= p.aBytes) {
+            MNNSpacemitIme2RvvMemcpy1d(tcmBuffer, p.packedA, p.aBytes);
+            aPtr = static_cast<const uint8_t*>(tcmBuffer);
+        }
+        constexpr size_t kMaxChunkGroups = 64; // 2048 floats = 8 KB per buffer (fits L1D, long uninterrupted stream)
+        alignas(64) float gBuf[kMaxChunkGroups * 32];
+        alignas(64) float uBuf[kMaxChunkGroups * 32];
+        auto siluMul = [](vfloat32m4_t g, vfloat32m4_t u, size_t vl) -> vfloat32m4_t {
+            auto z = __riscv_vfmin_vf_f32m4(__riscv_vfmax_vf_f32m4(__riscv_vfneg_v_f32m4(g, vl), -87.0f, vl), 87.0f, vl);
+            auto n = __riscv_vfcvt_x_f_v_i32m4(__riscv_vfmul_vf_f32m4(z, 1.4426950408889634f, vl), vl);
+            auto r = __riscv_vfnmsac_vf_f32m4(z, 0.6931471805599453f, __riscv_vfcvt_f_x_v_f32m4(n, vl), vl);
+            auto y = __riscv_vfmv_v_f_f32m4(1.0f / 720.0f, vl);
+            y = __riscv_vfmadd_vv_f32m4(y, r, __riscv_vfmv_v_f_f32m4(1.0f / 120.0f, vl), vl);
+            y = __riscv_vfmadd_vv_f32m4(y, r, __riscv_vfmv_v_f_f32m4(1.0f / 24.0f, vl), vl);
+            y = __riscv_vfmadd_vv_f32m4(y, r, __riscv_vfmv_v_f_f32m4(1.0f / 6.0f, vl), vl);
+            y = __riscv_vfmadd_vv_f32m4(y, r, __riscv_vfmv_v_f_f32m4(0.5f, vl), vl);
+            const auto one = __riscv_vfmv_v_f_f32m4(1.0f, vl);
+            y = __riscv_vfmadd_vv_f32m4(y, r, one, vl);
+            y = __riscv_vfmadd_vv_f32m4(y, r, one, vl);
+            auto pw = __riscv_vreinterpret_v_i32m4_f32m4(
+                __riscv_vsll_vx_i32m4(__riscv_vadd_vx_i32m4(n, 127, vl), 23, vl));
+            auto denom = __riscv_vfmacc_vv_f32m4(one, y, pw, vl);
+            auto rcp = __riscv_vfrec7_v_f32m4(denom, vl);
+            rcp = __riscv_vfmul_vv_f32m4(rcp, __riscv_vfnmsac_vv_f32m4(__riscv_vfmv_v_f_f32m4(2.0f, vl), denom, rcp, vl), vl);
+            rcp = __riscv_vfmul_vv_f32m4(rcp, __riscv_vfnmsac_vv_f32m4(__riscv_vfmv_v_f_f32m4(2.0f, vl), denom, rcp, vl), vl);
+            return __riscv_vfmul_vv_f32m4(__riscv_vfmul_vv_f32m4(g, rcp, vl), u, vl);
+        };
+        const size_t hpBlockSize = MNNIme2Q8HpBlockSize();
+        for (size_t g = gBegin; g < gEnd;) {
+            const size_t chunkGroups = std::min<size_t>(kMaxChunkGroups, gEnd - g);
+            const size_t countN = chunkGroups * 32;
+            if (MNNSpacemitIme2GemmI8I4HpM1NativeLocal(MNNIme2::kSharedBlock64Kernel, aPtr, p.bGate + g * p.bStride,
+                                                       nullptr, gBuf, 1, countN, p.kBlks, countN) != 1 ||
+                MNNSpacemitIme2GemmI8I4HpM1NativeLocal(MNNIme2::kSharedBlock64Kernel, aPtr, p.bUp + g * p.bStride,
+                                                       nullptr, uBuf, 1, countN, p.kBlks, countN) != 1) {
+                p.ok.store(false, std::memory_order_relaxed);
+                return;
+            }
+            const size_t colBase = g * 32;
+            float* outPtr = p.dst + colBase;
+            for (size_t off = 0; off < countN;) {
+                const size_t vl = __riscv_vsetvl_e32m4(countN - off);
+                auto gv = __riscv_vle32_v_f32m4(gBuf + off, vl);
+                auto uv = __riscv_vle32_v_f32m4(uBuf + off, vl);
+                if (p.biasGate != nullptr) {
+                    gv = __riscv_vfadd_vv_f32m4(gv, __riscv_vle32_v_f32m4(p.biasGate + colBase + off, vl), vl);
+                }
+                if (p.clampG) {
+                    gv = __riscv_vfmin_vf_f32m4(__riscv_vfmax_vf_f32m4(gv, p.gMin, vl), p.gMax, vl);
+                }
+                if (p.biasUp != nullptr) {
+                    uv = __riscv_vfadd_vv_f32m4(uv, __riscv_vle32_v_f32m4(p.biasUp + colBase + off, vl), vl);
+                }
+                if (p.clampU) {
+                    uv = __riscv_vfmin_vf_f32m4(__riscv_vfmax_vf_f32m4(uv, p.uMin, vl), p.uMax, vl);
+                }
+                __riscv_vse32_v_f32m4(outPtr + off, siluMul(gv, uv, vl), vl);
+                off += vl;
+            }
+            if (p.outPackedA != nullptr && (chunkGroups % 8) == 0 && (g % 8) == 0) {
+                if (!MNNIme2PackFloatA1HierarchicalHp(p.outPackedA + (g / 8) * hpBlockSize, outPtr, chunkGroups / 8,
+                                                      1.0f)) {
+                    p.ok.store(false, std::memory_order_relaxed);
+                    return;
+                }
+            }
+            g += chunkGroups;
+        }
+    };
+    const size_t ran = MNNSpacemitIme2RunDecodeTasks(workers, task, &fctx);
+    return (ran == workers && fctx.ok.load(std::memory_order_relaxed)) ? 1 : 0;
+#else
+    (void)dst; (void)outPackedA; (void)src; (void)wGate; (void)biasGate; (void)clampGate; (void)ctxGate;
+    (void)wUp; (void)biasUp; (void)clampUp; (void)ctxUp; (void)srcDepthQuad; (void)dstDepthQuad; (void)blockNum;
+    return 0;
+#endif
+}
+
+struct MNNSpacemitIme2DecodeProjDesc {
+    float* dst;
+    const int8_t* weight;
+    const float* bias;
+    const float* clamp;
+    void* context;
+    size_t dstDepthQuad;
+    size_t realCols;
+};
+
+extern "C" int MNNSpacemitIme2LinearFloatHpDecodeMultiProj(const float* src, size_t srcDepthQuad, size_t blockNum,
+                                                           const MNNSpacemitIme2DecodeProjDesc* projs,
+                                                           size_t projCount) {
+#if defined(MNN_USE_SPACEMIT_IME2)
+    constexpr size_t kMaxProjs = 8;
+    if (!MNNSpacemitIme2Enabled() || !MNNSpacemitIme2HpM1AsymPairEnabled() || src == nullptr || projs == nullptr ||
+        projCount == 0 || projCount > kMaxProjs || srcDepthQuad != 4 || blockNum == 0 || blockNum % 4 != 0 ||
+        __riscv_vlenb() != 32) {
+        return 0;
+    }
+    const size_t kBlks = blockNum / 4;
+    const size_t bStride = MNNIme2Q4HpAsymPairSuperBlockSize() * kBlks;
+    const uint8_t* packedA = MNNIme2GetOrPackDecodeA(src, kBlks, true);
+    if (packedA == nullptr) {
+        return 0;
+    }
+    std::shared_ptr<std::vector<uint8_t>> packedRefs[kMaxProjs];
+    struct ResolvedProj {
+        float* dst = nullptr;
+        const uint8_t* b = nullptr;
+        const float* bias = nullptr;
+        float cMin = 0.0f, cMax = 0.0f;
+        bool needClamp = false;
+        size_t groups = 0;
+        size_t realCols = 0;
+    };
+    struct MultiCtx {
+        const uint8_t* packedA = nullptr;
+        size_t aBytes = 0;
+        size_t kBlks = 0;
+        size_t bStride = 0;
+        size_t workers = 4;
+        size_t projCount = 0;
+        ResolvedProj projs[kMaxProjs];
+        std::atomic<bool> ok{true};
+    };
+    MultiCtx mctx;
+    mctx.packedA = packedA;
+    mctx.aBytes = kBlks * MNNIme2Q8HpBlockSize();
+    mctx.kBlks = kBlks;
+    mctx.bStride = bStride;
+    mctx.workers = 4;
+    mctx.projCount = projCount;
+    for (size_t j = 0; j < projCount; ++j) {
+        const auto& d = projs[j];
+        if (d.dst == nullptr || d.weight == nullptr || d.context == nullptr || d.dstDepthQuad == 0 ||
+            d.dstDepthQuad % 8 != 0 || d.realCols == 0 || d.realCols > d.dstDepthQuad * 4) {
+            return 0;
+        }
+        packedRefs[j] = MNNGetIme2PackedBHpAsymPairAllBlocks(d.weight, srcDepthQuad, d.dstDepthQuad, blockNum, d.context);
+        if (packedRefs[j] == nullptr) {
+            return 0;
+        }
+        auto& rp = mctx.projs[j];
+        rp.dst = d.dst;
+        rp.b = MNNIme2Block64Data(*packedRefs[j]);
+        rp.bias = d.bias;
+        rp.needClamp = d.clamp != nullptr && !MNNRvvFp32MinMaxIsFullRange(d.clamp[0], d.clamp[1]);
+        rp.cMin = rp.needClamp ? d.clamp[0] : 0.0f;
+        rp.cMax = rp.needClamp ? d.clamp[1] : 0.0f;
+        rp.groups = d.dstDepthQuad / 8;
+        rp.realCols = d.realCols;
+    }
+
+    auto task = [](size_t id, void* tcmBuffer, size_t tcmSize, void* user) {
+        auto& p = *static_cast<MultiCtx*>(user);
+        const uint8_t* aPtr = p.packedA;
+        if (tcmBuffer != nullptr && tcmSize >= p.aBytes) {
+            MNNSpacemitIme2RvvMemcpy1d(tcmBuffer, p.packedA, p.aBytes);
+            aPtr = static_cast<const uint8_t*>(tcmBuffer);
+        }
+        auto applyPost = [](float* out, const float* bias, bool needClamp, float cMin, float cMax, size_t n) {
+            if (bias == nullptr && !needClamp) {
+                return;
+            }
+            for (size_t off = 0; off < n;) {
+                const size_t vl = __riscv_vsetvl_e32m4(n - off);
+                auto v = __riscv_vle32_v_f32m4(out + off, vl);
+                if (bias != nullptr) {
+                    v = __riscv_vfadd_vv_f32m4(v, __riscv_vle32_v_f32m4(bias + off, vl), vl);
+                }
+                if (needClamp) {
+                    v = __riscv_vfmin_vf_f32m4(__riscv_vfmax_vf_f32m4(v, cMin, vl), cMax, vl);
+                }
+                __riscv_vse32_v_f32m4(out + off, v, vl);
+                off += vl;
+            }
+        };
+        size_t smallIdx = 0;
+        for (size_t j = 0; j < p.projCount; ++j) {
+            const auto& rp = p.projs[j];
+            if (rp.groups >= p.workers && rp.realCols == rp.groups * 32) {
+                const size_t base = rp.groups / p.workers;
+                const size_t rem = rp.groups % p.workers;
+                const size_t gBegin = id * base + std::min(id, rem);
+                const size_t gCnt = base + (id < rem ? 1 : 0);
+                const size_t colBase = gBegin * 32;
+                const size_t cols = gCnt * 32;
+                if (MNNSpacemitIme2GemmI8I4HpM1NativeLocal(MNNIme2::kSharedBlock64Kernel, aPtr,
+                                                           rp.b + gBegin * p.bStride, nullptr, rp.dst + colBase, 1,
+                                                           cols, p.kBlks, cols) != 1) {
+                    p.ok.store(false, std::memory_order_relaxed);
+                    return;
+                }
+                applyPost(rp.dst + colBase, rp.bias ? rp.bias + colBase : nullptr, rp.needClamp, rp.cMin, rp.cMax, cols);
+            } else {
+                const size_t owner = (smallIdx++) % p.workers;
+                if (id != owner) {
+                    continue;
+                }
+                const size_t paddedCols = rp.groups * 32;
+                if (rp.realCols == paddedCols) {
+                    if (MNNSpacemitIme2GemmI8I4HpM1NativeLocal(MNNIme2::kSharedBlock64Kernel, aPtr, rp.b, nullptr,
+                                                               rp.dst, 1, paddedCols, p.kBlks, paddedCols) != 1) {
+                        p.ok.store(false, std::memory_order_relaxed);
+                        return;
+                    }
+                    applyPost(rp.dst, rp.bias, rp.needClamp, rp.cMin, rp.cMax, paddedCols);
+                } else {
+                    alignas(64) float tmp[128];
+                    if (paddedCols > 128 ||
+                        MNNSpacemitIme2GemmI8I4HpM1NativeLocal(MNNIme2::kSharedBlock64Kernel, aPtr, rp.b, nullptr, tmp,
+                                                               1, paddedCols, p.kBlks, paddedCols) != 1) {
+                        p.ok.store(false, std::memory_order_relaxed);
+                        return;
+                    }
+                    applyPost(tmp, rp.bias, rp.needClamp, rp.cMin, rp.cMax, rp.realCols);
+                    std::memcpy(rp.dst, tmp, rp.realCols * sizeof(float));
+                }
+            }
+        }
+    };
+    const size_t ran = MNNSpacemitIme2RunDecodeTasks(mctx.workers, task, &mctx);
+    return (ran == mctx.workers && mctx.ok.load(std::memory_order_relaxed)) ? 1 : 0;
+#else
+    (void)src; (void)srcDepthQuad; (void)blockNum; (void)projs; (void)projCount;
     return 0;
 #endif
 }
@@ -4627,6 +5126,70 @@ extern "C" int MNNSpacemitIme2LinearFloatFusedGemm(int8_t* dst, const float* src
         return 0;
     }
     return 1;
+}
+
+static std::shared_ptr<std::vector<uint8_t>> MNNGetIme2PackedBQ1AllBlocks(const int8_t* weight, size_t srcDepthQuad,
+                                                                          size_t dstDepthQuad, size_t blockNum,
+                                                                          void* context = nullptr) {
+    const auto resolved = MNNIme2ResolveLinearResource(context, weight);
+    const MNNIme2BPackKey key = {srcDepthQuad, dstDepthQuad, blockNum, false, true};
+    auto local = MNNIme2FindLocalLinearCache<3, std::vector<uint8_t>>(resolved, key);
+    if (local != nullptr) {
+        return local;
+    }
+    auto value = MNNIme2GetOrCreateLinearCache<uint8_t>(
+        resolved, key, &MNNIme2LinearResource::packedBQ1AllBlocks, [=]() {
+            const size_t groupCount = dstDepthQuad / 8;
+            const size_t tileStride = blockNum * sizeof(MNNIme2::Block64Q1Weight);
+            auto packed = std::make_shared<std::vector<uint8_t>>();
+            packed->resize(groupCount * tileStride + 127);
+            auto data = MNNIme2Block64Data(*packed);
+            struct PackQ1Ctx {
+                uint8_t* data;
+                const int8_t* weight;
+                size_t srcDepthQuad;
+                size_t blockNum;
+                size_t groupCount;
+                size_t tileStride;
+                size_t workers;
+            };
+            const size_t workers = std::min<size_t>(4, groupCount);
+            PackQ1Ctx pctx = {data, weight, srcDepthQuad, blockNum, groupCount, tileStride, workers};
+            auto task = [](size_t id, void*, size_t, void* user) {
+                auto& p = *static_cast<PackQ1Ctx*>(user);
+                const size_t base = p.groupCount / p.workers;
+                const size_t rem = p.groupCount % p.workers;
+                const size_t gBegin = id * base + std::min(id, rem);
+                const size_t gEnd = gBegin + base + (id < rem ? 1 : 0);
+                for (size_t g = gBegin; g < gEnd; ++g) {
+                    MNNPackIme2B32Q1AllBlocks(p.data + g * p.tileStride, p.weight, p.srcDepthQuad, p.blockNum, g * 8);
+                }
+            };
+            if (MNNSpacemitIme2RunDecodeTasks(workers, task, &pctx) != workers) {
+                for (size_t g = 0; g < groupCount; ++g) {
+                    MNNPackIme2B32Q1AllBlocks(data + g * tileStride, weight, srcDepthQuad, blockNum, g * 8);
+                }
+            }
+            return packed;
+        });
+    MNNIme2StoreLocalLinearCache<3, std::vector<uint8_t>>(resolved, key, value);
+    return value;
+}
+
+const uint8_t* MNNIme2GetBlock64Q1Weight(void* context, const int8_t* weight, size_t depth, size_t columns) {
+    if (!depth || !columns || depth % 256 || columns % 32 || !MNNIme2ResolveLinearResource(context, weight).resource) {
+        return nullptr;
+    }
+    auto packed = MNNGetIme2PackedBQ1AllBlocks(weight, 4, columns / 4, depth / 64, context);
+    return packed ? MNNIme2Block64Data(*packed) : nullptr;
+}
+
+const uint8_t* MNNIme2GetBlock64Weight(void* context, const int8_t* weight, size_t depth, size_t columns) {
+    // The immutable resource owns the cache entry for the lifetime of all execution clones.
+    if (!depth || !columns || depth % 256 || columns % 32 || !MNNIme2ResolveLinearResource(context, weight).resource) {
+        return nullptr;
+    }
+    return MNNIme2Block64Data(*MNNGetIme2PackedBHpAsymPairAllBlocks(weight, 4, columns / 4, depth / 64, context));
 }
 
 void MNNSpacemitIme2PrepackW4Weight(void* context, const int8_t* weight, size_t srcDepthQuad, size_t dstDepthQuad,

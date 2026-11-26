@@ -11,6 +11,9 @@
 #import "backend/metal/MetalBackend.hpp"
 #import "backend/metal/MetalConvolution1x1.hpp"
 #import "backend/metal/MetalConvolutionWinograd.hpp"
+#import "backend/metal/MetalTiedBit.hpp"
+#include "backend/metal/MetalEnv.hpp"
+#include <cstring>
 #include <string>
 
 #if MNN_METAL_ENABLED
@@ -207,12 +210,16 @@ public:
             return nullptr;
         }
         if (op->type() == OpType_Convolution) {
+            if (MetalEnv::get().tiedBit && op->name() && strcmp(op->name()->c_str(), "/lm/lm_head/Linear") == 0) {
+                if (auto execution = MetalTiedBit::create(static_cast<MetalBackend*>(backend), op)) {
+                    return execution;
+                }
+            }
             auto input = inputs[0];
             if (MetalConvolutionWinograd::isValid(backend, conv, inputs[0], outputs[0])) {
                 return new MetalConvolutionWinograd(backend, op);
             }
             if (MetalConvolution1x1::isValid(conv, input)) {
-
                 return new MetalConvolution1x1(backend, op);
             }
         }

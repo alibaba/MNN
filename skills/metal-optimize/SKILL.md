@@ -120,4 +120,5 @@ description: MNN Metal 后端 op/kernel 开发与优化入口。索引各份 sub
   `general-debug/gpu-oob.md`（§6 shader 越界 / command buffer 故障）
 - `skills/opencl-optimize/`、`skills/vulkan-optimize/`、`skills/cpu/` — 其他后端
 - `skills/support-new-llm/` — 新增 LLM 模型的完整流程
+- `skills/add-new-op/` — 跨后端代码卫生规范（§注意事项：名字等于真实物理量、不加多余打印、临时 owning 指针用智能指针）
 - `skills/test-ci/` — 单测 / 回归测试

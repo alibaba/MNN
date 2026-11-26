@@ -68,7 +68,7 @@ cd apps/Android/MnnTaoAvatar
 
 * [TaoAvatar 論文](https://arxiv.org/html/2503.17032v1)
 * [模型合集](https://modelscope.cn/collections/TaoAvatar-68d8a46f2e554a)
-* [LLM 模型：Qwen2.5-1.5B MNN](https://github.com/alibaba/MNN/tree/master/3rd_party/NNR)
+* [LLM 模型：Qwen2.5-1.5B MNN](https://modelscope.cn/models/MNN/Qwen2.5-1.5B-Instruct-MNN)
 * [TTS 模型：bert-vits2-MNN](https://modelscope.cn/models/MNN/bert-vits2-MNN)
 * [聲音動作模型：UniTalker-MNN](https://modelscope.cn/models/MNN/UniTalker-MNN)
 * [神經繪製模型：TaoAvatar-NNR-MNN](https://modelscope.cn/models/MNN/TaoAvatar-NNR-MNN)

@@ -72,12 +72,19 @@ public:
             for (int i = 0; i < attrSize; ++i) {
                 auto attr       = extraParam->attr()->GetAs<Attribute>(i);
                 const auto& key = attr->key()->str();
+                if (key == "dilations" && attr->list() != nullptr && attr->list()->i() != nullptr) {
+                    for (auto dilation : *attr->list()->i()) {
+                        if (dilation != 1) {
+                            MNN_ERROR("ONNX pooling with non-unit dilations is not supported\n");
+                            return nullptr;
+                        }
+                    }
+                }
                 if (key == "kernel_shape") {
                     auto kernelSize = attr->list()->i()->size();
                     if (kernelSize == 3) {
                         is3DPooling = true;
                     }
-                    break;
                 }
             }
         }

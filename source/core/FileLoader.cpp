@@ -10,6 +10,7 @@
 #include <climits>
 #include <algorithm>
 #include <limits>
+#include <unordered_map>
 #ifdef __ANDROID__
 #include <cerrno>
 #include <unistd.h>
@@ -20,6 +21,48 @@
 namespace MNN {
 
 static constexpr char kRegionPrefix[] = "mnn-region:1:";
+static constexpr char kSourcePrefix[] = "mnn-source:1:";
+
+struct FileLoader::ReadSource {
+    struct Registry {
+        std::mutex mutex;
+        uint64_t next = 0;
+        std::unordered_map<std::string, std::weak_ptr<ReadSource>> sources;
+    };
+    std::shared_ptr<Registry> owner;
+    std::string file, locator;
+    ReadFilter filter;
+
+    static std::shared_ptr<Registry> registry() {
+        static auto value = std::make_shared<Registry>();
+        return value;
+    }
+    ~ReadSource() {
+        if (owner) {
+            std::lock_guard<std::mutex> lock(owner->mutex);
+            owner->sources.erase(locator);
+        }
+    }
+};
+
+std::shared_ptr<const std::string> FileLoader::registerFile(const std::string& file, ReadFilter filter) {
+    if (file.empty() || !filter || isFileRegion(file) ||
+        file.compare(0, sizeof(kSourcePrefix) - 1, kSourcePrefix) == 0) {
+        return nullptr;
+    }
+    auto source = std::make_shared<ReadSource>();
+    source->file = file;
+    source->filter = std::move(filter);
+    source->owner = ReadSource::registry();
+    auto& state = *source->owner;
+    std::lock_guard<std::mutex> lock(state.mutex);
+    if (state.next == UINT64_MAX) {
+        return nullptr;
+    }
+    source->locator = std::string(kSourcePrefix) + std::to_string(++state.next);
+    state.sources.emplace(source->locator, source);
+    return std::shared_ptr<const std::string>(source, &source->locator);
+}
 
 bool FileLoader::isFileRegion(const std::string& file) {
     return file.compare(0, sizeof(kRegionPrefix) - 1, kRegionPrefix) == 0;
@@ -174,6 +217,9 @@ bool FileLoader::read() {
                                  ? gCacheSize
                                  : static_cast<size_t>(std::min<int64_t>(gCacheSize, mRegionLength - mPosition));
         const size_t result = readFile(mFile, dst, count, error);
+        if (mSource && result && !mSource->filter(static_cast<uint8_t*>(dst), result, mRegionOffset + mPosition)) {
+            error = true;
+        }
         mPosition += result;
         return result;
     };
@@ -181,7 +227,7 @@ bool FileLoader::read() {
     mTotalSize = size;
     mBlocks.push_back(std::make_pair(size, block));
 
-    while (size == gCacheSize && (mRegionLength < 0 || mPosition < mRegionLength)) {
+    while (!error && size == gCacheSize && (mRegionLength < 0 || mPosition < mRegionLength)) {
         block = MNNMemoryAllocAlign(gCacheSize, MNN_MEMORY_ALIGN_DEFAULT);
         if (nullptr == block) {
             MNN_PRINT("Memory Alloc Failed\n");
@@ -260,6 +306,15 @@ void FileLoader::_init() {
             return;
         }
     }
+    if (strncmp(file, kSourcePrefix, sizeof(kSourcePrefix) - 1) == 0) {
+        const auto state = ReadSource::registry();
+        std::lock_guard<std::mutex> lock(state->mutex);
+        const auto it = state->sources.find(file);
+        if (it == state->sources.end() || !(mSource = it->second.lock())) {
+            return;
+        }
+        file = mSource->file.c_str();
+    }
     if (*file != '\0') {
         mFile = _OpenFile(file, true);
     }
@@ -298,6 +353,9 @@ bool FileLoader::read(char* buffer, int64_t size) {
     }
     bool error = false;
     const size_t count = readFile(mFile, buffer, static_cast<size_t>(size), error);
+    if (mSource && count && !mSource->filter(reinterpret_cast<uint8_t*>(buffer), count, mRegionOffset + mPosition)) {
+        error = true;
+    }
     mPosition += count;
     return !error && count == static_cast<uint64_t>(size);
 }

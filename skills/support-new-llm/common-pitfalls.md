@@ -4,6 +4,20 @@
 
 ---
 
+## Codec 与外置权重的数值回归
+
+- 对离散音频码的基数拆分、取整和取模使用整数运算。浮点除法可能被转换器改写为倒数乘法；FP16 倒数在整数边界处会改变码值。用覆盖完整码本的输入核对拆分结果，再比较相同 codes 的原始波形，不能只靠 ASR 回转结果判断 codec 正确。
+- 导出器重写 `.weight` 前，除了 FakeLinear，还要保留图中普通卷积、常量和归一化的外置参数；Const 必须按 `dataType` 还原对应存储字段，不能统一按 FP32 读取。首层卷积全零时先核对重写前后的权重内容。
+- `--fp16 --saveExternalData` 需要同时支持 HALF 常量外置与运行时加载；检查 `.mnn` 本体大小和实际 Const 存储，不能只检查 `.weight` 是否存在。
+
+---
+
+## 自定义生成循环的接口一致性
+
+新增语音或混合生成循环时，除内容对拍外，还要验证零预算、达到上限、EOS、取消、超时和第二轮调用。核对输出 token、生成计数、KV 长度和 `end_with`；`all_logits` 或补齐 prefill 时按有效位置选择 logits 与 hidden state。生成历史包含非文本 embedding 时，不可直接复用只保存文本的 prompt cache。
+
+---
+
 ## 1. RoPE 旋转方式（half-half vs interleaved）
 
 ### 问题描述
@@ -22,6 +36,8 @@
 ### 解决方案
 
 在 `model_mapper.py` 的映射中或 `transformers.py` 的 Rotary 实现中，确保使用正确的旋转方式。MNN 的 `Rotary` 类需要根据模型选择对应的实现。
+
+部分 RoPE 还需核对频率分母和配对跨度：有些模型保留完整 head 的 half-half 配对，只把尾部频率置零，并非截取前 `rotary_dim` 个通道旋转。两种实现的 cos/sin 长度、旋转配对都不同，应直接对照原模型的 `inv_freq` 和 Q/K 输出。
 
 ---
 
@@ -42,16 +58,16 @@
 
 ### 问题描述
 
-HuggingFace 模型的 chat template 可能使用了 MNN minja parser 不支持的高级 Jinja 特性，导致 C++ 推理时出现 `stof` 异常或死循环。
+HuggingFace 模型的 chat template 可能使用 MNN Jinja parser 尚未支持的表达式，既可能报错，也可能静默丢失 system/user 内容。
 
 ### 排查方法
 
-1. 检查模型 `tokenizer_config.json` 中的 `chat_template` 字段
-2. 查看是否包含复杂的条件逻辑、过滤器或自定义函数
+1. 检查 `tokenizer_config.json` 或独立 `chat_template.jinja`，用 `apply_template` 与 HF 对拍单轮、多轮及思考开关。
+2. 对首个缺失字段提取最小表达式，检查方法调用、过滤器和宏；字典 `.get()` 等基础功能应优先修复解释器。
 
 ### 解决方案
 
-在 `llmexport.py` 中为该模型覆盖一个简化的 Jinja 模板，仅保留基本的 role/content 拼接逻辑。
+若确实无法支持复杂模板，再在导出侧覆盖简化版本，并验证保留的消息协议与原模板一致。只看到生成文本合理不足以证明模板正确，必须核对实际输入 token ids。
 
 ---
 

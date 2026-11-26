@@ -93,4 +93,122 @@ public:
     }
 };
 MNNTestSuiteRegister(BufferAllocatorTest, "core/buffer_allocator");
+
+class BoundedBufferAllocatorTest : public MNNTestCase {
+public:
+    bool run(int precision) override {
+        {
+            // The default must not reclaim on miss: an mmap parent can hand a live
+            // block's file to the next alloc.
+            EagerBufferAllocator allocator(BufferAllocator::Allocator::createDefault());
+            auto original = allocator.alloc(256);
+            if (original.first == nullptr || !allocator.free(original)) {
+                return false;
+            }
+            auto larger = allocator.alloc(512);
+            if (larger.first == nullptr || allocator.totalSize() != 768 || !allocator.free(larger)) {
+                return false;
+            }
+        }
+        for (bool separate : {false, true}) {
+            EagerBufferAllocator parent(BufferAllocator::Allocator::createDefault(), 64);
+            EagerBufferAllocator planner(BufferAllocator::Allocator::createRecurse(&parent), 64, 0, false);
+            auto first = planner.alloc(256, separate);
+            if (first.first == nullptr || !planner.free(first)) {
+                return false;
+            }
+            auto later = planner.alloc(512, separate);
+            if (later.first == nullptr || !planner.free(later)) {
+                return false;
+            }
+            auto unrelated = parent.alloc(1024);
+            if (unrelated.first == nullptr || planner.totalSize() != 768 || parent.totalSize() != 1792) {
+                return false;
+            }
+            ::memset(first.ptr(), 37, 256);
+            ::memset(later.ptr(), 73, 512);
+            if (first.ptr()[0] != 37 || later.ptr()[0] != 73) {
+                return false;
+            }
+            parent.free(unrelated);
+            planner.release();
+            parent.release(false);
+            if (parent.totalSize() != 0) {
+                return false;
+            }
+        }
+        for (bool bounded : {false, true}) {
+            EagerBufferAllocator allocator(BufferAllocator::Allocator::createDefault(), 64, 0, bounded);
+            auto original = allocator.alloc(256);
+            if (original.first == nullptr || !allocator.free(original)) {
+                return false;
+            }
+            auto reused = allocator.alloc(128);
+            if (reused.first != original.first || allocator.totalSize() != 256) {
+                return false;
+            }
+            auto reusedPointer = static_cast<uint8_t*>(reused.first) + reused.second;
+            ::memset(reusedPointer, 37, 128);
+            auto larger = allocator.alloc(512);
+            if (larger.first == nullptr || allocator.totalSize() != 768 || reusedPointer[0] != 37) {
+                return false;
+            }
+            if (!allocator.free(reused) || !allocator.free(larger)) {
+                return false;
+            }
+            auto largest = allocator.alloc(1024);
+            const size_t expectedSize = bounded ? 1024 : 1792;
+            if (largest.first == nullptr || allocator.totalSize() != expectedSize || !allocator.free(largest)) {
+                return false;
+            }
+            allocator.barrierBegin();
+            allocator.beginGroup();
+            auto grouped = allocator.alloc(2048);
+            if (grouped.first == nullptr || !allocator.free(grouped)) {
+                return false;
+            }
+            allocator.endGroup();
+            allocator.barrierEnd();
+            allocator.release(false);
+            if (allocator.totalSize() != 0) {
+                return false;
+            }
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(BoundedBufferAllocatorTest, "core/buffer_allocator_bounded");
+
+class MmapBufferAllocatorTest : public MNNTestCase {
+public:
+    bool run(int precision) override {
+        for (bool releaseOnMiss : {false, true}) {
+            auto mmap = BufferAllocator::Allocator::createMmap(".mmap_alloc_test", "t", "static", true);
+            EagerBufferAllocator allocator(mmap, 32, 0, releaseOnMiss);
+            auto first = allocator.alloc(4096);
+            auto second = allocator.alloc(4096);
+            if (first.first == nullptr || second.first == nullptr) {
+                return false;
+            }
+            ::memset(first.ptr(), 37, 4096);
+            if (!allocator.free(second)) {
+                return false;
+            }
+            auto third = allocator.alloc(8192);
+            if (third.first == nullptr) {
+                return false;
+            }
+            ::memset(third.ptr(), 73, 8192);
+            // A released block's file must never back a new live block.
+            if (first.ptr()[0] != 37 || third.ptr()[0] != 73) {
+                return false;
+            }
+            if (!allocator.free(first) || !allocator.free(third)) {
+                return false;
+            }
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(MmapBufferAllocatorTest, "core/buffer_allocator_mmap");
 #endif

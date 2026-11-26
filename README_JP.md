@@ -12,7 +12,7 @@
 
 - [2026/11/04] **MNN-Pocket-0.3B** をリリースしました。中国語・英語の指示に対応する **3 億パラメータのモバイルアプリネイティブ言語モデル**です。MNN チームがスマートフォンアプリのタスク要件とリソース予算を踏まえ、モデル構造・学習手法・推論エンジンを協調設計しました。**32K コンテキスト**に対応し、INT4（W4A16）QAT MNN 版のサイズはわずか **173 MB**。iPhone 18 Pro での実測デコード速度は **350 tok/s** です。**Apache 2.0** ライセンスで公開しています。
 
-  [ModelScope](https://modelscope.cn/collections/MNN/MNN-Pocket-03B) | [Hugging Face](https://huggingface.co/collections/taobao-mnn/mnn-pocket-03b) | [Technical report](https://modelscope.cn/models/MNN/MNN-Pocket-0.3B/resolve/master/MNN-Pocket-0.3B-Technical-Report.pdf)
+  [ModelScope](https://modelscope.cn/collections/MNN/MNN-Pocket-03B) | [Hugging Face](https://huggingface.co/collections/taobao-mnn/mnn-pocket-03b) | [Technical report](https://arxiv.org/pdf/2611.12311)
 
 <details>
 <summary> 過去のニュース </summary>

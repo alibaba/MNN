@@ -10,8 +10,25 @@
 #include "backend/cpu/CPURandomUniform.hpp"
 #include "core/Macro.h"
 #include "backend/cpu/CPUBackend.hpp"
+#include "MNN_generated.h"
 
 namespace MNN {
+CPURandomUniform::CPURandomUniform(Backend *b, const MNN::Op *op) : MNN::Execution(b) {
+    auto param = op->main_as_RandomUniform();
+    mLow = param->low();
+    mHigh = param->high();
+    mSeed = param->seed();
+    mSeed2 = param->seed2();
+}
+
+CPURandomNormal::CPURandomNormal(Backend *b, const MNN::Op *op) : MNN::Execution(b) {
+    auto param = op->main_as_RandomUniform();
+    mLow = param->low();
+    mHigh = param->high();
+    mSeed = param->seed();
+    mSeed2 = param->seed2();
+}
+
 ErrorCode CPURandomUniform::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     return NO_ERROR;
 }
@@ -23,17 +40,16 @@ ErrorCode CPURandomUniform::onExecute(const std::vector<Tensor*>& inputs, const 
     if (size <= 0) {
         return NO_ERROR;
     }
-    auto parameter = mOp->main_as_RandomUniform();
-    float low = parameter->low();
-    float high = parameter->high();
+    float low = mLow;
+    float high = mHigh;
     if (low >= high) {
         MNN_ERROR("RandomUniform requires low < high, got low=%f, high=%f\n", low, high);
         return INPUT_DATA_ERROR;
     }
     auto dtype = output->getType();
     std::uniform_real_distribution<float> distribution(low, high);
-    int seed = parameter->seed();
-    int seed1 = parameter->seed2();
+    int seed = mSeed;
+    int seed1 = mSeed2;
     if (dtype.code == halide_type_float) {
         auto outputPtr = output->host<float>();
         if (seed || seed1) {
@@ -99,12 +115,11 @@ ErrorCode CPURandomNormal::onExecute(const std::vector<Tensor*>& inputs, const s
     MNN_ASSERT(outputs.size() == 1);
     auto output = outputs[0];
     int size = output->elementSize();
-    auto parameter = mOp->main_as_RandomUniform();
     auto outputPtr = output->host<float>();
     // RandomUniform and RandomNormal use same param table. low -> mean, high -> scale
-    std::normal_distribution<float> distribution(parameter->low(),parameter->high());
-    int seed = parameter->seed();
-    int seed1 = parameter->seed2();
+    std::normal_distribution<float> distribution(mLow, mHigh);
+    int seed = mSeed;
+    int seed1 = mSeed2;
     if (seed || seed1) {
         std::mt19937 generator(seed || seed1);
         for (int i = 0; i < size; i++) {

@@ -1,11 +1,13 @@
 import os
 import sys
+import subprocess
 import copy
 import json
 import torch
 import numpy as np
 
 from .torch_utils import quant as torch_quant
+from .package_writer import register_file_region
 from tqdm import tqdm
 from .spinner import spinner_run
 from .gptq import GPTQ
@@ -46,7 +48,8 @@ class MNNConverter:
 
     def convert(self, convert_args):
         import contextlib
-        log_fp = open(EXPORT_LOG, "a")
+        log_path = os.path.join(self.args.work_path, EXPORT_LOG) if getattr(self.args, 'dst_file', None) else EXPORT_LOG
+        log_fp = open(log_path, "a")
         sfd = None
         try:
             sfd = os.dup(1)
@@ -58,24 +61,32 @@ class MNNConverter:
                 os.close(sfd)
                 sfd = None
 
+        success = False
         try:
             with contextlib.redirect_stdout(log_fp):
-                sys.argv = convert_args
-                sys.argc = len(convert_args)
                 if self.mnnconvert is None:
                     from MNN.tools import mnnconvert
-                    mnnconvert.main()
+                    previous_argv = sys.argv
+                    try:
+                        sys.argv = convert_args
+                        mnnconvert.main()
+                    finally:
+                        sys.argv = previous_argv
                 else:
-                    convert_args[0] = self.mnnconvert
-                    cmd = ' '.join(convert_args)
-                    message = os.popen(cmd).read()
-                    print(message)
-                sys.argv = []
+                    subprocess.run([self.mnnconvert, *convert_args[1:]], stdout=log_fp, check=True)
+            success = True
         finally:
             if sfd is not None:
                 os.dup2(sfd, 1)
                 os.close(sfd)
             log_fp.close()
+            if not success and getattr(self.args, 'dst_file', None):
+                try:
+                    with open(log_path, encoding='utf-8', errors='replace') as log:
+                        for line in log:
+                            sys.stderr.write(line)
+                except (OSError, ValueError):
+                    pass
 
     @spinner_run(f'convert onnx model to ')
     def onnx2mnn(self, onnx_path, mnn_path, args = [], transformer_fuse = True, group_conv_native = False, weight_sym = False, save_external_data = True):
@@ -173,7 +184,7 @@ class MNNConverter:
                 quant_args = []
             self.onnx2mnn(self.onnx_model_path, self.mnn_model_path, quant_args, transformer_fuse=transformer_fuse, group_conv_native=group_conv_native, weight_sym=weight_sym)
         else:
-            mnn_json = f'{self.mnn_model_path}.json'
+            mnn_json = os.path.join(getattr(self.args, 'work_path', self.args.dst_path), self.mnn_name + '.json')
             self.onnx2mnn(self.onnx_model_path, self.mnn_model_path, transformer_fuse=transformer_fuse, group_conv_native=group_conv_native, weight_sym=weight_sym)
             self.mnn2json(self.mnn_model_path, mnn_json)
             self.rebuild(mnn_json)
@@ -185,18 +196,22 @@ class MNNConverter:
             self.mnn2json(self.mnn_model_path, mnn_json)
             if self.args.gptq_path is not None:
                 self.apply_gptq(mnn_json)
-            if self.args.lora_path is not None and self.args.lora_split:
-                 self.export_lora(mnn_json)
             if self.args.omni:
                 self.export_omni_quant(mnn_json)
             if self.args.smooth:
                 self.export_smooth_quant(mnn_json)
         if getattr(self.exporter, 'qat_loader', None) is not None:
-            mnn_json = f'{self.mnn_model_path}.json'
+            mnn_json = os.path.join(getattr(self.args, 'work_path', self.args.dst_path), self.mnn_name + '.json')
             if self.weight_ops is None:
                 self.mnn2json(self.mnn_model_path, mnn_json)
             self.apply_qat(mnn_json)
             self.json2mnn(mnn_json, self.mnn_model_path)
+        if os.path.isfile(self.mnn_weight_path):
+            register_file_region(self.args, self.mnn_weight_path)
+        if self.args.lora_path is not None and self.args.lora_split and self.mnn_name == 'llm.mnn':
+            mnn_json = os.path.join(getattr(self.args, 'work_path', self.args.dst_path), self.mnn_name + '.json')
+            self.mnn2json(self.mnn_model_path, mnn_json)
+            self.export_lora(mnn_json)
         return self.tie_embeddings_info
 
     @spinner_run(f'apply gptq to ')
@@ -211,7 +226,7 @@ class MNNConverter:
 
     @spinner_run(f'export split lora to ')
     def export_lora(self, mnn_json):
-        lora_model = os.path.join(self.args.dst_path, 'lora.mnn')
+        lora_model = os.path.join(getattr(self.args, 'work_path', self.args.dst_path), 'lora.mnn')
         lora_json = f'{lora_model}.json'
         LoRA(self.args.lora_path).apply(mnn_json, lora_json)
         self.json2mnn(lora_json, lora_model)
@@ -235,11 +250,21 @@ class MNNConverter:
     def rebuild(self, json_path):
         mnn_graph = json.load(open(json_path, 'rt'))
         new_ops = []
+        blob_storage = {
+            'DT_FLOAT': ('float32s', np.float32),
+            'DT_HALF': ('uint8s', np.uint8),
+            'DT_BFLOAT16': ('uint8s', np.uint8),
+            'DT_INT32': ('int32s', np.int32),
+            'DT_INT8': ('int8s', np.int8),
+            'DT_UINT8': ('uint8s', np.uint8),
+        }
         # Load layernorm weight from external
         with open(self.mnn_weight_path, 'rb') as f:
             for op in tqdm(mnn_graph['oplists'], 'Load LayerNorm data'):
                 if op['type'] == 'LayerNorm' and 'external' in op['main']:
                     external = op['main']['external']
+                    if len(external) != 3 or external[1] != external[2]:
+                        raise ValueError(f"Invalid external LayerNorm gamma/beta sizes: {op['name']}")
                     f.seek(external[0])
                     op['main']['gamma'] = np.frombuffer(f.read(external[1]), np.float32).tolist()
                     op['main']['beta'] = np.frombuffer(f.read(external[2]), np.float32).tolist()
@@ -247,7 +272,18 @@ class MNNConverter:
                 if op['type'] == 'Const' and 'external' in op['main']:
                     external = op['main']['external']
                     f.seek(external[0])
-                    op['main']['float32s'] = np.frombuffer(f.read(external[1]), np.float32).tolist()
+                    field, dtype = blob_storage[op['main'].get('dataType', 'DT_FLOAT')]
+                    op['main'][field] = np.frombuffer(f.read(external[1]), dtype).tolist()
+                    del op['main']['external']
+                if op['type'] in ('Convolution', 'ConvolutionDepthwise', 'Deconvolution') and 'external' in op['main']:
+                    # Ordinary convolutions can coexist with FakeLinear and must survive the weight-file rewrite.
+                    external = op['main']['external']
+                    if op['main'].get('quanParameter'):
+                        raise ValueError(f"Unexpected pre-quantized convolution during rebuild: {op['name']}")
+                    f.seek(external[0])
+                    op['main']['weight'] = np.frombuffer(f.read(external[1]), np.float32).tolist()
+                    bias_size = external[2] if len(external) > 2 else 0
+                    op['main']['bias'] = np.frombuffer(f.read(bias_size), np.float32).tolist()
                     del op['main']['external']
         # Rebuild ops
         with open(self.mnn_weight_path, 'wb') as self.mnn_weight:

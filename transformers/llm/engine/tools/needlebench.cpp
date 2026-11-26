@@ -700,6 +700,10 @@ int main(int argc, const char** argv) {
     if (!compressOnly) {
         const auto loadStart = std::chrono::steady_clock::now();
         llm.reset(Llm::createLLM(modelPath));
+        if (!llm) {
+            std::cerr << "Cannot open LLM model: " << modelPath << std::endl;
+            return 1;
+        }
         if (!llm->set_config("{\"sampler_type\":\"greedy\",\"temperature\":0,\"presence_penalty\":0,"
                              "\"repetition_penalty\":1,\"reuse_kv\":false,\"prompt_cache\":false,"
                              "\"token_compress\":0,\"kvcache_mmap\":false,\"async\":false}")) {
@@ -774,7 +778,8 @@ int main(int argc, const char** argv) {
         if (autoCompress) {
             prompt = prefix + context + suffix;
             runtimeTokens =
-                TokenCompression::encodePrompt(tokenizer.get(), render(prompt), static_cast<int>(options.maxTokens));
+                TokenCompression::encodePrompt(tokenizer.get(), render(prompt), static_cast<int>(options.maxTokens),
+                                               tokenizer->chat_template().empty());
             ok = !runtimeTokens.empty() && runtimeTokens.size() <= options.maxTokens;
             inputTokens = runtimeTokens.size();
             compressed.tokens = runtimeTokens;
@@ -863,7 +868,8 @@ int main(int argc, const char** argv) {
             llm->reset();
             start = std::chrono::steady_clock::now();
             std::ostringstream stream;
-            auto tokens = llm->tokenizer_encode(llm->apply_chat_template(ChatMessages{{"user", prompt}}));
+            auto tokens = llm->tokenizer_encode(llm->apply_chat_template(ChatMessages{{"user", prompt}}),
+                                                !llm->has_chat_template());
             valid = !tokens.empty() && tokens.size() == inputTokens && tokens.size() <= options.maxTokens &&
                     (!autoCompress || tokens == runtimeTokens);
             result["runtime_prompt_tokens"] = static_cast<int64_t>(tokens.size());

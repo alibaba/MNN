@@ -168,12 +168,15 @@ public:
     bool load() override;
     std::vector<Express::VARP> forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos,
                                           Express::VARPS extraArgs = {}) override;
-    std::vector<int> tokenizer_encode(const std::string& query) override;
-    std::vector<int> tokenizer_encode(const MultimodalPrompt& multimodal_input) override;
+    std::vector<int> tokenizer_encode(const std::string& query, bool add_special_tokens = true) override;
+    std::vector<int> tokenizer_encode(const MultimodalPrompt& multimodal_input,
+                                      bool add_special_tokens = true) override;
     Express::VARP embedding(const std::vector<int>& input_ids) override;
     Express::VARP gen_attention_mask(int seq_len) override;
     Express::VARP gen_position_ids(int seq_len) override;
     bool prepareHistoryReplay(const std::vector<int>& input_ids) override;
+    bool preparePromptCache(const std::string& prompt) override;
+    void syncPromptCache(const ChatMessages& chat_prompts) override;
     void response(const std::vector<int>& input_ids, std::ostream* os = &std::cout, const char* end_with = nullptr,
                   int max_new_tokens = -1) override;
     void setWavformCallback(std::function<bool(const float*, size_t, bool)> callback) override;
@@ -187,6 +190,7 @@ public:
 private:
     struct VisionProcessor;
     struct AudioProcessor;
+    class Lfm3Speech;
     bool initProcessorRuntime();
     VARPS runEncoder(Module* module, const VARPS& inputs, const ujson::json& processor, bool preserve = false);
     std::vector<int> processMediaFile(const std::string& mode, std::string info);
@@ -195,6 +199,7 @@ private:
     void addPositionIds(int count);
     void responseInterleaved(const std::vector<int>& input_ids, std::ostream* os, const char* end_with,
                              int max_new_tokens);
+    bool responseLfm3(const std::vector<int>& input_ids, std::ostream* os, int max_new_tokens);
 
     void setImageSize(int height, int width);
     std::vector<int> visionProcess(const std::string& file);
@@ -222,6 +227,7 @@ private:
     std::vector<VARP> mExtraArgs, mVisionEmbeddings, mAudioEmbeddings, mDeepStackEmbeddings;
     MropeInfo mPositionIds;
     std::shared_ptr<Talker> mTalker;
+    std::unique_ptr<Lfm3Speech> mLfm3Speech;
     int64_t mThinkerElapsedUs = 0;
     bool mIsEmbedding = false;
 };
