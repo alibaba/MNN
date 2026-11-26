@@ -145,19 +145,21 @@ static void createLibrary(id<MTLDevice> device, NSMutableDictionary<NSString *, 
 - (id<MTLComputePipelineState>)pipelineWithSourceOption:(NSString *)source name:(NSString *)name options:(MTLCompileOptions *)options {
     NSError *err = nil;
     auto library = [_device newLibraryWithSource:source options:options error:&err];
-    if (err) {
-        NSLog(@"Warning: pipelineWithSource error: %@, source is: %@", err, source);
-    }
     if (nil == library) {
+        NSLog(@"Metal library compilation failed: kernel=%@ language=%lu macros=%@ error=%@",
+              name, (unsigned long)options.languageVersion, options.preprocessorMacros, err);
         return nil;
     }
     id<MTLFunction> function = [library newFunctionWithName:name];
     if (nil == function) {
-        NSLog(@"Warning: Create function failed: %@", name);
+        NSLog(@"Metal function lookup failed: kernel=%@", name);
         return nil;
     }
     err = nil;
     id<MTLComputePipelineState> result = [_device newComputePipelineStateWithFunction:function error:&err];
+    if (nil == result) {
+        NSLog(@"Metal pipeline creation failed: kernel=%@ device=%@ error=%@", name, _device.name, err);
+    }
     return result;
 }
 

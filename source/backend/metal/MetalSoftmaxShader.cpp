@@ -163,12 +163,16 @@ struct softmax_shape {
     // since one shared buffer serves every piece in a command buffer.
     int q_piece_len;
     int causal_base;
+    int head_count;
 };
 #define SIMD_GROUP_WIDTH 32
 
 kernel void softmax_plane(const device ftype *in [[buffer(0)]],
                           device ftype *out [[buffer(1)]],
                           constant softmax_shape& s [[buffer(2)]],
+#ifdef ATTENTION_SINKS
+                          const device ftype *sinks [[buffer(4)]],
+#endif
 #ifdef CAUSAL_BOUND
                           constant int& seq_idx [[buffer(3)]],
 #endif
@@ -195,10 +199,17 @@ kernel void softmax_plane(const device ftype *in [[buffer(0)]],
     int pad_end = s.axis_align_length;
 #endif
     float max1 = -FLT_MAX;
+#ifdef ATTENTION_SINKS
+    const float sink = float(sinks[(int(gid.y) / s.q_piece_len) % s.head_count]);
+    max1 = sink;
+#endif
     for (int i = 0; i < valid_len; i++) {
         max1 = max(max1, float(axis_in[i * s.inside_size]));
     }
     float sum1 = 0;
+#ifdef ATTENTION_SINKS
+    sum1 = exp(sink - max1);
+#endif
     for (int i = 0; i < valid_len; i++) {
         sum1 += exp(float(axis_in[i * s.inside_size]) - float(max1));
     }
@@ -210,6 +221,9 @@ kernel void softmax_plane(const device ftype *in [[buffer(0)]],
 kernel void softmax_plane_sg(const device ftype *in     [[buffer(0)]],
                         device ftype *out          [[buffer(1)]],
                         constant softmax_shape& s   [[buffer(2)]],
+#ifdef ATTENTION_SINKS
+                        const device ftype *sinks [[buffer(4)]],
+#endif
 #ifdef CAUSAL_BOUND
                         constant int& seq_idx       [[buffer(3)]],
 #endif
@@ -234,6 +248,10 @@ kernel void softmax_plane_sg(const device ftype *in     [[buffer(0)]],
     int pad_end = s.axis_align_length;
 #endif
     float max1 = -FLT_MAX;
+#ifdef ATTENTION_SINKS
+    const float sink = float(sinks[(int(gid.y) / s.q_piece_len) % s.head_count]);
+    max1 = sink;
+#endif
     for (int i = tiisg; i < valid_len; i+=SIMD_GROUP_WIDTH) {
         max1 = max(max1, float(axis_in[i * s.inside_size]));
     }
@@ -243,6 +261,9 @@ kernel void softmax_plane_sg(const device ftype *in     [[buffer(0)]],
         sum1 += exp(float(axis_in[i * s.inside_size]) - float(max1));
     }
     sum1 = simd_sum(sum1);
+#ifdef ATTENTION_SINKS
+    sum1 += exp(sink - max1);
+#endif
     for (int i = tiisg; i < pad_end; i+=SIMD_GROUP_WIDTH) {
         axis_out[i * s.inside_size] = i >= valid_len ? ftype(0.0) : ftype(exp(float(axis_in[i * s.inside_size]) - float(max1)) / sum1);
     }

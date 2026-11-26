@@ -14,7 +14,7 @@
 - 短 prompt 不明显、长 prompt 越来越错（尤其超过 SWA window size 后）；
 - 输出前 N 个 token byte-identical，后续开始发散。
 
-> **2026-07-31 更新**：Metal 的 causal 假设已改为**数据驱动**（`mCausalLayout`，见 `MetalAttention.mm` `_computePathFlags`）——真实 mask 张量（`mHasMask=true`）自动关掉 causal-tri/bound/FA-v1/faTc 并逐元素 honor mask，标量哨兵/无 mask + kvcache 才走 causal 优化。CPU/hexagon 早已如此。**因此 Metal 上的非 causal 模型不再需要手动设 env**（`MNN_METAL_QK_CAUSAL_TRI` 已删除）。本册的 Metal 部分主要作为历史方法论保留；若仍遇非 causal 乱码，先确认 `gen_attention_mask` 是否给该模型正确产出了**真实 mask 张量**（而非误走标量分支），根因多在导出/mask 生成侧而非 kernel。
+> **2026-07-31 更新**：Metal 的 causal 假设已改为**数据驱动**（`AttnFacts::causal`，见 `MetalAttention.mm` `_collectFacts`）——真实 mask 张量（`mHasTensorMask=true`）自动关掉 causal-tri/bound 与两条融合 prefill 并逐元素 honor mask，标量哨兵/无 mask + kvcache 才走 causal 优化。CPU/hexagon 早已如此。**因此 Metal 上的非 causal 模型不再需要手动设 env**（`MNN_METAL_QK_CAUSAL_TRI` 已删除）。本册的 Metal 部分主要作为历史方法论保留；若仍遇非 causal 乱码，先确认 `gen_attention_mask` 是否给该模型正确产出了**真实 mask 张量**（而非误走标量分支），根因多在导出/mask 生成侧而非 kernel。
 
 ## 7.1 核心心法
 
@@ -32,12 +32,12 @@
 
 | Kernel / 路径 | 隐式假设 | 违反后现象 | 相关开关 |
 |---|---|---|---|
-| `prefill_qk[_tensor]` CAUSAL_TRI 分支 + host 侧梯形 dispatch | mask 是 causal lower-triangular（下三角内 mask=0/pass，上三角内 mask=-inf/0） | 上三角"应参与"的位置被 host 侧完全跳过 dispatch，QK 值为脏值/未初始化 → softmax 归约错误 | 无开关（`mCausalLayout` 数据驱动，见 Step 6） |
+| `prefill_qk[_tensor]` CAUSAL_TRI 分支 + host 侧梯形 dispatch | mask 是 causal lower-triangular（下三角内 mask=0/pass，上三角内 mask=-inf/0） | 上三角"应参与"的位置被 host 侧完全跳过 dispatch，QK 值为脏值/未初始化 → softmax 归约错误 | 无开关（`AttnFacts::causal` 数据驱动，见 Step 6） |
 | `prefill_qk` simdgroup-matrix 整 tile causal skip（`!CAUSAL_TRI` 分支） | 门控曾写成 `DEFAULT_MASK \|\| ADD_MASK \|\| SET_MASK`，即"有 mask 输入就假定 causal" | 非 causal 张量 mask（ViT 全可见 mask）被静默改成 causal：q 的前 16 行 tile 看不到后面的 key | 已修：收窄为仅 `DEFAULT_MASK` |
 | `attention_mask_offset` 的 `mask_q_len`（`MetalAttention.mm::_writeQKVParam`） | 曾从固定下标取 q 长度，即假定张量 mask 一定是 rank-4 `[b,h,q,k]` | rank-3 `[b,q,k]` 拿到 `mask_q_len=1` ⇒ 所有 q 行都读 mask 第 0 行；全零 mask 无害，逐行变化的 mask 静默错 | 已修：改取 mask 末两维 |
 | softmax `softmax_plane[_sg]` CAUSAL_BOUND 分支 | 每行 q 只归约 `[0, causal_base + q_local)` valid prefix，之后 zero-pad 32-align | 若实际语义中 `k > q + kv_off` 处仍应 valid，其归约值为 0 → attention 分布偏移 | 同上 |
 | `prefill_qkv[_tensor]` `av_k_upper` 早退 | AV K 循环截断到 tile 内最大 valid q 对应的 causal 上界 | k 超出 av_k_upper 位置的 P·V 贡献被忽略 | 同上 |
-| Fused `prefill_flash_attn`（MetalFlashAttnShader.hpp） | `in_bounds = (kv_col_abs <= q_abs + kv_valid_offset)` 硬编码 causal | 非 causal 位置直接被 `-INFINITY` mask 掉 | 无开关（FA 由 config `attention_mode/8` 启用）—— **FA 本身就有此假设** |
+| Fused prefill `prefill_flash_attn_tc` / `prefill_flash_attn_sg`（MetalFlashAttnShader.hpp） | 整 tile causal early-exit + 对角线 `in_bounds` 判定，硬编码 causal | 非 causal 位置直接被 `-INFINITY` mask 掉 | 无开关：路由的 `fusedPrefillOk` 要求 `causal`（由 mask 形状数据驱动），非 causal 形态选不到这两条。（legacy `prefill_flash_attn` 已删除，它曾由 config `attention_mode/8` 启用） |
 | `decode_qk_softmax` fused decode kernel | KVCache 场景 decode = 单 token, 自回归 = causal | decode 不用因果判定（seq_q=1 天然 causal），此假设通常自然成立 | — |
 | **通用**：Attention op / RoPE / KVCache 路径 | tensor NC4HW4 layout（c 维按 4 打包）；某些模型的 export 层未适配 | 换 layout 导出后 kernel 按 NC4HW4 stride 读到错误位置 → 乱码 | Attention_C4 宏（编译期） |
 
@@ -100,7 +100,7 @@ source/backend/metal/MetalAttention.mm:531:  FA also hard-codes causal masking v
 
 ### Step 6: 加固方向（若确认此类）
 
-- **Metal：已实现（2026-07-31）** —— `MetalAttention.mm` `_computePathFlags` 从 `inputs[3]` 形状派生 `mCausalLayout`（真实张量 mask ⇒ 非 causal ⇒ 逐元素 honor、关全部 causal 优化；标量/无 mask + kvcache ⇒ causal）。配套 `llm.cpp` 对 metal 后端也发标量哨兵 causal mask（同 cpu/hexagon）。`MNN_METAL_QK_CAUSAL_TRI` 已删除
+- **Metal：已实现（2026-07-31）** —— `MetalAttention.mm` `_collectFacts` 从 `inputs[3]` 形状派生 causal 判定（真实张量 mask ⇒ 非 causal ⇒ 逐元素 honor、关全部 causal 优化；标量/无 mask + kvcache ⇒ causal）。配套 `llm.cpp` 对 metal 后端也发标量哨兵 causal mask（同 cpu/hexagon）。`MNN_METAL_QK_CAUSAL_TRI` 已删除
 - **其他后端 / 通用长期方向**：runtime 首次 attention encode 时抽样验证 mask 是否 lower-triangular 并缓存（工作量最大但通用）；或导出侧 `llm_config.json` 落 `attention_type` 字段权威标注
 
 ## 7.4 常见对照表：症状 → 优先怀疑
@@ -238,7 +238,7 @@ FA 本身仍错 → 需要架构层加固。
 |------|------|
 | `source/backend/metal/MetalAttentionShader.hpp` | CAUSAL_TRI / CAUSAL_BOUND 的假设注释位置（`grep Assumption`）；prefill_qk/prefill_qk_tensor/prefill_qkv 三个 kernel 的实现 |
 | `source/backend/metal/MetalFlashAttnShader.hpp` | FA kernel（同样 hard-code causal） |
-| `source/backend/metal/MetalAttention.mm` | mQkCausalTri / mCausalBound / mFlashAttnPrefill 的 gate 条件；FA 的 causal-only comment (`:531`) |
+| `source/backend/metal/MetalAttention.mm` | `_resolvePlan()` 里 `causalTri` / `causalBound` / `fusedPrefillOk` 的 gate 条件 |
 | `source/backend/metal/MetalSoftmaxShader.cpp` | softmax CAUSAL_BOUND 分支实现 |
 | `skills/metal-optimize/env-registry.md` | `MNN_METAL_QK_CAUSAL_TRI` 等相关开关的完整语义登记 |
 | `skills/metal-optimize/kernel-dev-and-optimize.md` | causal-tri / CAUSAL_BOUND 的设计文档（§2.3.1）|

@@ -102,8 +102,8 @@ thread_local __unsafe_unretained MetalReplayProxy* gMetalReplayProxy = nil;
     if ([_target respondsToSelector:@selector(memoryBarrierWithScope:)]) {
         [_target memoryBarrierWithScope:scope];
     }
-    if (!_pending.bindings.empty() || _hasPipeline) {
-        _failed = YES; // barrier mid-state: ordering we don't model
+    if (_events->empty() || !_pending.bindings.empty() || !_pending.bytesArgs.empty() || !_pending.tgMemory.empty()) {
+        _failed = YES; // A barrier is replayable only between complete dispatches.
         return;
     }
     MNN::MetalReplayEvent e;

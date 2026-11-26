@@ -91,13 +91,12 @@ static VARP buildFloatConv1x1(VARP x, int ic, int oc) {
 // Mode 1: Int4-block64 quantized Conv1x1 (asymmetric, via _HybridConv)
 // Mode 2: Int8-block0 quantized Conv1x1 (asymmetric, blockSize=K, via _HybridConv)
 // ---------------------------------------------------------------------------
-static VARP buildHybridConv1x1(VARP x, int ic, int oc, int nbit, int blockSize) {
+static VARP buildHybridConv1x1(VARP x, int ic, int oc, int nbit, int blockSize, float fac = 0.23f) {
     MNN_ASSERT(ic % blockSize == 0);
     int blockNum = ic / blockSize;
 
     // Generate float weights
     std::vector<float> weightFp32(oc * ic);
-    float fac = 0.23f;
     for (int i = 0; i < oc; ++i) {
         for (int j = 0; j < ic; ++j) {
             weightFp32[i * ic + j] = ((i * ic + j) % nbit) * fac;
@@ -190,6 +189,72 @@ static void benchConv1x1(const char* tag, int M, int K, int N, int mode, int for
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Small-weight W4 area sweep (non-tensor probe A/B). Per-round min, warmup
+// discarded. BIG shape is a byte-identical empty arm across probe arms.
+// ---------------------------------------------------------------------------
+static void benchWqSmall(const char* tag, int M, int K, int N, int forwardType, int precision, int thread, int rounds) {
+    BackendConfig bnConfig;
+    bnConfig.precision = (BackendConfig::PrecisionMode)precision;
+    bnConfig.memory = BackendConfig::Memory_Low;
+    auto exe = Executor::newExecutor((MNNForwardType)forwardType, bnConfig, thread);
+    ExecutorScope scope(exe);
+    auto x = _Input({1, K, 1, M}, NC4HW4, halide_type_of<float>());
+    // Chain L layers (K==N) with per-layer weight perturbation as a zero-cost CSE
+    // guard, so one readMap sync amortizes over L convs instead of one.
+    const int L = 28;
+    VARP cur = x;
+    for (int l = 0; l < L; ++l) {
+        cur = buildHybridConv1x1(cur, K, N, /*nbit=*/4, /*blockSize=*/64, 0.23f + 0.001f * l);
+    }
+    x.fix(VARP::INPUT);
+    for (int w = 0; w < 3; ++w) {
+        auto p = x->writeMap<float>();
+        ::memset(p, 0, x->getInfo()->size * sizeof(float));
+        cur->readMap<float>();
+    }
+    const int LOOP = 10;
+    double flops = 2.0 * (double)M * (double)K * (double)N;
+    float bestWall = 0;
+    for (int r = -1; r < rounds; ++r) {
+        MNN::Timer t;
+        for (int i = 0; i < LOOP; ++i) {
+            x->writeMap<float>();
+            cur->readMap<float>();
+        }
+        float wall = (float)t.durationInUs() / 1000.0f / LOOP / L;
+        if (r >= 0 && (bestWall == 0 || wall < bestWall)) bestWall = wall;
+        MNN_PRINT("r%d %s M=%d K=%d N=%d wall=%.5f\n", r, tag, M, K, N, wall);
+    }
+    MNN_PRINT("BEST %s M=%d K=%d N=%d wall=%.5f gflops=%.2f\n", tag, M, K, N, bestWall, flops / (bestWall * 1e6));
+}
+
+class GemmSpeedWqSmall : public MNNTestCase {
+public:
+    virtual bool run(int precision) override {
+        auto& st = MNNTestSuite::get()->pStaus;
+        MNN_PRINT("\n===== W4 small-weight area sweep =====\n");
+        printBackendConfig(st.forwardType, st.precision, st.thread);
+        int rounds = 5;
+        if (const char* e = getenv("MNN_GEMM_ROUNDS")) rounds = atoi(e);
+        std::vector<int> ms = {64, 96, 127, 128};
+        if (const char* e = getenv("MNN_GEMM_M")) {
+            ms.clear();
+            char buf[256];
+            strncpy(buf, e, sizeof(buf) - 1);
+            buf[sizeof(buf) - 1] = 0;
+            for (char* tok = strtok(buf, ","); tok; tok = strtok(nullptr, ",")) ms.push_back(atoi(tok));
+        }
+        struct C { int K, N; const char* lab; };
+        std::vector<C> cs = {{1024, 1024, "i1024o1024"}, {1536, 1536, "i1536o1536"},
+                             {2048, 2048, "i2048o2048"}, {2560, 2560, "BIGi2560o2560"}};
+        for (auto& c : cs) {
+            for (int m : ms) benchWqSmall(c.lab, m, c.K, c.N, st.forwardType, st.precision, st.thread, rounds);
+        }
+        return true;
+    }
+};
 
 // ---------------------------------------------------------------------------
 // Common shape configurations (typical LLM dimensions)
@@ -355,3 +420,4 @@ MNNTestSuiteRegister(GemmSpeedInt8, "speed/GemmSpeedInt8");
 MNNTestSuiteRegister(GemmSpeedInt4, "speed/GemmSpeedInt4");
 MNNTestSuiteRegister(GemmSpeedInt4A8, "speed/GemmSpeedInt4A8");
 MNNTestSuiteRegister(GemmSpeedAll, "speed/GemmSpeedAll");
+MNNTestSuiteRegister(GemmSpeedWqSmall, "speed/GemmSpeedWqSmall");

@@ -470,7 +470,7 @@ done
 
 本轮起手时按文档以为热点在 `QK_QSPLIT`,**实际那条路已是死代码**
 (`sDecodeFusedThresh = 2` ⇒ 单 pass SDPA 覆盖所有 kv≥2 的 decode,
-`mSdpaSinglePass` 无条件清掉 `mDecodeQkSoftmax`)。
+路由阶梯上 `DecodeSdpa` 排在 `DecodeFusedQkSoftmax` 之前)。
 把 SDPA 路径关掉实测明显变慢 ⇒ 证明活跃路径确实是 SDPA。
 
 **教训:动手前先用 env 开关证明你以为的热点真的在跑。文档会过期,`if` 条件不会。**

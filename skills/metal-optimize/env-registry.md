@@ -75,10 +75,11 @@
 
 ## 新增开关的规范
 
-1. 优先按"默认行为反义"命名：默认开的用 `MNN_METAL_DISABLE_*`，默认关的用 `MNN_METAL_ENABLE_*`。
-2. 多值开关用 named string（如 `local` / `global` / `none`）而非 0/1/2。
-3. 每个新增 env **必须**：
+1. **禁止新增仅为测试或 A/B 性能对比服务的开关**：生产路由只能由 shape 与设备能力决定；性能对比用不同版本的构建产物交替运行，不得用运行时开关切换路线。
+2. 优先按"默认行为反义"命名：默认开的用 `MNN_METAL_DISABLE_*`，默认关的用 `MNN_METAL_ENABLE_*`。
+3. 多值开关用 named string（如 `local` / `global` / `none`）而非 0/1/2。
+4. 每个新增 env **必须**：
    - 在 `source/backend/metal/MetalEnv.hpp` 加字段（禁止散落 `getenv`）；
    - 在本文件加一行（只写名称 / 默认值 / 功能 / 生效条件）；
    - 在 commit message 里写默认值与 A/B 用法。
-4. 开关**删除或改名时，本文件的对应行必须同步删除**，不保留旧名与删除线。
+5. 开关**删除或改名时，本文件的对应行必须同步删除**，不保留旧名与删除线。

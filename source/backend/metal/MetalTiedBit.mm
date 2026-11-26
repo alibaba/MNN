@@ -20,7 +20,7 @@ static constexpr int kAuxThreads = 256;
 
 static int tiedBitScanLanesPerBlock(int blockQuads, int blockCount, bool fp16, const MetalGpuInfo& gpu) {
     const int chunks = blockQuads / 4; // The scan reads 16 channels per lane at a time.
-    const bool proClassMac = !gpu.aSeries && gpu.tier >= MetalGpuInfo::TierPro;
+    const bool proClassMac = gpu.tier >= MetalGpuInfo::TierPro;
     if (!fp16 && proClassMac && chunks <= kSimdWidth && (chunks & (chunks - 1)) == 0) {
         return chunks; // One FP32 input chunk per lane without a partial block.
     }
@@ -256,8 +256,8 @@ ErrorCode MetalTiedBit::onResize(const std::vector<Tensor*>& inputs, const std::
     auto option = [[MTLCompileOptions alloc] init];
     const std::string source = std::string(gBasicConvPrefix) + gMetalTiedBitShader;
     if (rt->maxThreadSize() < kAuxThreads) {
-        MNN_ERROR("Metal TiedBit: GPU gen=%d tier=%d A-series=%d cannot run the 256-bucket selector\n",
-                  gpu.gen, int(gpu.tier), int(gpu.aSeries));
+        MNN_ERROR("Metal TiedBit: GPU gen=%d tier=%d cannot run the 256-bucket selector\n",
+                  gpu.gen, int(gpu.tier));
         return NOT_SUPPORT;
     }
     mThreads = ThreadConfig();
@@ -315,8 +315,8 @@ ErrorCode MetalTiedBit::onResize(const std::vector<Tensor*>& inputs, const std::
                     retry = true;
                     break;
                 }
-                MNN_ERROR("Metal TiedBit: kernel %s unsupported on GPU gen=%d tier=%d A-series=%d "
-                          "(scan=%d, rerank=%d SIMD groups)\n", names[i], gpu.gen, int(gpu.tier), int(gpu.aSeries),
+                MNN_ERROR("Metal TiedBit: kernel %s unsupported on GPU gen=%d tier=%d "
+                          "(scan=%d, rerank=%d SIMD groups)\n", names[i], gpu.gen, int(gpu.tier),
                           mThreads.scanSimdGroups, mThreads.rerankSimdGroups);
                 return NOT_SUPPORT;
             }
@@ -324,9 +324,9 @@ ErrorCode MetalTiedBit::onResize(const std::vector<Tensor*>& inputs, const std::
         }
     } while (retry);
     if (MetalEnv::get().pipelineInfo) {
-        MNN_PRINT("Metal TiedBit: gen=%d tier=%d A-series=%d, IC=%d OC=%d group=%d M=%d, "
+        MNN_PRINT("Metal TiedBit: gen=%d tier=%d, IC=%d OC=%d group=%d M=%d, "
                   "scan=%d rerank=%d threads, refine=%s, scanLanesPerBlock=%d\n",
-                  gpu.gen, int(gpu.tier), int(gpu.aSeries), mInputChannels, mVocab, mBlockQuads * 4, topM,
+                  gpu.gen, int(gpu.tier), mInputChannels, mVocab, mBlockQuads * 4, topM,
                   mThreads.scanSimdGroups * kSimdWidth, mThreads.rerankSimdGroups * kSimdWidth,
                   useSplit ? "split_k2" : directDecode ? "direct" : "packed", scanLanes);
     }

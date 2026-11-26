@@ -10,6 +10,7 @@
 #import "core/Macro.h"
 #import "backend/metal/MetalBackend.hpp"
 #import "backend/metal/MetalConvolution1x1.hpp"
+#import "backend/metal/MetalConv1x1WQuant.hpp"
 #import "backend/metal/MetalConvolutionWinograd.hpp"
 #import "backend/metal/MetalTiedBit.hpp"
 #include "backend/metal/MetalEnv.hpp"
@@ -193,6 +194,14 @@ void MetalConvolution::onEncode(const std::vector<Tensor *> &inputs, const std::
     [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
 }
 
+static bool conv1x1Valid(const Convolution2D* conv) {
+    auto common = conv->common();
+    return common->kernelX() == 1 && common->kernelY() == 1 &&
+           common->dilateX() == 1 && common->dilateY() == 1 &&
+           common->padX() == 0 && common->padY() == 0 &&
+           common->strideX() == 1 && common->strideY() == 1;
+}
+
 class MetalConvolutionCreator : public MetalBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend, const std::vector<Tensor *>& outputs) const {
@@ -215,11 +224,17 @@ public:
                     return execution;
                 }
             }
-            auto input = inputs[0];
             if (MetalConvolutionWinograd::isValid(backend, conv, inputs[0], outputs[0])) {
                 return new MetalConvolutionWinograd(backend, op);
             }
-            if (MetalConvolution1x1::isValid(conv, input)) {
+            if (conv1x1Valid(conv)) {
+#ifdef MNN_LOW_MEMORY
+                const auto* q = conv->quanParameter();
+                if (static_cast<MetalBackend*>(backend)->getMemoryMode() == BackendConfig::Memory_Low &&
+                    q && (conv->external() || q->buffer()) && q->type() != 3 && q->type() != 8) {
+                    return new MetalConv1x1WQuant(backend, op);
+                }
+#endif
                 return new MetalConvolution1x1(backend, op);
             }
         }

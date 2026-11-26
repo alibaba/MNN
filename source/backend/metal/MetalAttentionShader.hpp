@@ -447,29 +447,12 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
      */
     threadgroup float sdata[256] = {0.f};
 
-// Tensor prefill uses the dedicated 32x32 kernel above. Keep this legacy
-// 16x16x8 implementation disabled because recent Tensor API versions require
-// a fixed K dimension to be a multiple of 16.
-#ifdef MNN_METAL_TENSOR_OPS_LEGACY_8X8
-
-    const int K = 8, M = 16, N = 16;
-    auto tA = tensor<threadgroup ftype, dextents<int32_t, 2>, tensor_inline>((threadgroup ftype*)sdata, dextents<int32_t, 2>(K, M));//[M, K]
-    auto tB = tensor<threadgroup ftype, dextents<int32_t, 2>, tensor_inline>((threadgroup ftype*)sdata + 128, dextents<int32_t, 2>(N, K));//[K, N]
-
-    mpp::tensor_ops::matmul2d<
-        mpp::tensor_ops::matmul2d_descriptor(M, N, K, false, false, false, mpp::tensor_ops::matmul2d_descriptor::mode::multiply_accumulate),
-        execution_simdgroups<1>> mmOps;
-
-    auto cT = mmOps.get_destination_cooperative_tensor<decltype(tA), decltype(tB), float>();
-#else
     simdgroup_T8x8 sga[2];
     simdgroup_T8x8 sgb[2];
     simdgroup_float8x8 sgd[4];
     for (int i = 0; i < 4; i++){
         sgd[i] = make_filled_simdgroup_matrix<float, 8>(0.f);
     }
-#endif
-
     int kl = tiitg % 2;// 0~1
     int rcl = tiitg / 2;// 0~15
 
@@ -582,12 +565,6 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
         ((threadgroup ftype*)sdata)[128 + (kl * 4 + 3) * 16 + rcl] = GETK(B_offset[i + 3], idx_slk * param.batch + b);
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
-#ifdef MNN_METAL_TENSOR_OPS_LEGACY_8X8
-        auto sA = tA.slice(0, 0);
-        auto sB = tB.slice(0, 0);
-
-        mmOps.run(sA, sB, cT);
-#else
         simdgroup_load(sga[0], (const threadgroup ftype*)sdata, 8);
         simdgroup_load(sga[1], ((const threadgroup ftype*)sdata) + 64, 8);
 
@@ -598,30 +575,18 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
         simdgroup_multiply_accumulate(sgd[1], sga[1], sgb[0], sgd[1]);
         simdgroup_multiply_accumulate(sgd[2], sga[0], sgb[1], sgd[2]);
         simdgroup_multiply_accumulate(sgd[3], sga[1], sgb[1], sgd[3]);
-#endif
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
 
-#ifdef MNN_METAL_TENSOR_OPS_LEGACY_8X8
-
-    auto tC = tensor<threadgroup float, dextents<int32_t, 2>, tensor_inline>((threadgroup float*)sdata, dextents<int32_t, 2>(N, M)); // [M , N]
-    cT.store(tC);
-#else
     simdgroup_store(sgd[0], (threadgroup float*)sdata, 8);
     simdgroup_store(sgd[1], (threadgroup float*)sdata + 64, 8);
     simdgroup_store(sgd[2], (threadgroup float*)sdata + 128, 8);
     simdgroup_store(sgd[3], (threadgroup float*)sdata + 192, 8);
-#endif
 
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-#ifdef MNN_METAL_TENSOR_OPS_LEGACY_8X8
-    // [M16, N2, N8]
-    auto sindex_base = (rcl * 2 + kl) * 8 + 0;
-#else
     // [N2, M2, M8, N8]
     auto sindex_base = (kl * 16 + rcl) * 8 + 0;
-#endif
 
     float Vscale = (float)param.scale;
 
@@ -829,7 +794,6 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
     const int output_offset = y * param.q_seq_piece_len * output_k_len;
     float out0 = 0.0;
 
-    // Two-way pipeline: 8 scalars (two float4) per iteration, to cut loop overhead
     int itN = head_dim / 8; // head_dim is 16-aligned, so /8 is exact
     const device ftype4* A4p = (const device ftype4*)A_offset;
 #ifdef QUANT_K
@@ -877,7 +841,6 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
 kernel void decode_qk(const device ftype* input0 [[buffer(0)]],
     device ftype* output [[buffer(1)]],
     device ftype* past_key [[buffer(2)]],
-    // decode actually not compute in block
     constant int &seq_idx [[buffer(3)]],
     constant Param& param [[buffer(4)]],
     constant int& kv_start [[buffer(5)]],
@@ -1151,7 +1114,6 @@ kernel void copy(const device ftype* input0 [[buffer(0)]],
     float v_bias = 0.0f;
 
 #ifdef DYNAMIC_QUANT
-    // Dynamic quantization scale calculation
     {
 #ifdef KV_QUANT_K
         float min_k = 1000000.0f;
@@ -1285,7 +1247,6 @@ kernel void copy(const device ftype* input0 [[buffer(0)]],
     for (int x = int(titg) * 4; x < vector_end; x += int(tptg) * 4) {
         const int in_idx  = (b * param.kv_seq_len + y) * param.head_count + x;
 
-        // Write K
         int out_idx_k = param.dst_k_offset + (y * param.batch + b) * param.head_count + x;
 #ifdef KV_QUANT_K
         float4 k = float4(((const device ftype4*)(input0 + in_idx))[0]);
@@ -1300,7 +1261,7 @@ kernel void copy(const device ftype* input0 [[buffer(0)]],
         ((device ftype4*)(output0 + out_idx_k))[0] = ((const device ftype4*)(input0 + in_idx))[0];
 #endif
 
-        // Write V (row-major, same layout as K)
+        // V: row-major, same layout as K
         int out_idx_v = param.dst_v_offset + (y * param.batch + b) * param.head_count + x;
         ftype4 v4 = load_value4(input1, param, b, y, x);
 #ifdef KV_QUANT_V
@@ -1466,10 +1427,8 @@ kernel void prefill_qkv_tensor(const device ftype* input0 [[buffer(0)]],
     auto tB = tensor<threadgroup ftype, dextents<int32_t, 2>, tensor_inline>((threadgroup ftype*)sdata + tb_offset, dextents<int32_t, 2>(K, N));//[K, N]
 
     mpp::tensor_ops::matmul2d<
-        mpp::tensor_ops::matmul2d_descriptor(M, N, K, false, false, false, mpp::tensor_ops::matmul2d_descriptor::mode::multiply_accumulate),
+        mpp::tensor_ops::matmul2d_descriptor(M, N, dynamic_extent, false, false, false, mpp::tensor_ops::matmul2d_descriptor::mode::multiply_accumulate),
         execution_simdgroups<4>> mmOps;
-
-    auto cT = mmOps.get_destination_cooperative_tensor<decltype(tA), decltype(tB), float>();
 
     // QK:[32, 4]
     int ml = tiitg / 4;// 0~31
@@ -1524,62 +1483,64 @@ kernel void prefill_qkv_tensor(const device ftype* input0 [[buffer(0)]],
     int kv_head_num = head_num / group;
     int kh = hn / group;
 
-    int idx_qk_sl = sl * 32 + ml < q_seq_piece_len ? (sl * 32 + ml) : q_seq_piece_len - 1;
-
-    auto A_offset = input0 + (long)(z * q_seq_piece_len + idx_qk_sl) * align_value_len + (0 * 4 + kl) * 8 + 0;
-
-    // AV causal early-exit for the M=32,K=32 tensor-API tile. Upper bound is
-    // ceil-32(tile_max_valid) so every live row sees its full valid K while
-    // staying within softmax's own pad window.
-    int av_k_upper_v4 = (value_seq_len + 3) / 4;
+    // The trimmed tail is softmax padding already zeroed, so whole-K accumulation is equally valid.
+    int k_upper = align_value_len;
 #ifdef CAUSAL_BOUND
     {
         int kv_valid_offset = value_seq_len - q_seq_len;
-        // tile M=32: the tile-max q_abs (unclipped; the store-side guard at
-        // line ~1557 already handles q_abs >= q_seq_len rows).
         int tile_max_q_abs = kv_valid_offset + seq_idx * q_seq_piece_len + sl * 32 + 31;
         int tile_max_valid = tile_max_q_abs + 1;
         if (tile_max_valid < 0) tile_max_valid = 0;
-        int k_bound_scalar = ((tile_max_valid + 31) / 32) * 32;   // ceil to 32-scalar
-        if (k_bound_scalar > align_value_len) k_bound_scalar = align_value_len;
-        av_k_upper_v4 = k_bound_scalar / 4;                         // exact: 32-align / 4 = 8-align v4
+        k_upper = ((tile_max_valid + 31) / 32) * 32;
+        if (k_upper > align_value_len) k_upper = align_value_len;
     }
 #endif
-
-    for(int i = 0; i < av_k_upper_v4; i += 8){
-        *((threadgroup ftype4*)(&((threadgroup ftype*)sdata)[(ml * 4 + kl) * 8 + 0])) = *((const device ftype4*)(&A_offset[4*i + 0]));
-        *((threadgroup ftype4*)(&((threadgroup ftype*)sdata)[(ml * 4 + kl) * 8 + 4])) = *((const device ftype4*)(&A_offset[4*i + 4]));
-
-        // row-major V: thread (nl, kvl) loads 8 contiguous d of kv token i*4+nl
-        {
-            const int kv_tok = i * 4 + nl;
-            const long v_off = ((long)(kv_tok * param.batch + b) * kv_head_num + kh) * head_dim + hm * 32 + kvl * 8;
-#ifdef QUANT_V
-            const int tok_idx = b * param.max_kv_len + kv_tok;
-            char4 r0 = ((const device char4*)((const device char*)past_value + v_off))[0];
-            char4 r1 = ((const device char4*)((const device char*)past_value + v_off))[1];
-            ((threadgroup ftype4*)sdata)[256 + nl * 8 + kvl * 2 + 0] =
-                ftype4(GETV(r0.x, tok_idx), GETV(r0.y, tok_idx), GETV(r0.z, tok_idx), GETV(r0.w, tok_idx));
-            ((threadgroup ftype4*)sdata)[256 + nl * 8 + kvl * 2 + 1] =
-                ftype4(GETV(r1.x, tok_idx), GETV(r1.y, tok_idx), GETV(r1.z, tok_idx), GETV(r1.w, tok_idx));
-#else
-            ((threadgroup ftype4*)sdata)[256 + nl * 8 + kvl * 2 + 0] = ((const device ftype4*)(past_value + v_off))[0];
-            ((threadgroup ftype4*)sdata)[256 + nl * 8 + kvl * 2 + 1] = ((const device ftype4*)(past_value + v_off))[1];
-#endif
-        }
-
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-
-        auto sA = tA.slice(0, 0);
-        auto sB = tB.slice(0, 0);
-
-        mmOps.run(sA, sB, cT);
-
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-    }
 
     auto tC = tensor<threadgroup float, dextents<int32_t, 2>, tensor_inline>((threadgroup float*)sdata, dextents<int32_t, 2>(N, M)); // [M , N]
-    cT.store(tC);
+#ifdef QUANT_V
+    {
+        auto cT = mmOps.get_destination_cooperative_tensor<decltype(tA), decltype(tB), float>();
+        int idx_qk_sl = sl * 32 + ml < q_seq_piece_len ? (sl * 32 + ml) : q_seq_piece_len - 1;
+        auto A_offset = input0 + (long)(z * q_seq_piece_len + idx_qk_sl) * align_value_len + (0 * 4 + kl) * 8 + 0;
+        const int av_k_upper_v4 = k_upper / 4;
+        for(int i = 0; i < av_k_upper_v4; i += 8){
+            *((threadgroup ftype4*)(&((threadgroup ftype*)sdata)[(ml * 4 + kl) * 8 + 0])) = *((const device ftype4*)(&A_offset[4*i + 0]));
+            *((threadgroup ftype4*)(&((threadgroup ftype*)sdata)[(ml * 4 + kl) * 8 + 4])) = *((const device ftype4*)(&A_offset[4*i + 4]));
+            {
+                const int kv_tok = i * 4 + nl;
+                const long v_off = ((long)(kv_tok * param.batch + b) * kv_head_num + kh) * head_dim + hm * 32 + kvl * 8;
+                const int tok_idx = b * param.max_kv_len + kv_tok;
+                char4 r0 = ((const device char4*)((const device char*)past_value + v_off))[0];
+                char4 r1 = ((const device char4*)((const device char*)past_value + v_off))[1];
+                ((threadgroup ftype4*)sdata)[256 + nl * 8 + kvl * 2 + 0] =
+                    ftype4(GETV(r0.x, tok_idx), GETV(r0.y, tok_idx), GETV(r0.z, tok_idx), GETV(r0.w, tok_idx));
+                ((threadgroup ftype4*)sdata)[256 + nl * 8 + kvl * 2 + 1] =
+                    ftype4(GETV(r1.x, tok_idx), GETV(r1.y, tok_idx), GETV(r1.z, tok_idx), GETV(r1.w, tok_idx));
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+            auto sA = tA.slice(0, 0);
+            auto sB = tB.slice(0, 0);
+            mmOps.run(sA, sB, cT);
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+        }
+        cT.store(tC);
+    }
+#else
+    if (k_upper > 0) {
+        const int kv_row_stride = param.batch * kv_head_num * head_dim;
+        auto aT = tensor<device ftype, dextents<int32_t, 2>, tensor_inline>(
+            (device ftype*)(input0 + (long)z * q_seq_piece_len * align_value_len),
+            dextents<int32_t, 2>(k_upper, q_seq_piece_len), array<int, 2>{1, align_value_len});
+        auto bT = tensor<device ftype, dextents<int32_t, 2>, tensor_inline>(
+            (device ftype*)(past_value + ((long)b * kv_head_num + kh) * head_dim),
+            dextents<int32_t, 2>(head_dim, k_upper), array<int, 2>{1, kv_row_stride});
+        auto cT = mmOps.get_destination_cooperative_tensor<decltype(aT), decltype(bT), float>();
+        auto sA = aT.slice(0, sl * 32);
+        auto sB = bT.slice(hm * 32, 0);
+        mmOps.run(sA, sB, cT);
+        cT.store(tC);
+    }
+#endif
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
     // [M32, N4, N2, n4]
@@ -1644,27 +1605,12 @@ kernel void prefill_qkv(const device ftype* input0 [[buffer(0)]],
 
     threadgroup float sdata[256] = {0.f};
 
-// Tensor prefill uses prefill_qkv_tensor (32x32x32). Do not instantiate the
-// legacy 16x16x8 path when compiling that pipeline.
-#ifdef MNN_METAL_TENSOR_OPS_LEGACY_8X8
-
-    const int K = 8, M = 16, N = 16;
-    auto tA = tensor<threadgroup ftype, dextents<int32_t, 2>, tensor_inline>((threadgroup ftype*)sdata, dextents<int32_t, 2>(K, M));//[M, K]
-    auto tB = tensor<threadgroup ftype, dextents<int32_t, 2>, tensor_inline>((threadgroup ftype*)sdata + 128, dextents<int32_t, 2>(N, K));//[K, N]
-
-    mpp::tensor_ops::matmul2d<
-        mpp::tensor_ops::matmul2d_descriptor(M, N, K, false, false, false, mpp::tensor_ops::matmul2d_descriptor::mode::multiply_accumulate),
-        execution_simdgroups<1>> mmOps;
-
-    auto cT = mmOps.get_destination_cooperative_tensor<decltype(tA), decltype(tB), float>();
-#else
     simdgroup_T8x8 sga[2];
     simdgroup_T8x8 sgb[2];
     simdgroup_float8x8 sgd[4];
     for (int i = 0; i < 4; i++){
         sgd[i] = make_filled_simdgroup_matrix<float, 8>(0.f);
     }
-#endif
 
     int rcl = tiitg / 2;// 0~15
     int kl = tiitg % 2;// 0~1
@@ -1749,12 +1695,6 @@ kernel void prefill_qkv(const device ftype* input0 [[buffer(0)]],
 
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
-#ifdef MNN_METAL_TENSOR_OPS_LEGACY_8X8
-        auto sA = tA.slice(0, 0);
-        auto sB = tB.slice(0, 0);
-
-        mmOps.run(sA, sB, cT);
-#else
         simdgroup_load(sga[0], (const threadgroup ftype*)sdata, 8);
         simdgroup_load(sga[1], ((const threadgroup ftype*)sdata) + 64, 8);
 
@@ -1765,30 +1705,18 @@ kernel void prefill_qkv(const device ftype* input0 [[buffer(0)]],
         simdgroup_multiply_accumulate(sgd[1], sga[1], sgb[0], sgd[1]);
         simdgroup_multiply_accumulate(sgd[2], sga[0], sgb[1], sgd[2]);
         simdgroup_multiply_accumulate(sgd[3], sga[1], sgb[1], sgd[3]);
-#endif
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
 
-#ifdef MNN_METAL_TENSOR_OPS_LEGACY_8X8
-
-    auto tC = tensor<threadgroup float, dextents<int32_t, 2>, tensor_inline>((threadgroup float*)sdata, dextents<int32_t, 2>(N, M)); // [M , N]
-    cT.store(tC);
-#else
     simdgroup_store(sgd[0], (threadgroup float*)sdata, 8);
     simdgroup_store(sgd[1], (threadgroup float*)sdata + 64, 8);
     simdgroup_store(sgd[2], (threadgroup float*)sdata + 128, 8);
     simdgroup_store(sgd[3], (threadgroup float*)sdata + 192, 8);
-#endif
 
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-#ifdef MNN_METAL_TENSOR_OPS_LEGACY_8X8
-    // [M16, N2, N8]
-    auto sindex_base = (rcl * 2 + kl) * 8 + 0;
-#else
     // [N2, M2, M8, N8]
     auto sindex_base = (kl * 16 + rcl) * 8 + 0;
-#endif
 
     // [N2, M2, M8, N8]
 #ifdef ATTENTION_C4
@@ -1907,7 +1835,6 @@ kernel void prefill_qkv(const device ftype* input0 [[buffer(0)]],
 kernel void decode_qkv(const device ftype* input0 [[buffer(0)]],
     device ftype* output [[buffer(1)]],
     device ftype* past_value [[buffer(2)]],
-    // docode actually not compute in block
     constant int &seq_idx [[buffer(3)]],
     constant Param& param [[buffer(4)]],
     device ftype* k_scales [[buffer(8)]],
@@ -2449,7 +2376,6 @@ kernel void decode_qk_softmax(const device ftype* input0 [[buffer(0)]],
     const int key_head_offset = kv_hn * head_dim;
     const int key_stride = kv_head_num * head_dim;
 
-    // Pre-compute query pointers for all heads in the group
     const device ftype4* q4_ptrs[GROUP_SIZE];
     for (int g = 0; g < GROUP_SIZE; g++) {
         q4_ptrs[g] = (const device ftype4*)(input0 + query_offset + (head_base + g) * head_dim);
@@ -2462,7 +2388,6 @@ kernel void decode_qk_softmax(const device ftype* input0 [[buffer(0)]],
 
     const int kv_valid_limit = max(key_seq_len - param.query_seq_len, 0) + q_idx;
     for (int k = int(tid); k < key_seq_len; k += tptg) {
-        // Read key data once, shared across all heads in the group
 #ifdef QUANT_K
         const device char* key = (const device char*)past_key + (k * param.batch + b) * key_stride + key_head_offset;
         const device char4* k4 = (const device char4*)key;
@@ -2476,7 +2401,6 @@ kernel void decode_qk_softmax(const device ftype* input0 [[buffer(0)]],
         const device ftype4* k4 = (const device ftype4*)key;
 #endif
 
-        // Compute dot products for all heads in the group
         float s[GROUP_SIZE];
         for (int g = 0; g < GROUP_SIZE; g++) {
             s[g] = 0.0f;
@@ -2508,7 +2432,6 @@ kernel void decode_qk_softmax(const device ftype* input0 [[buffer(0)]],
         }
     }
 
-    // Max reduction across simdgroups
     for (int g = 0; g < GROUP_SIZE; g++) {
         local_max[g] = simd_max(local_max[g]);
         if (tiisg == 0) {
@@ -2532,7 +2455,6 @@ kernel void decode_qk_softmax(const device ftype* input0 [[buffer(0)]],
         max_val[g] = final_max[g];
     }
 
-    // Exp and sum
     float local_sum[GROUP_SIZE];
     for (int g = 0; g < GROUP_SIZE; g++) {
         local_sum[g] = 0.0f;
@@ -2545,7 +2467,6 @@ kernel void decode_qk_softmax(const device ftype* input0 [[buffer(0)]],
         }
     }
 
-    // Sum reduction across simdgroups
     for (int g = 0; g < GROUP_SIZE; g++) {
         local_sum[g] = simd_sum(local_sum[g]);
         if (tiisg == 0) {
@@ -2564,7 +2485,6 @@ kernel void decode_qk_softmax(const device ftype* input0 [[buffer(0)]],
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // Normalize and write output
     float inv_sum[GROUP_SIZE];
     for (int g = 0; g < GROUP_SIZE; g++) {
         inv_sum[g] = 1.0f / reduce_buf[g * 32];
@@ -2634,6 +2554,9 @@ kernel void decode_splitkv(const device ftype* input0 [[buffer(0)]],
     constant Param& param [[buffer(4)]],
     device ftype* k_scales [[buffer(8)]],
     device ftype* v_scales [[buffer(9)]],
+#ifdef SPLITKV_PARTIAL
+    device float* partials [[buffer(10)]],
+#endif
     uint3 gid [[threadgroup_position_in_grid]],
     uint tiisg [[thread_index_in_simdgroup]],
     uint sgitg [[simdgroup_index_in_threadgroup]]) {
@@ -2693,12 +2616,19 @@ kernel void decode_splitkv(const device ftype* input0 [[buffer(0)]],
     // V row is loaded before the QK reduction so its latency overlaps the
     // simd_sum shuffle chain; scale*log2e is folded into q for fast::exp2.
     const int step = SPLITKV_NSG;
-    int i = int(sgitg);
+#ifdef SPLITKV_PARTIAL
+    const int kv_begin = int(gid.x) * SPLITKV_BLK;
+    const int kv_end = min(kv_begin + SPLITKV_BLK, key_seq_len);
+#else
+    constexpr int kv_begin = 0;
+    const int kv_end = key_seq_len;
+#endif
+    int i = kv_begin + int(sgitg);
 #if SDPA_KVB > 1
     // Multi-token overlap: take SDPA_KVB tokens of the simdgroup's stripe so
     // their dot/shuffle chains overlap and their scores share one softmax
     // update. Tail tokens fall through to the single-token loop.
-    for (; i + (SDPA_KVB - 1) * SPLITKV_NSG < key_seq_len; i += step * SDPA_KVB) {
+    for (; i + (SDPA_KVB - 1) * SPLITKV_NSG < kv_end; i += step * SDPA_KVB) {
         float k_row[SDPA_KVB][DPT];
         float v_row[SDPA_KVB][DPT];
         float score[SDPA_KVB][SDPA_QH_PER_TG];
@@ -2785,7 +2715,7 @@ kernel void decode_splitkv(const device ftype* input0 [[buffer(0)]],
         }
     }
 #endif
-    for (; i < key_seq_len; i += step) {
+    for (; i < kv_end; i += step) {
         // ---- QK: lane <-> head_dim slice of kv token i ----
 #ifdef QUANT_K
         const device char* kp = k_cache + ((long)i * param.batch + b) * key_stride + kv_hn * HEAD_DIM + int(tiisg) * DPT;
@@ -2840,7 +2770,6 @@ kernel void decode_splitkv(const device ftype* input0 [[buffer(0)]],
             score[g] = simd_sum(score[g]);
         }
 
-        // ---- online softmax + immediate AV from the loaded V row ----
         for (int g = 0; g < SDPA_QH_PER_TG; ++g) {
             const float m_prev = M[g];
             M[g] = max(m_prev, score[g]);
@@ -2852,7 +2781,6 @@ kernel void decode_splitkv(const device ftype* input0 [[buffer(0)]],
             }
         }
     }
-    // ---- cross-simdgroup reduce inside the threadgroup ----
     // Transposed reduce: (S, M) via one simd_max/simd_sum over lanes indexing
     // simdgroups; O combined 32 components at a time through s_out, so
     // threadgroup memory stays HEAD_DIM-independent.
@@ -2889,7 +2817,10 @@ kernel void decode_splitkv(const device ftype* input0 [[buffer(0)]],
                 if (tiisg == 0) {
                     // Lane mapping: lane lp owns components lp*DPT .. lp*DPT+DPT-1
                     const int d = lp * DPT + dd;
-#ifdef ATTENTION_C4
+#ifdef SPLITKV_PARTIAL
+                    // [blk][b][hn][hd+2]: fp32 O partial, then S and M.
+                    partials[((long)gid.x * param.batch * param.head_num + row_base + g) * (HEAD_DIM + 2) + d] = acc;
+#elif defined(ATTENTION_C4)
                     // [mNumHead * (mHeadDim / 4), mBatch * mSeqLen(=1), 4]
                     const int c  = hn * HEAD_DIM + d;
                     out_final[b * 4 + (c % 4) + (c / 4) * param.batch * 4] = ftype(acc * inv_s);
@@ -2901,12 +2832,61 @@ kernel void decode_splitkv(const device ftype* input0 [[buffer(0)]],
             }
             threadgroup_barrier(mem_flags::mem_threadgroup);
         }
+#ifdef SPLITKV_PARTIAL
+        if (int(tiisg) == 0 && int(sgitg) == 0) {
+            const long pbase = ((long)gid.x * param.batch * param.head_num + row_base + g) * (HEAD_DIM + 2);
+            partials[pbase + HEAD_DIM] = S_tot;
+            partials[pbase + HEAD_DIM + 1] = m;
+        }
+#endif
     }
 }
 
+// Partials carry log2-domain maxima, so the merge must rescale with exp2, not exp.
+kernel void decode_splitkv_reduce(device ftype* out_final [[buffer(1)]],
+                                  const device float* partials [[buffer(10)]],
+                                  constant Param& param [[buffer(4)]],
+                                  constant int& nblocks [[buffer(11)]],
+                                  uint3 gid [[threadgroup_position_in_grid]],
+                                  uint tix [[thread_index_in_threadgroup]]) {
+    const int hd = param.head_dim;
+    const int hn_total = param.batch * param.head_num;
+    const int hn = int(gid.x);
+    const int stride_hd = hd + 2;
+    float mg = -FLT_MAX / 2;
+    for (int blk = 0; blk < nblocks; ++blk) {
+        mg = max(mg, partials[((long)blk * hn_total + hn) * stride_hd + hd + 1]);
+    }
+    float acc[DPT];
+    for (int j = 0; j < DPT; ++j) {
+        acc[j] = 0.0f;
+    }
+    float s_tot = 0.0f;
+    for (int blk = 0; blk < nblocks; ++blk) {
+        const long off = ((long)blk * hn_total + hn) * stride_hd;
+        const float f = fast::exp2(partials[off + hd + 1] - mg);
+        s_tot += partials[off + hd] * f;
+        for (int j = 0; j < DPT; ++j) {
+            acc[j] += partials[off + int(tix) + j * SIMD_GROUP_WIDTH] * f;
+        }
+    }
+    const float inv_s = (s_tot == 0.0f) ? 0.0f : (1.0f / s_tot);
+#ifdef ATTENTION_C4
+    // hn spans batch*head_num, so the channel index must drop the batch part.
+    const int b = hn / param.head_num;
+    const int h = hn % param.head_num;
+#endif
+    for (int j = 0; j < DPT; ++j) {
+        const int d = int(tix) + j * SIMD_GROUP_WIDTH;
+#ifdef ATTENTION_C4
+        const int c = h * hd + d;
+        out_final[b * 4 + (c % 4) + (c / 4) * param.batch * 4] = ftype(acc[j] * inv_s);
+#else
+        out_final[(long)hn * hd + d] = ftype(acc[j] * inv_s);
+#endif
+    }
+}
 )metal";
-
-// softmax sg reduce source moved to MetalSoftmaxShader.cpp
 
 #endif /* MNN_SUPPORT_TRANSFORMER_FUSE */
 #endif

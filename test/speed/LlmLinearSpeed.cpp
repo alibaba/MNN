@@ -12,6 +12,7 @@
 //    speed/LlmFusedLinear      OpType_FusedLinear seq sweep (decode + prefill)
 //    speed/LlmConvDecode       plain int4 Convolution decode GEMV
 //    speed/LlmDecodeGemv       whole per-token linear budget, grouped by layer
+//    speed/LlmChain            full transformer layer chain with KV cache
 //
 //  Shapes come from each converted model's llm.mnn.json, not from config.json,
 //  because the exporter's fusion decides what the GPU actually dispatches. Two
@@ -23,9 +24,11 @@
 //      members are real dispatches at a shape nothing else in the suite covers.
 //
 //  Weights are 4-bit block-quantized and the executor runs Memory_Low, which is
-//  what gates Metal's fused decode-GEMV path (is2sgDecodePipeline). Fusion only
-//  exists at decode: every prefill shape dispatches per member, so the seq
-//  sweep of speed/LlmFusedLinear crosses two different regimes.
+//  what gates Metal's fused decode-GEMV path (decodeFusionEligible).
+//  fp16 prefill area>=64 takes the device-tensor GEMM, so the fused-quant M64 tile needs fp32 (precision 1).
+//
+//  speed/LlmChain knobs: MNN_CHAIN_LAYERS / ROUNDS / SEQ / CTX / HEADDIM / WSCALE.
+//  Its sums gate finiteness only; MNN_CHAIN_SWITCH=1 is the reproducibility gate, on one module.
 //
 //  Usage:
 //    ./run_test.out speed/LlmDecodeGemv 1 2        # Metal, precision Low (fp16)
@@ -54,6 +57,7 @@
 #include "CommonOpCreator.hpp"
 #include "MNNTestSuite.h"
 #include "MNN_generated.h"
+#include "core/KVMeta.hpp"
 
 using namespace MNN;
 using namespace MNN::Express;
@@ -352,9 +356,13 @@ public:
             // Qwen3.5-2B's 2048 x 248320 lm_head that is 2 GB and the process
             // gets OOM-killed before the quantized row prints. Production
             // lm_head is quantized, so the float reading there is not worth it.
-            if ((double)s.K * (double)s.N * 4.0 * layers > 1e9) {
-                MNN_PRINT("%-10s float  M=%-5d K=%-5d N=%-6d  skipped (dense fp32 weights >1 GB)\n", s.name, s.M, s.K,
-                          s.N);
+            // MNN_PREFILL_NOFLOAT drops the float arm everywhere: its allocation perturbs the next quantized row.
+            const bool noFloat = nullptr != getenv("MNN_PREFILL_NOFLOAT");
+            if (noFloat || (double)s.K * (double)s.N * 4.0 * layers > 1e9) {
+                if (!noFloat) {
+                    MNN_PRINT("%-10s float  M=%-5d K=%-5d N=%-6d  skipped (dense fp32 weights >1 GB)\n", s.name, s.M,
+                              s.K, s.N);
+                }
             } else {
                 benchLinear(s.name, s.M, s.K, s.N, 0, st.thread, layers);
             }
@@ -739,7 +747,7 @@ std::shared_ptr<Module> makeConvModule(int ic, int oc, int layers) {
 }
 
 float benchConvModule(const std::shared_ptr<Module>& module, VARP input, const std::string& tag, int ic, int oc,
-                      int layers, int loop, int round) {
+                      int layers, int loop, int round, int area = 1) {
     auto forwardOnce = [&]() { return module->onForward({input}); };
     for (int i = 0; i < 3; ++i) {
         auto out = forwardOnce();
@@ -759,7 +767,7 @@ float benchConvModule(const std::shared_ptr<Module>& module, VARP input, const s
         return ms;
     }
     double wBytes = weightBytes((double)oc * ic);
-    double gflops = 2.0 * (double)oc * ic / (ms * 1e6);
+    double gflops = 2.0 * (double)area * oc * ic / (ms * 1e6);
     MNN_PRINT("%-7s r%d  per-layer=%8.4f ms (%7.1f GFLOPS, %6.1f GB/s W)  x%d layers=%8.3f ms\n", tag.c_str(),
               round, ms,
               gflops, wBytes / (ms * 1e6), layers, ms * layers);
@@ -784,23 +792,25 @@ public:
             int ic;
             int oc;
             int layers;
+            int area;
         };
         // The three shapes the model runs outside FusedLinear: o_proj
         // (heads*dim -> hidden), down_proj (inter -> hidden), lm_head
         // (hidden -> vocab). lm_head is a single op but inherently DRAM-bound.
         std::vector<Shape> shapes;
         if (m.splitQkv) {
-            shapes.push_back({"q", m.hidden, m.qkv.oc[0], m.layers});
-            shapes.push_back({"k", m.hidden, m.qkv.oc[1], m.layers});
-            shapes.push_back({"v", m.hidden, m.qkv.oc[2], m.layers});
-            shapes.push_back({"router", m.hidden, 60, m.layers});
+            shapes.push_back({"q", m.hidden, m.qkv.oc[0], m.layers, 1});
+            shapes.push_back({"k", m.hidden, m.qkv.oc[1], m.layers, 1});
+            shapes.push_back({"v", m.hidden, m.qkv.oc[2], m.layers, 1});
+            shapes.push_back({"router", m.hidden, 60, m.layers, 1});
         }
-        shapes.push_back({"o_proj", m.qkv.oc[0], m.hidden, m.layers});
-        shapes.push_back({"down", m.inter, m.hidden, m.layers});
-        shapes.push_back({"lm_head", m.hidden, m.vocab, 1});
-        // MNN_CD_SHAPES="ic:oc;ic:oc;..." overrides the model table with an
+        shapes.push_back({"o_proj", m.qkv.oc[0], m.hidden, m.layers, 1});
+        shapes.push_back({"down", m.inter, m.hidden, m.layers, 1});
+        shapes.push_back({"lm_head", m.hidden, m.vocab, 1, 1});
+        // MNN_CD_SHAPES="ic:oc[:area];..." overrides the model table with an
         // arbitrary ic sweep, tagged by block count; MNN_CD_LAYERS stacks that
         // many copies per shape to amortize per-forward host overhead.
+        // Several areas in ONE process share warmup and allocator state; Conv1x1 area is ob*ow*oh, so N counts.
         int cdLayers = 1;
         if (auto lEnv = getenv("MNN_CD_LAYERS")) {
             cdLayers = std::max(1, atoi(lEnv));
@@ -815,14 +825,20 @@ public:
                     sep = spec.size();
                 }
                 auto pair = spec.substr(pos, sep - pos);
-                auto colon = pair.find(':');
+                size_t colon = pair.find(':');
                 if (colon != std::string::npos) {
                     int ic = atoi(pair.substr(0, colon).c_str());
-                    int oc = atoi(pair.substr(colon + 1).c_str());
+                    size_t colon2 = pair.find(':', colon + 1);
+                    int oc = atoi(pair.substr(colon + 1, colon2 == std::string::npos ? colon2 : colon2 - colon - 1).c_str());
+                    int area = colon2 == std::string::npos ? 1 : std::max(1, atoi(pair.substr(colon2 + 1).c_str()));
                     if (ic > 0 && oc > 0) {
-                        char buf[16];
-                        snprintf(buf, sizeof(buf), "b%d", ic / blockSize());
-                        shapes.push_back({buf, ic, oc, cdLayers});
+                        char buf[24];
+                        if (area == 1) {
+                            snprintf(buf, sizeof(buf), "b%d", ic / blockSize());
+                        } else {
+                            snprintf(buf, sizeof(buf), "M%dN%d", area, oc);
+                        }
+                        shapes.push_back({buf, ic, oc, cdLayers, area});
                     }
                 }
                 pos = sep + 1;
@@ -837,17 +853,18 @@ public:
         std::vector<VARP> inputs(shapes.size());
         for (size_t i = 0; i < shapes.size(); ++i) {
             mods[i]   = makeConvModule(shapes[i].ic, shapes[i].oc, shapes[i].layers);
-            inputs[i] = makeActivation(1, shapes[i].ic, 0.07f, true);
+            inputs[i] = makeActivation(shapes[i].area, shapes[i].ic, 0.07f, true);
         }
         for (size_t i = 0; i < shapes.size(); ++i) {
-            benchConvModule(mods[i], inputs[i], shapes[i].tag, shapes[i].ic, shapes[i].oc, shapes[i].layers, 2, -1);
+            benchConvModule(mods[i], inputs[i], shapes[i].tag, shapes[i].ic, shapes[i].oc, shapes[i].layers, 2, -1,
+                            shapes[i].area);
         }
         std::vector<float> best(shapes.size(), 1e30f);
         for (int round = 0; round < rounds; ++round) {
             for (size_t i = 0; i < shapes.size(); ++i) {
                 const int loop = shapes[i].layers == 1 ? 20 : 50;
                 const float ms = benchConvModule(mods[i], inputs[i], shapes[i].tag, shapes[i].ic, shapes[i].oc,
-                                                 shapes[i].layers, loop, round);
+                                                 shapes[i].layers, loop, round, shapes[i].area);
                 best[i] = std::min(best[i], ms);
             }
         }
@@ -976,7 +993,7 @@ std::vector<DecodeGroup> decodeGroups() {
         // half-width plain control, which tells whether a 3072-wide dispatch
         // alone already saturates before the fused arm is read. gapf3 carries the
         // same bytes and dispatch count with 3 members, which is the shape the
-        // merged weight+scale buffer accepts by default (see setupQKVFusion), so
+        // merged weight+scale buffer accepts by default (see prepareQKVWeights), so
         // gapf3-vs-gapf4 separates the stream count from the member count. There
         // is no 2-member arm: ShapeFusedProj only accepts 3 or 4 convs unless
         // act_silu_mul is set, and setting it would add the epilogue back.
@@ -1215,6 +1232,537 @@ public:
 };
 
 MNNTestSuiteRegister(LlmDecodeGemvSpeedTest, "speed/LlmDecodeGemv");
+
+// ---------------------------------------------------------------------------
+// speed/LlmChain: dense Qwen3 Transformer layers with synthetic weights and a KV cache.
+// Measures per-layer decode/prefill latency and Encode Replay, not model accuracy.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Independent projections let the GPU overlap and never recycle a live buffer; a real chain serializes
+// dispatch and keeps intermediates alive, which is what Encode Replay and the fusion decisions see.
+
+// qkv.oc[0]/[1] are the packed q/kv widths, so headDim divides them out (128 for Qwen3 dense).
+int chainHeadDim() {
+    if (auto env = getenv("MNN_CHAIN_HEADDIM")) {
+        return std::max(1, atoi(env));
+    }
+    return 128;
+}
+
+// KVMeta holds a string and a vector, so it must not be a namespace-scope object (AGENTS.md).
+KVMeta& chainMeta() {
+    static KVMeta sMeta;
+    return sMeta;
+}
+
+// The meta outlives each module: leftover capacity or previous length changes the cache alloc and kernel.
+void resetChainMeta() {
+    auto& meta      = chainMeta();
+    meta.previous   = 0;
+    meta.remove     = 0;
+    meta.add        = 0;
+    meta.capacity   = 0;
+    meta.n_reserve  = 0;
+    meta.reserve    = nullptr;
+}
+
+// CPURoPE reads the first half as the even partners and the second half as the odd ones at the same angle,
+// so both halves hold identical values.
+VARP ropeTable(int seq, int pos, int headDim, bool isSin) {
+    auto var = _Input({seq, headDim}, NCHW, halide_type_of<float>());
+    auto ptr = var->writeMap<float>();
+    const int half = headDim / 2;
+    for (int t = 0; t < seq; ++t) {
+        for (int d = 0; d < half; ++d) {
+            const float angle = (float)(pos + t) / powf(1e6f, 2.0f * (float)d / (float)headDim);
+            const float v     = isSin ? sinf(angle) : cosf(angle);
+            ptr[t * headDim + d]        = v;
+            ptr[t * headDim + half + d] = v;
+        }
+    }
+    var->unMap();
+    return var;
+}
+
+std::unique_ptr<OpT> chainNormOp(int hidden) {
+    std::unique_ptr<OpT> op(new OpT);
+    op->type                   = OpType_LayerNorm;
+    op->main.type              = OpParameter_LayerNorm;
+    op->main.value             = new LayerNormT;
+    op->defaultDimentionFormat = MNN_DATA_FORMAT_NC4HW4;
+    auto ln                    = op->main.AsLayerNorm();
+    ln->epsilon                = 1e-6f;
+    ln->gamma                  = std::vector<float>(hidden, 1.0f);
+    ln->beta                   = std::vector<float>(hidden, 0.0f);
+    ln->axis                   = {-1};
+    ln->useRMSNorm             = true;
+    return op;
+}
+
+// Weights are hash-scattered: a periodic pattern accumulates coherently and overflows fp16 within a layer.
+// The scale sets residual growth and logit range; fp16 only survives a narrow window around this default.
+float chainWeightScale() {
+    if (auto env = getenv("MNN_CHAIN_WSCALE")) {
+        return (float)atof(env);
+    }
+    return 0.005f;
+}
+
+std::unique_ptr<Convolution2DT> chainQuantConv(int ic, int oc, int seed) {
+    const float threshold = (float)(1 << (bits() - 1)) - 1.0f;
+    const float clampMin  = -threshold - 1.0f;
+    const int blocknum    = ic / blockSize();
+    std::vector<float> weight((size_t)oc * ic), alpha((size_t)2 * oc * blocknum), bias(oc, 0.0f);
+    const float wscale = chainWeightScale();
+    for (size_t i = 0; i < weight.size(); ++i) {
+        uint32_t h = (uint32_t)(i * 2654435761u + (uint32_t)seed * 40503u);
+        h ^= h >> 15;
+        weight[i] = ((float)(h % 17) - 8.0f) * wscale;
+    }
+    for (int o = 0; o < oc; ++o) {
+        for (int b = 0; b < blocknum; ++b) {
+            const float* w = weight.data() + (size_t)o * ic + b * blockSize();
+            float mn = w[0], mx = w[0];
+            for (int u = 1; u < blockSize(); ++u) {
+                mn = std::min(mn, w[u]);
+                mx = std::max(mx, w[u]);
+            }
+            alpha[2 * ((size_t)o * blocknum + b)]     = mn;
+            alpha[2 * ((size_t)o * blocknum + b) + 1] = (mx - mn) / (threshold - clampMin);
+        }
+    }
+    std::unique_ptr<Convolution2DT> conv(new Convolution2DT);
+    conv->common.reset(new Convolution2DCommonT);
+    conv->common->kernelX    = 1;
+    conv->common->kernelY    = 1;
+    conv->common->inputCount = ic;
+    conv->common->outputCount = oc;
+    conv->quanParameter = IDSTEncoder::encode(weight.data(), alpha, blockSize(), oc * blocknum, true, nullptr,
+                                              (int)clampMin, {bits(), false});
+    return conv;
+}
+
+std::unique_ptr<OpT> chainFusedOp(const std::vector<int>& ocs, bool gateUp, bool hasLn, int hidden, int seed) {
+    std::unique_ptr<OpT> op(new OpT);
+    op->type                   = OpType_FusedLinear;
+    op->main.type              = OpParameter_FusedLinearParam;
+    op->main.value             = new FusedLinearParamT;
+    op->defaultDimentionFormat = MNN_DATA_FORMAT_NC4HW4;
+    auto param                 = op->main.AsFusedLinearParam();
+    param->act_silu_mul        = gateUp;
+    param->has_ln              = hasLn;
+    if (hasLn) {
+        param->ln.reset(new LayerNormT);
+        param->ln->epsilon    = 1e-6f;
+        param->ln->gamma      = std::vector<float>(hidden, 1.0f);
+        param->ln->beta       = std::vector<float>(hidden, 0.0f);
+        param->ln->axis       = {-1};
+        param->ln->useRMSNorm = true;
+    }
+    for (size_t i = 0; i < ocs.size(); ++i) {
+        // Distinct weights per member: a shared set would let the cache serve decode's weight DRAM traffic.
+        param->convs.push_back(chainQuantConv(hidden, ocs[i], seed + (int)i + 1));
+    }
+    return op;
+}
+
+std::unique_ptr<OpT> chainConvOp(int ic, int oc, int seed) {
+    std::unique_ptr<OpT> op(new OpT);
+    op->type                   = OpType_Convolution;
+    op->main.type              = OpParameter_Convolution2D;
+    op->main.value             = chainQuantConv(ic, oc, seed).release();
+    op->defaultDimentionFormat = MNN_DATA_FORMAT_NC4HW4;
+    return op;
+}
+
+// Inputs {residual, mask, cos, sin}; output {residual after `layers` layers}.
+// The converter only folds a *binary* add&norm into FusedLinear, so the attention norm stays a unary RMSNorm.
+std::shared_ptr<Module> makeChainModule(int layers) {
+    const auto& m      = model();
+    const int hidden   = m.hidden;
+    const int headDim  = chainHeadDim();
+    const int numHead  = m.qkv.oc[0] / headDim;
+    const int kvHead   = m.qkv.oc[1] / headDim;
+    auto h             = _Input({1, hidden, 1, 1}, NC4HW4);
+    auto mask          = _Input();
+    auto cos           = _Input();
+    auto sin           = _Input();
+
+    auto norm = chainNormOp(hidden);
+    std::unique_ptr<OpT> rope(new OpT);
+    rope->type                   = OpType_RoPE;
+    rope->main.type              = OpParameter_RoPEParam;
+    rope->main.value             = new RoPEParamT;
+    rope->defaultDimentionFormat = MNN_DATA_FORMAT_NC4HW4;
+    auto rp                      = rope->main.AsRoPEParam();
+    rp->num_head                 = numHead;
+    rp->kv_num_head              = kvHead;
+    rp->head_dim                 = headDim;
+
+    std::unique_ptr<OpT> attn(new OpT);
+    attn->type                   = OpType_Attention;
+    attn->main.type              = OpParameter_AttentionParam;
+    attn->main.value             = new AttentionParamT;
+    attn->main.AsAttentionParam()->kv_cache  = true;
+    attn->main.AsAttentionParam()->output_c4 = true;
+
+    const std::vector<int> qkvOcs    = toVec(m.qkv);
+    const std::vector<int> gateUpOcs = {m.inter, m.inter};
+    VARP cur                         = h;
+    for (int l = 0; l < layers; ++l) {
+        const int seed = l * 97 + 1;
+        auto n1        = Variable::create(Expr::create(norm.get(), {cur}));
+        auto qkvOp     = chainFusedOp(qkvOcs, false, false, hidden, seed);
+        auto qkvExpr   = Expr::create(std::move(qkvOp), {n1}, (int)qkvOcs.size());
+        std::vector<VARP> proj;
+        for (size_t i = 0; i < qkvOcs.size(); ++i) {
+            proj.push_back(Variable::create(qkvExpr, (int)i));
+        }
+        // RoPE bridges q/k from C4 to NHWC; Attention takes v as C4 directly (value_c4).
+        auto ropeExpr = Expr::create(rope.get(), {proj[0], proj[1], cos, sin}, 2);
+        auto qr       = Variable::create(ropeExpr, 0);
+        auto kr       = Variable::create(ropeExpr, 1);
+        auto a        = Variable::create(Expr::create(attn.get(), {qr, kr, proj[2], mask}));
+        auto o        = Variable::create(Expr::create(chainConvOp(m.qkv.oc[0], hidden, seed + 11), {a}));
+        auto guOp     = chainFusedOp(gateUpOcs, true, true, hidden, seed + 23);
+        auto guExpr   = Expr::create(std::move(guOp), {cur, o}, 2);
+        auto ffn      = Variable::create(guExpr, 0);
+        auto sum      = Variable::create(guExpr, 1);
+        auto d        = Variable::create(Expr::create(chainConvOp(m.inter, hidden, seed + 37), {ffn}));
+        cur           = _Add(sum, d);
+    }
+    auto buffer = Variable::save({cur});
+
+    auto status = MNNTestSuite::get()->pStaus;
+    ScheduleConfig config;
+    config.type      = (MNNForwardType)status.forwardType;
+    config.numThread = 1;
+    BackendConfig bnConfig;
+    bnConfig.precision   = (BackendConfig::PrecisionMode)status.precision;
+    bnConfig.power       = (BackendConfig::PowerMode)status.power;
+    bnConfig.memory      = BackendConfig::Memory_Low;
+    config.backendConfig = &bnConfig;
+    std::shared_ptr<Executor::RuntimeManager> rtmgr(Executor::RuntimeManager::createRuntimeManager(config));
+    rtmgr->setHintPtr(Interpreter::KVCACHE_INFO, &chainMeta());
+    rtmgr->setHint(Interpreter::ATTENTION_OPTION, 8); // float qkv, no kv quant
+    return std::shared_ptr<Module>(Module::load({}, {}, (uint8_t*)buffer.data(), buffer.size(), rtmgr));
+}
+
+double chainChecksum(const VARP& var) {
+    auto ptr = var->readMap<float>();
+    if (nullptr == ptr) {
+        return -1.0;
+    }
+    const int n = var->getInfo()->size;
+    double sum  = 0.0;
+    for (int i = 0; i < n; ++i) {
+        sum += (double)ptr[i];
+    }
+    var->unMap();
+    return sum;
+}
+
+bool varFinite(const VARP& var) {
+    auto ptr = var->readMap<float>();
+    if (nullptr == ptr) {
+        return false;
+    }
+    const int n = var->getInfo()->size;
+    bool ok = true;
+    for (int i = 0; i < n; ++i) {
+        ok = ok && std::isfinite(ptr[i]);
+    }
+    var->unMap();
+    return ok;
+}
+
+struct ChainTiming {
+    float enqueueMs = 0.f; // CPU encode+commit per forward, GPU runs ahead
+    float wallMs    = 0.f; // enqueue loop + one drain, per forward
+    float serialMs  = 0.f; // sync every forward: CPU + GPU, no overlap
+    double checksum = 0.0;
+    bool finite     = true;
+    bool shapeOk    = true;
+};
+
+// seq==1 fills `ctx` once and then times decode steps against that cache; seq>1 times prefill with a reset.
+ChainTiming benchChain(int seq, int ctx, int loop, int layers, bool report) {
+    resetChainMeta();
+    const int hidden          = model().hidden;
+    const int headDim         = chainHeadDim();
+    auto mod                  = makeChainModule(layers);
+    const bool deviceResident = (nullptr == getenv("MNN_FL_HOSTIN"));
+    const bool decode         = (seq == 1);
+    // The fill must feed exactly the tokens it adds to the KV cache, or the Conv area never switches.
+    auto hPrefill             = makeActivation(seq, hidden, 0.11f, deviceResident);
+    auto hDecode              = makeActivation(1, hidden, 0.11f, deviceResident);
+    auto hCtx                 = decode ? makeActivation(ctx, hidden, 0.11f, deviceResident) : hDecode;
+    auto mask                 = _Input({}, NCHW, halide_type_of<float>());
+    mask->writeMap<float>()[0] = 0.0f;
+    auto& meta                = chainMeta();
+    ChainTiming t;
+    auto checkTokens = [&](const VARP& v, int want, const char* site) {
+        const int got = (nullptr == v->getInfo()) ? -1 : v->getInfo()->dim[0];
+        if (got != want) {
+            MNN_ERROR("LlmChain: %s activation carries %d tokens, want %d.\n", site, got, want);
+            t.shapeOk = false;
+        }
+    };
+    // Rebuilding RoPE tables per step would churn the input addresses Encode Replay fingerprints.
+    // Slot 0 is the fill/prefill table; decode step i uses slot i+1.
+    const int ropeCount = decode ? loop + 5 : 1;
+    std::vector<std::pair<VARP, VARP>> rope;
+    rope.reserve(ropeCount);
+    const int fillTokens = decode ? ctx : seq;
+    rope.emplace_back(ropeTable(fillTokens, 0, headDim, false), ropeTable(fillTokens, 0, headDim, true));
+    for (int i = 1; i < ropeCount; ++i) {
+        rope.emplace_back(ropeTable(1, ctx + i - 1, headDim, false), ropeTable(1, ctx + i - 1, headDim, true));
+    }
+
+    auto fill = [&](int n) {
+        checkTokens(hCtx, n, "fill");
+        meta.previous = 0;
+        meta.remove   = 0;
+        meta.add      = n;
+        auto out      = mod->onForward({hCtx, mask, rope[0].first, rope[0].second});
+        out[0]->readMap<float>();
+        out[0]->unMap();
+        meta.sync();
+    };
+    auto prefillOnce = [&]() {
+        checkTokens(hPrefill, seq, "prefill");
+        meta.previous = 0;
+        meta.remove   = 0;
+        meta.add      = seq;
+        return mod->onForward({hPrefill, mask, rope[0].first, rope[0].second});
+    };
+    auto decodeOnce = [&](int i) {
+        checkTokens(hDecode, 1, "decode");
+        meta.remove = 0;
+        meta.add    = 1;
+        auto out    = mod->onForward({hDecode, mask, rope[i + 1].first, rope[i + 1].second});
+        meta.sync();
+        return out;
+    };
+
+    // Finiteness gate only: buffer alignment changes accumulation order, so the untrained fp16 chain's sum
+    // differs across module instantiations. Reproducibility is gated by MNN_CHAIN_SWITCH on one module.
+    double checksum = 0.0;
+    if (decode) {
+        fill(ctx);
+        checksum = chainChecksum(decodeOnce(0)[0]);
+    } else {
+        checksum = chainChecksum(prefillOnce()[0]);
+    }
+    if (!std::isfinite(checksum)) {
+        MNN_ERROR("LlmChain: seq=%d produced a non-finite sum (%g).\n", seq, checksum);
+    }
+    auto forwardOnce = [&](int i) { return decode ? decodeOnce(i) : prefillOnce(); };
+    for (int i = 0; i < 3; ++i) {
+        auto out = forwardOnce(i);
+        out[0]->readMap<float>();
+        out[0]->unMap();
+    }
+
+    t.finite = std::isfinite(checksum);
+    {
+        Timer timer;
+        std::vector<VARP> last;
+        for (int i = 0; i < loop; ++i) {
+            last = forwardOnce(i);
+        }
+        t.enqueueMs = (float)timer.durationInUs() / 1000.0f / (float)loop;
+        last[0]->readMap<float>();
+        t.wallMs = (float)timer.durationInUs() / 1000.0f / (float)loop;
+        last[0]->unMap();
+    }
+    {
+        Timer timer;
+        std::vector<VARP> last;
+        for (int i = 0; i < loop; ++i) {
+            last = forwardOnce(i);
+            last[0]->readMap<float>();
+            last[0]->unMap();
+        }
+        t.serialMs = (float)timer.durationInUs() / 1000.0f / (float)loop;
+        // The pre-timing checksum alone would pass a round that overflowed mid-loop.
+        t.finite = t.finite && varFinite(last[0]);
+    }
+    t.checksum = checksum;
+    t.enqueueMs /= (float)layers;
+    t.wallMs /= (float)layers;
+    t.serialMs /= (float)layers;
+    if (report) {
+        // serial - enqueue is not GPU time: it is the sync cost plus whatever GPU time the CPU cannot hide.
+        // serial - wall is what overlapping CPU encode with GPU execution buys.
+        MNN_PRINT("seq=%-5d ctx=%-5d per-layer cpu=%7.4f wall=%7.4f serial=%7.4f ms "
+                  "(serial_minus_enqueue=%7.4f overlap=%7.4f) sum=%.6g\n",
+                  seq, decode ? ctx : 0, t.enqueueMs, t.wallMs, t.serialMs, t.serialMs - t.enqueueMs,
+                  t.serialMs - t.wallMs, t.checksum);
+        fflush(stdout);
+    }
+    return t;
+}
+
+} // namespace
+
+class LlmChainSpeedTest : public MNNTestCase {
+public:
+    virtual bool run(int precision) override {
+        auto& st      = MNNTestSuite::get()->pStaus;
+        const auto& m = model();
+        if (0 != m.linearIn.n || 3 != m.qkv.n) {
+            MNN_PRINT("speed/LlmChain: skipped (%s is hybrid; the chain covers dense Qwen3).\n", m.name);
+            return true;
+        }
+        const int headDim = chainHeadDim();
+        if (m.qkv.oc[0] % headDim != 0 || m.qkv.oc[1] % headDim != 0) {
+            MNN_PRINT("speed/LlmChain: headDim=%d does not divide qkv widths.\n", headDim);
+            return false;
+        }
+        int layers = m.layers;
+        if (auto env = getenv("MNN_CHAIN_LAYERS")) {
+            layers = std::max(1, atoi(env));
+        }
+        int rounds = 3;
+        if (auto env = getenv("MNN_CHAIN_ROUNDS")) {
+            rounds = std::max(1, atoi(env));
+        }
+        std::vector<int> seqs = {1, 128, 512};
+        if (auto env = getenv("MNN_CHAIN_SEQ")) {
+            seqs = {atoi(env)};
+        }
+        int ctx = 512;
+        if (auto env = getenv("MNN_CHAIN_CTX")) {
+            ctx = std::max(1, atoi(env));
+        }
+        MNN_PRINT("\n===== %s layer chain (int%d block%d, hidden=%d inter=%d, q=%d kv=%d dim=%d) =====\n", m.name,
+                  bits(), blockSize(), m.hidden, m.inter, m.qkv.oc[0] / headDim, m.qkv.oc[1] / headDim, headDim);
+        MNN_PRINT("forwardType=%d precision=%d layers-per-forward=%d rounds=%d\n", st.forwardType, st.precision, layers,
+                  rounds);
+
+        MNN_PRINT("--- warmup pass (untimed, GPU clock ramp) ---\n");
+        bool shapeOk = true;
+        for (int seq : seqs) {
+            auto w = benchChain(seq, ctx, 2, layers, false);
+            shapeOk = shapeOk && w.shapeOk;
+            MNN_PRINT("warmup seq=%d sum=%.6g\n", seq, w.checksum);
+        }
+        std::vector<ChainTiming> best(seqs.size());
+        std::vector<bool> have(seqs.size(), false);
+        int prefillNonFinite = 0;
+        for (int round = 0; round < rounds; ++round) {
+            for (size_t i = 0; i < seqs.size(); ++i) {
+                const int seq  = seqs[i];
+                const int loop = seq == 1 ? 32 : (seq >= 512 ? 5 : 10);
+                auto t         = benchChain(seq, ctx, loop, layers, true);
+                shapeOk = shapeOk && t.shapeOk;
+                if (seq != 1 && !t.finite) {
+                    ++prefillNonFinite;
+                }
+                // Prefer a finite round: the untrained fp16 chain can overflow on some instantiations.
+                const bool better = !have[i] || (t.finite && !best[i].finite) ||
+                                    (t.finite == best[i].finite && t.wallMs < best[i].wallMs);
+                if (better) {
+                    best[i] = t;
+                    have[i] = true;
+                }
+            }
+        }
+        MNN_PRINT("--- best of %d (per layer) ---\n", rounds);
+        for (size_t i = 0; i < seqs.size(); ++i) {
+            const auto& t = best[i];
+            MNN_PRINT("BEST seq=%-5d cpu=%7.4f wall=%7.4f serial=%7.4f ms  x%d layers=%8.3f ms  sum=%.6g\n", seqs[i],
+                      t.enqueueMs, t.wallMs, t.serialMs, layers, t.wallMs * layers, t.checksum);
+        }
+        if (prefillNonFinite > 0) {
+            MNN_PRINT("note: %d prefill round(s) overflowed fp16 and were excluded from BEST; "
+                      "the untrained chain has a narrow range window (MNN_CHAIN_WSCALE).\n", prefillNonFinite);
+        }
+        bool allFinite = true;
+        for (size_t i = 0; i < seqs.size(); ++i) {
+            if (!best[i].finite) {
+                MNN_ERROR("LlmChain: seq=%d has no finite round -- narrow the range with MNN_CHAIN_WSCALE.\n", seqs[i]);
+                allFinite = false;
+            }
+        }
+        if (!shapeOk) {
+            MNN_ERROR("LlmChain: activation token counts did not match the declared KV add -- "
+                      "the measurements above are not the shapes they claim.\n");
+        }
+
+        // Prefill -> decode -> prefill on one module arms, invalidates and re-arms Encode Replay while the
+        // allocator recycles buffers; a drifting or non-finite sum means a stale recording was replayed.
+        if (nullptr != getenv("MNN_CHAIN_SWITCH")) {
+            MNN_PRINT("--- shape switch (prefill %d -> decode x8 -> prefill %d, one module) ---\n", seqs.back(),
+                      seqs.back());
+            const int S    = seqs.back();
+            auto mod       = makeChainModule(layers);
+            const bool dev = (nullptr == getenv("MNN_FL_HOSTIN"));
+            // The decode leg must feed one token, or the Conv area never drops to 1.
+            auto hS        = makeActivation(S, m.hidden, 0.11f, dev);
+            auto h1        = makeActivation(1, m.hidden, 0.11f, dev);
+            if (hS->getInfo()->dim[0] != S || h1->getInfo()->dim[0] != 1) {
+                MNN_ERROR("LlmChain: switch activations carry the wrong token counts.\n");
+                return false;
+            }
+            auto mask      = _Input({}, NCHW, halide_type_of<float>());
+            mask->writeMap<float>()[0] = 0.0f;
+            auto& meta     = chainMeta();
+            auto runAt     = [&](int seq, int pos) {
+                meta.previous = 0;
+                meta.remove   = 0;
+                meta.add      = seq;
+                auto cos      = ropeTable(seq, pos, headDim, false);
+                auto sin      = ropeTable(seq, pos, headDim, true);
+                auto out      = mod->onForward({hS, mask, cos, sin});
+                double sum    = chainChecksum(out[0]);
+                meta.sync();
+                return sum;
+            };
+            bool ok       = true;
+            double first  = 0.0;
+            for (int round = 0; round < 3; ++round) {
+                double pre = runAt(S, 0);
+                if (0 == round) {
+                    first = pre;
+                }
+                // Decode against the cache the prefill just wrote.
+                meta.previous = S;
+                for (int i = 0; i < 8; ++i) {
+                    meta.remove = 0;
+                    meta.add    = 1;
+                    auto cos    = ropeTable(1, S + i, headDim, false);
+                    auto sin    = ropeTable(1, S + i, headDim, true);
+                    auto out    = mod->onForward({h1, mask, cos, sin});
+                    double sum  = chainChecksum(out[0]);
+                    meta.sync();
+                    if (!std::isfinite(sum)) {
+                        MNN_ERROR("LlmChain: decode step %d produced a non-finite sum.\n", i);
+                        ok = false;
+                    }
+                }
+                double again = runAt(S, 0);
+                if (!std::isfinite(pre) || !std::isfinite(again)) {
+                    MNN_ERROR("LlmChain: non-finite prefill sum (%g / %g).\n", pre, again);
+                    ok = false;
+                } else if (fabs(again - first) > 1e-3 * (fabs(first) + 1.0)) {
+                    MNN_ERROR("LlmChain: prefill sum drifted across the switch: %g -> %g.\n", first, again);
+                    ok = false;
+                }
+                MNN_PRINT("switch r%d prefill=%.6g again=%.6g %s\n", round, pre, again, ok ? "ok" : "MISMATCH");
+            }
+            if (!ok) {
+                return false;
+            }
+        }
+        return allFinite && shapeOk;
+    }
+};
+
+MNNTestSuiteRegister(LlmChainSpeedTest, "speed/LlmChain");
 
 #endif // MNN_LOW_MEMORY
 #endif // MNN_SUPPORT_TRANSFORMER_FUSE

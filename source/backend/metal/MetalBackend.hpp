@@ -76,13 +76,17 @@ struct TunedInfo;
 struct MetalGpuInfo {
     // Die tier (trailing letter of architecture.name), ordered by DRAM
     // bandwidth class; route policy relies on this ordering with >= compares.
-    enum Tier { TierUnknown, TierPhone, TierBase, TierPro, TierMax, TierUltra };
+    // Suffix evidence (public device reports): Mac base 'g' (M2 g14g, M4 g16g, M5 g17g),
+    // Mac Pro/Max 's' (M1 Pro g13s, M5 Pro/Max g17s), Ultra 'd' (g18d), iPhone 'p'
+    // (16 Pro g17p, 17 Pro / Air g18p). TierPhone is retired: 'p' reports TierBase so an
+    // iPhone routes like the same-generation M base; 's' phones were never observed.
+    // One 'p' generation also covers that family's non-Pro chip (g18p = A19 and A19 Pro),
+    // so the suffix cannot separate phone models either - generation alone decides.
+    // The numeric slot stays reserved so historic `[gpuInfo] tier=` values keep their
+    // meaning (2 = Base, 3 = Pro).
+    enum Tier { TierUnknown = 0, TierBase = 2, TierPro = 3, TierMax = 4, TierUltra = 5 };
     int gen = 0;              // 0 = unknown
     Tier tier = TierUnknown;
-    // Device-name prefix "Apple A". Needed apart from tier: recent phones
-    // carry an s-suffix die, so TierPro is phone OR Mac Pro/Studio, and only
-    // aSeries tells them apart (conv1x1 gate/up split-K gate uses it).
-    bool aSeries = false;
 };
 
 class MetalRuntime : public Runtime {
@@ -112,11 +116,9 @@ public:
         return mGpuInfo;
     }
 
-    // ---- Layer 3: route policy (cross-op) ----
-    // Enable the tensor API only where it maps to in-core neural accelerators;
-    // older chips keep the hand-written simdgroup kernels.
-    bool useTensorOps() const {
-        return mUseTensorOps;
+    // Build/device policy permits Tensor API; kernels still need a valid pipeline.
+    bool isSupportTensorApi() const {
+        return mSupportTensorApi;
     }
     void setGpuMode(const int cl_mode_num);
     void setCommandQueue(id<MTLCommandQueue> queue, bool userSync);
@@ -135,6 +137,13 @@ public:
     // failing optional fusion re-compiles from source on every resize.
     void insertPipeline(const std::vector<std::string>& keys, id<MTLComputePipelineState> pipeline) const;
     bool pipelineCompileFailed(const std::vector<std::string>& keys) const;
+#if MNN_METAL_OP_PROFILE
+    // Cache keys a pipeline was compiled with, or nullptr for non-cached pipelines.
+    const std::vector<std::string>* pipelineKeys(id<MTLComputePipelineState> pipeline) const;
+    // Sorted "K=V;..." macros, or nullptr. Several macro sets can share one key list.
+    const std::string* pipelineMacros(id<MTLComputePipelineState> pipeline) const;
+    void recordPipelineMacros(id<MTLComputePipelineState> pipeline, MTLCompileOptions* options) const;
+#endif
     MetalTuneLevel getTuneLevel() {
         return mTuneLevel;
     }
@@ -200,6 +209,10 @@ private:
     BackendConfig mDefaultConfig;
     mutable std::map<std::vector<std::string>, id<MTLComputePipelineState>> mCachePipeine;
     mutable std::set<std::vector<std::string>> mFailedPipeline;
+#if MNN_METAL_OP_PROFILE
+    mutable std::map<id<MTLComputePipelineState>, std::vector<std::string>> mPipelineKeys;
+    mutable std::map<id<MTLComputePipelineState>, std::string> mPipelineMacros;
+#endif
 private:
     // Layer 1: software capability.
     bool mSimdGroupReduce = false;
@@ -207,8 +220,8 @@ private:
     bool mMetal4TensorApi = false;
     // Layer 2: hardware identity.
     MetalGpuInfo mGpuInfo;
-    // Layer 3: cross-op route policy.
-    bool mUseTensorOps = false;
+    // Final capabilities shared by all backends of this runtime.
+    bool mSupportTensorApi = false;
     size_t mMaxThreadSize;
     // Sticky session failure (e.g. iOS discarded the buffer under memory
     // pressure). Never auto-reset: later device->host reads would return
@@ -269,9 +282,6 @@ public:
     static uint8_t* getMemPtr(const MemChunk& chunk);
     static void setBuffer(id<MTLBuffer> buffer, int offset, id<MTLComputeCommandEncoder> encoder, int index);
     static std::pair<id<MTLBuffer>, int> getBuffer(const MNN::Tensor* tensor);
-    // Point `tensor` at `owner`'s allocation at byteOffset, releasing what it
-    // held. Caller must keep `owner` alive and reapply after every resize.
-    static void aliasTensor(const Tensor* tensor, const Tensor* owner, size_t byteOffset);
     size_t getTensorSizeInBytes(const Tensor* tensor) const;
     virtual bool onSelectDynamicAllocator(int index, int maxIndex) override;
     id<MTLBuffer> getHostBuffer(size_t size) const;
@@ -280,7 +290,10 @@ public:
     void markUploadStagingUse(id<MTLBuffer> staging, id<MTLCommandBuffer> cmd) const;
     id<MTLBuffer> getConstBuffer(size_t size) const;
     void returnConstBuffer(id<MTLBuffer> buffer) const;
-    id<MTLComputePipelineState> makeComputePipelineWithSourceOption(const char* csource, const char* cname, MTLCompileOptions *options) const;
+    id<MTLComputePipelineState> makeComputePipelineWithSourceOption(const char* csource, const char* cname,
+                                                                    MTLCompileOptions* options,
+                                                                    bool optional = false) const;
+
 public:
     MetalBackend(const MetalRuntime* runtime, bool usefp16AsFp32, BackendConfig::MemoryMode mode);
     virtual ~MetalBackend();
@@ -384,18 +397,10 @@ public:
         return mMemoryMode;
     }
     bool isSupportTensorApi() const {
-        return mSupportTensorApi;
+        return mRuntime->isSupportTensorApi();
     }
-    // matmul2d input cooperative tensors (single-simdgroup scope), required by
-    // fused attention to pass QK -> PV in registers. Probed apart from the
-    // generic tensor-API flag.
-    bool isSupportTensorCoopInput() const {
-        return mSupportTensorCoopInput;
-    }
-
-    // Export-time fused projection ops (FusedLinear) register here and
-    // onResizeEnd calls them back after the allocator's compute(), since
-    // follower outputs are re-homed to STATIC.
+    // Export-time FusedLinear ops finalize their Decode plans after the
+    // allocator's compute(), when the planned buffer ranges are known.
     class FusedProjFusionHost {
     public:
         virtual ~FusedProjFusionHost() = default;
@@ -435,8 +440,6 @@ public:
     }
 private:
     BackendConfig::MemoryMode mMemoryMode;
-    bool mSupportTensorApi = false;
-    bool mSupportTensorCoopInput = false;
     // Export-time fused projections, in resize order
     std::vector<FusedProjFusionHost*> mFusedProjs;
     std::vector<LinearAttnFoldRequest*> mLinearAttnFolds;

@@ -180,16 +180,16 @@ Metal `llm_demo` 3 轮交替顺序、每轮 113 decode token、输出 md5 一致
 其中 `-30000` 正好是 `AttentionTest.cpp` 里 mask 的常量，说明回收槽位的上一个租户就是前面某个
 attention 测试的 mask——与"blit 还没执行"的诊断交叉印证。
 
-**根因**：`_computePathFlags` 在 encode 期读 `inputs[3]` 的 `buf.contents`，但 host→device 是
-queued blit，此刻目标 buffer 还是回收池的旧内容。原代码里这个读取只喂 `mCausalLayout`（**性能**
-路径），所以脏读最多让那一层丢掉 CAUSAL_TRI / CAUSAL_BOUND / FA / faTc；`DEFAULT_MASK` 只看
+**根因**：路径判定（现 `_collectFacts`，原 `_computePathFlags`）在 encode 期读 `inputs[3]` 的 `buf.contents`，但 host→device 是
+queued blit，此刻目标 buffer 还是回收池的旧内容。原代码里这个读取只喂 causal 判定（**性能**
+路径），所以脏读最多让那一层丢掉 CAUSAL_TRI / CAUSAL_BOUND / 融合 prefill；`DEFAULT_MASK` 只看
 `mKVCache`（形状推导，可靠），正确性无恙。把正确性决策挂到同一个读取上，就把性能隐患升级成了
 错误结果。
 
 **修复**：**取消读值**，改成纯形状判据（rank 0 = 因果，rank 1 且 `elementSize()==1` = 双向，
 rank ≥2 = dense），CPU 与 Metal 共用 `core/AttentionCommon.hpp` 里的同一对 helper。
 形状元数据在 resize 期固定、不可能脏，于是 `mBidirectionalMask` 变得可信，`DEFAULT_MASK` 的门控
-也就安全了。附带修掉了 `mCausalLayout` 的性能非确定性。
+也就安全了。附带修掉了 causal 判定的性能非确定性。
 
 **排除项与它们为什么误导**：
 
@@ -220,6 +220,6 @@ rank ≥2 = dense），CPU 与 Metal 共用 `core/AttentionCommon.hpp` 里的同
 | `source/backend/metal/MetalBackend.mm` | `onCopyBuffer` 三条路径、queued H2D blit、`wait(traceSite)` |
 | `source/backend/metal/MetalEnv.hpp` | `MNN_METAL_H2D_QUEUED` 等开关的解析与默认值 |
 | `source/backend/metal/MetalReplay.hpp` | replay 的安全模型、`bytesArgs`、`metalReplayValidate` 只校验 tensor-backed 绑定 |
-| `source/backend/metal/MetalAttention.mm` | `_makeCopyParam`/`_makeQKVParam`/`_makeSoftmaxParam`（setBytes 范式）、`_computePathFlags`（形状判据）、`onReplayUpdate`（bytesArgs patch 范式） |
+| `source/backend/metal/MetalAttention.mm` | `_makeCopyParam`/`_makeQKVParam`/`_makeSoftmaxParam`（setBytes 范式）、`_collectFacts`（形状判据）、`onReplayUpdate`（bytesArgs patch 范式） |
 | `source/core/AttentionCommon.hpp` | mask 三分类契约，以及"为什么按形状不按值"的完整论证 |
 | `test/op/AttentionTest.cpp` | `op/attention_decode` 的 chunked 子用例（11.1 的回归测试）、`op/attention_cache_bidirectional`（11.2 的回归测试，自证式：两种哨兵必须可分离） |

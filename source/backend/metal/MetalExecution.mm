@@ -8,7 +8,6 @@
 
 #include "MetalExecution.hpp"
 #import "backend/metal/MetalBackend.hpp"
-#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -97,6 +96,10 @@ ErrorCode MetalExecution::onExecute(const std::vector<Tensor *> &inputs, const s
     if (backend->runtime()->runFailed()) {
         return NO_EXECUTION;
     }
+    if (!mValid) {
+        return NOT_SUPPORT;
+    }
+    mEncodeStatus = NO_ERROR;
 #ifdef MNN_SESSION_CPU_TRACE
     auto t0 = std::chrono::steady_clock::now();
 #endif
@@ -122,6 +125,9 @@ ErrorCode MetalExecution::onExecute(const std::vector<Tensor *> &inputs, const s
                 this->onReplayUpdate(inputs, outputs) && metalReplayEmit(mReplayEvents, encoder)) {
                 encoded = true;
                 mReplayFailCount = 0;
+                if (MetalEnv::get().replayDebug) {
+                    MNN_PRINT("[MetalReplay] replay exe=%p events=%zu\n", this, mReplayEvents.size());
+                }
             } else {
                 if (backend->runtime()->runFailed()) {
                     return NO_EXECUTION;
@@ -185,6 +191,12 @@ ErrorCode MetalExecution::onExecute(const std::vector<Tensor *> &inputs, const s
     }
     if (backend->runtime()->runFailed()) {
         return NO_EXECUTION;
+    }
+    if (mEncodeStatus != NO_ERROR) {
+        mReplayEvents.clear();
+        mReplayState = 0;
+        mReplayStable = 0;
+        return mEncodeStatus;
     }
 #if MNN_METAL_OP_PROFILE
     // counter mode: per-op encoder boundary (cheap, same command buffer)

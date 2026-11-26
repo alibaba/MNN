@@ -63,3 +63,8 @@ if (APPLE)
   find_library(FOUNDATION Foundation REQUIRED)
   target_link_libraries(run_test.out ${FOUNDATION})
 endif()
+if (MNN_METAL AND APPLE)
+  # The Metal weight-quant numeric tests are gated on MNN_METAL_ENABLED; mirror
+  # the backend define so they compile. They exercise Metal through the public API.
+  target_compile_definitions(run_test.out PRIVATE MNN_METAL_ENABLED=1)
+endif()
