@@ -17,6 +17,7 @@
 //    - conv1x1_gemm_*_wquant_sg          prefill sg-matrix gemm (W4/8)
 //    - conv1x1_w_dequant + fp gemm       outer-dequant path (W2/3 prefill)
 //    - conv1x1_fused_q4_gemm_stage[_m64] Q4 prefill on tensor-API devices
+//    - conv1x1_fused_q8_gemm_stage_m8    W8 small-area prefill on tensor-API devices
 //  NOT reachable from a single op on such a device (documented, not covered):
 //    - conv1x1_gemv_g8_wquant_sg W2/3 multi-token: only selected when the device
 //      lacks simdgroup-matrix; otherwise W2/3 prefill takes the outer-dequant path
@@ -24,9 +25,9 @@
 //    - fusion variants (GATE_UP_FUSED / QKV_FUSED / LN_FUSED / GEMV_SG_OC_QUADS_2): only built
 //      by fusion leaders inside a full LLM graph, not by an isolated conv op.
 //
-//  Requires the low-memory weight-quant path (MNN_LOW_MEMORY); skipped otherwise.
+//  Requires MNN_METAL_ENABLED and the low-memory weight-quant path (MNN_LOW_MEMORY).
 //
-#ifdef MNN_LOW_MEMORY
+#if defined(MNN_METAL_ENABLED) && MNN_METAL_ENABLED && defined(MNN_LOW_MEMORY)
 
 #include <cmath>
 #include <cstring>
@@ -34,6 +35,7 @@
 #include <MNN/expr/Expr.hpp>
 #include <MNN/expr/ExprCreator.hpp>
 #include <MNN/expr/Executor.hpp>
+#include <MNN/expr/Module.hpp>
 #include "MNNTestSuite.h"
 #include "TestUtils.h"
 #include "CommonOpCreator.hpp"
@@ -246,6 +248,14 @@ public:
             {2048, 64, 8, 16, 128, "fused Q4 GEMM M64 + block128 fp16 metadata", true},
             {2048, 64, 8, 16, 256, "fused Q4 GEMM M64 + block256 fp16 metadata", true},
             {6144, 64, 8, 16, 64, "fused Q4 GEMM M64 + block64 fp16 metadata (96 blocks)", true},
+            {640, 64, 1, 2, 128, "fused Q4 K-split M8 (5 blocks, empty last partition)", true},
+            {768, 64, 1, 2, 128, "fused Q4 K-split M8 (6 blocks, empty last partition)", true},
+            {1152, 64, 1, 9, 128, "fused Q4 K-split M32 (9 blocks, empty last partition)", true},
+            // Area 6..8 on tensor-API devices: W4 takes the K-split M8, W8 the plain M8 twin.
+            {1024, 64, 1, 6, 64, "fused M8 area6 (W4 ksplit / W8 plain)", false},
+            {1024, 64, 1, 7, 128, "fused M8 odd area7 (W4 ksplit / W8 plain)", false},
+            {1024, 64, 1, 8, 128, "fused M8 full tile (W4 ksplit / W8 plain)", false},
+            {1024, 60, 1, 8, 128, "fused M8 oc%64 tail (W4 ksplit / W8 plain)", false},
             {256, 128, 8, 8, 32, "outer-dequant pre-pass + fp gemm (all bits; area=64, ic*oc<4M)", false},
             {2048, 2176, 1, 2, 32, "g4mN multi-token in-shader (W4/8)", false},
             {2048, 2176, 1, 2, 64, "g4mN multi-token + Q4 block64", true},
@@ -264,15 +274,18 @@ public:
             {1536, 60, 1, 1, 48, "2sg decode no-splitk + block48 (default lanes 3)", false},
             {1536, 128, 1, 2, 48, "g4mN multi-token + block48 (lanes 12)", false},
             {1584, 16400, 1, 1, 48, "g16 lm_head + block48 (33 blocks, lanes 12)", false},
+            // heavyMemory (oc>16384, ic*oc>4M): area 4/5 take g4mN unhalved, area 6 falls to the M8 tile.
+            {2048, 16400, 1, 4, 64, "g4m4 lm_head-scale verify width (W4/8)", false},
+            {2048, 16400, 1, 5, 64, "g4m5 lm_head-scale predicate edge (W4/8)", false},
+            {2048, 16400, 1, 6, 64, "M8 tile lm_head-scale past the edge (W4/8)", false},
             {4096, 64, 1, 1, 128, "2sg decode tg4 + block128 (all bits, W3 cache-line lanes)", false},
         };
 
         bool allPass = true;
+        int ran = 0;
         for (auto& s : shapes) {
-            // g4mN / in-shader gemm kernels have no true W2/3 branches: when area>1 and
-            // ic*oc is large enough to keep W4/8 in-shader, W2/3 is routed to the
-            // outer-dequant path instead (already covered by the area=64 shape above), so
-            // skip W2/3 for exactly those two shapes.
+            // g4mN / in-shader gemm kernels have no true W2/3 branches: area>1 with
+            // ic*oc>4M routes W2/3 to outer-dequant instead, covered by the area=64 shape.
             bool skipW23 = (s.ih * s.iw > 1) && ((size_t)s.ic * s.oc > (size_t)4 * 1024 * 1024);
             // Decode routes are shared by Q4 and Q8, so q4Only decode shapes also run W8.
             const bool w8Decode = s.ih * s.iw == 1;
@@ -285,6 +298,7 @@ public:
                 }
                 for (bool async : {false, true}) {
                     bool ok = testUnit(type, s.ic, s.oc, s.ih, s.iw, s.blockSize, nbit, async, precision, s.kernelNote);
+                    ++ran;
                     if (!ok) {
                         allPass = false;
                     }
@@ -292,7 +306,7 @@ public:
             }
         }
         if (allPass) {
-            MNN_PRINT("MetalConvWQuant all cases passed.\n");
+            MNN_PRINT("MetalConvWQuant all %d cases passed.\n", ran);
         }
         return allPass;
     }
@@ -554,4 +568,385 @@ private:
 };
 MNNTestSuiteRegister(MetalConvLmHeadTest, "op/conv_wquant_metal/lm_head");
 
-#endif // MNN_LOW_MEMORY
+// The Q4 four-way K-split re-creates mKsplitPartial on every size change but keeps the same pipeline,
+// so a surviving recording would hold a freed Tensor* and a stale grid.
+class MetalConvReplaySwitchTest : public MNNTestCase {
+public:
+    virtual ~MetalConvReplaySwitchTest() = default;
+
+    bool runSequence(int ic, int oc, int blockSize, const std::vector<int>& areas, const char* tag, int precision,
+                     int bits = 4) {
+        std::vector<float> weight((size_t)oc * ic);
+        for (size_t i = 0; i < weight.size(); ++i) {
+            weight[i] = ((float)((i * 1103515245u + 12345u) % 65536) / 65536.0f) - 0.5f;
+        }
+        std::vector<float> bias(oc);
+        for (int o = 0; o < oc; ++o) {
+            bias[o] = ((float)((o * 2654435761u) % 65536) / 65536.0f) - 0.5f;
+        }
+        std::vector<float> alpha;
+        quantizeDequantize(weight, alpha, ic, oc, blockSize, bits, true);
+
+        // StaticModule keeps the Execution across resizes; a lazy Express graph rebuilds it and hides the hazard.
+        auto x0 = _Input({1, ic, 1, areas[0]}, NCHW, halide_type_of<float>());
+        auto y0 = _HybridConv(weight, bias, alpha, x0, {ic, oc}, {1, 1}, CAFFE, {1, 1}, {1, 1}, 1, {0, 0}, false, false,
+                              bits, true);
+        y0 = _Convert(y0, NCHW);
+        auto buffer = Variable::save({y0});
+        MNN::ScheduleConfig config;
+        config.type = MNN_FORWARD_METAL;
+        config.numThread = 1;
+        BackendConfig bnConfig;
+        bnConfig.precision = (BackendConfig::PrecisionMode)precision;
+        bnConfig.memory = BackendConfig::Memory_Low;
+        config.backendConfig = &bnConfig;
+        std::shared_ptr<Executor::RuntimeManager> rtmgr(Executor::RuntimeManager::createRuntimeManager(config));
+        std::shared_ptr<Module> module(Module::load({}, {}, (uint8_t*)buffer.data(), buffer.size(), rtmgr));
+        if (nullptr == module) {
+            MNN_ERROR("ConvReplaySwitch: module load failed (%s)\n", tag);
+            return false;
+        }
+
+        for (int area : areas) {
+            std::vector<float> input((size_t)ic * area);
+            for (size_t i = 0; i < input.size(); ++i) {
+                input[i] = ((float)((i * 40503u) % 65536) / 65536.0f) - 0.5f;
+            }
+            std::vector<float> ref;
+            referenceConv1x1(input, weight, bias, ref, ic, oc, area, false, false);
+            auto x = _Input({1, ic, 1, area}, NCHW, halide_type_of<float>());
+            ::memcpy(x->writeMap<float>(), input.data(), input.size() * sizeof(float));
+            x->unMap();
+            auto runOnce = [&](const std::vector<float>& expect, int rep) {
+                VARP out = module->onForward({x})[0];
+                auto ptr = out->readMap<float>();
+                if (nullptr == ptr) {
+                    MNN_ERROR("ConvReplaySwitch: readMap null area=%d\n", area);
+                    return false;
+                }
+                bool ok = checkVectorByRelativeError<float>(ptr, expect.data(), (int)expect.size(), 0.005f);
+                out->unMap();
+                if (!ok) {
+                    MNN_ERROR("ConvReplaySwitch FAILED: %s area=%d rep=%d ic=%d oc=%d block=%d\n", tag, area, rep, ic,
+                              oc, blockSize);
+                }
+                return ok;
+            };
+            for (int rep = 0; rep <= 3; ++rep) {
+                if (!runOnce(ref, rep)) {
+                    return false;
+                }
+            }
+            // Same shape and buffer, new content: a stale replay must not serve the recorded result.
+            for (size_t i = 0; i < input.size(); ++i) {
+                input[i] = ((float)((i * 22695477u + 1u) % 65536) / 65536.0f) - 0.5f;
+            }
+            std::vector<float> ref2;
+            referenceConv1x1(input, weight, bias, ref2, ic, oc, area, false, false);
+            ::memcpy(x->writeMap<float>(), input.data(), input.size() * sizeof(float));
+            x->unMap();
+            for (int rep = 4; rep <= 5; ++rep) {
+                if (!runOnce(ref2, rep)) {
+                    return false;
+                }
+            }
+        }
+        MNN_PRINT("ConvReplaySwitch passed: %s (ic=%d oc=%d block=%d, %d areas x6)\n", tag,
+                  ic, oc, blockSize, (int)areas.size());
+        return true;
+    }
+
+    virtual bool run(int precision) override {
+        if (MNNTestSuite::get()->pStaus.forwardType != MNN_FORWARD_METAL) {
+            MNN_PRINT("ConvReplaySwitch: skipped (Metal-only test, run with backend=1).\n");
+            return true;
+        }
+        MNN_PRINT("\n## ConvReplaySwitch (precision=%d)\n", precision);
+        // blockCount 9 >= 4 and UP_DIV(oc,64) <= 48 keep the four-way K-split on.
+        return runSequence(1152, 64, 128, {16, 24, 32, 16}, "M32 ksplit partial growth", precision) &&
+               runSequence(1152, 64, 128, {2, 4, 6, 7, 8, 2}, "M8 ksplit partial growth", precision) &&
+               runSequence(1152, 64, 128, {1, 16, 24, 1, 32, 16}, "decode/prefill route switch", precision) &&
+               runSequence(1024, 64, 128, {1, 4, 64, 512, 1}, "W4 prefill stages", precision) &&
+               runSequence(1024, 64, 128, {1, 4, 64, 512, 1}, "W8 prefill stages", precision, 8) &&
+               runSequence(1024, 64, 16, {1, 4, 64, 512, 1}, "SG block-alignment fallback", precision);
+    }
+};
+MNNTestSuiteRegister(MetalConvReplaySwitchTest, "op/conv_replay_switch_metal");
+
+// Area 2..5 takes the in-shader g4mN GEMV ladder by default; larger areas cover the tile chain instead.
+// Cases span the piece=1/2 halving boundary, odd areas and lane counts, and heavyMemory which blocks halving.
+class MetalConvPrefillGemvTest : public MNNTestCase {
+public:
+    virtual ~MetalConvPrefillGemvTest() = default;
+
+    virtual bool run(int precision) override {
+        auto status = MNNTestSuite::get()->pStaus;
+        if (status.forwardType != MNN_FORWARD_METAL) {
+            MNN_PRINT("ConvPrefillGemv: skipped (Metal-only test, run with backend=1).\n");
+            return true;
+        }
+        BackendConfig bnConfig;
+        bnConfig.precision = (BackendConfig::PrecisionMode)precision;
+        bnConfig.memory    = BackendConfig::Memory_Low;
+        auto exe = Executor::newExecutor(MNN_FORWARD_METAL, bnConfig, 1);
+        ExecutorScope scope(exe);
+        MNN_PRINT("\n## ConvPrefillGemv (precision=%d)\n", precision);
+
+        struct Case { int ic, oc, area, blockSize, nbit; bool async; };
+        const Case cases[] = {
+            {1024, 64,    2,  64,  4, true},
+            {1024, 64,    3,  64,  4, true},
+            {1024, 64,    5,  64,  4, true},
+            {1024, 64,    7,  64,  4, true},
+            {1024, 64,    8,  64,  4, true},
+            {1024, 64,    12, 64,  4, true},
+            {1024, 64,    15, 64,  4, true},
+            {1024, 64,    16, 64,  4, true},
+            {1152, 128,   9,  128, 4, true},
+            {1536, 60,    6,  48,  4, false},
+            {2048, 2176,  4,  64,  8, true},
+            {2048, 2176,  16, 64,  4, true},
+            {1024, 64,    8,  64,  8, true},
+            {1024, 64,    8,  64,  2, true},
+            {1024, 64,    8,  64,  3, true},
+            {1024, 16512, 8,  64,  4, true},
+            // At lm_head scale the g4mN branch preempts the g16 kernel that area 1 uses.
+            {1024, 16512, 4,  64,  4, true},
+            {1024, 16512, 5,  64,  4, true},
+            // Real Qwen3-0.6B verify-width projections (q_proj / down).
+            {1024, 2048,  4,  64,  4, true},
+            {3072, 1024,  4,  64,  4, true},
+            // oc%4!=0 tail threadgroup, non-power-of-two lanesPerBlock (12).
+            {1536, 62,    4,  48,  4, false},
+            // Odd blockCount 9 at piece=1: leftover-lane handling without the halving.
+            {1152, 128,   4,  128, 4, true},
+            // W8B64 is a shipped config: gate_up and lm_head scale at the verify width.
+            {1024, 3072,  4,  64,  8, true},
+            {1024, 16512, 4,  64,  8, true},
+        };
+        MetalConvWQuantTest unit;
+        int n = 0;
+        for (const auto& c : cases) {
+            if (!unit.testUnit(MNN_FORWARD_METAL, c.ic, c.oc, 1, c.area, c.blockSize, c.nbit, c.async, precision,
+                               "prefill-gemv")) {
+                MNN_ERROR("ConvPrefillGemv FAILED: ic=%d oc=%d area=%d block=%d w%d async=%d\n", c.ic, c.oc, c.area,
+                          c.blockSize, c.nbit, (int)c.async);
+                return false;
+            }
+            ++n;
+        }
+        MNN_PRINT("ConvPrefillGemv passed: %d prefill shapes x3 activations\n", n);
+        return true;
+    }
+};
+MNNTestSuiteRegister(MetalConvPrefillGemvTest, "op/conv_prefill_gemv_metal");
+
+// MetalFusedProj::onEncode calls the children directly, so a child's scratch re-creation is invisible to
+// the owner's generation counter and to metalReplayValidate; the owner must consult the children first.
+class MetalFusedProjReplaySwitchTest : public MNNTestCase {
+public:
+    virtual ~MetalFusedProjReplaySwitchTest() = default;
+
+    // FusedLinear keeps tokens in dim 0 with NC4HW4 storage: plain [seq][channel] packs as [c/4][seq][4].
+    static std::vector<float> packC4(const std::vector<float>& plain, int seq, int channel) {
+        std::vector<float> out(((channel + 3) / 4) * seq * 4, 0.0f);
+        for (int t = 0; t < seq; ++t) {
+            for (int c = 0; c < channel; ++c) {
+                out[(c / 4) * seq * 4 + t * 4 + (c % 4)] = plain[t * channel + c];
+            }
+        }
+        return out;
+    }
+
+    // `weight` stays dequantized for the fp32 reference.
+    static std::unique_ptr<Convolution2DT> member(int ic, int oc, int blockSize, int seed,
+                                                  std::vector<float>& weight, std::vector<float>& bias) {
+        weight.resize((size_t)oc * ic);
+        for (size_t i = 0; i < weight.size(); ++i) {
+            weight[i] = ((float)(((i + (size_t)seed) * 1103515245u + 12345u) % 65536) / 65536.0f) - 0.5f;
+        }
+        bias.resize(oc);
+        for (int o = 0; o < oc; ++o) {
+            bias[o] = ((float)(((o + seed) * 2654435761u) % 65536) / 65536.0f) - 0.5f;
+        }
+        std::vector<float> alpha;
+        quantizeDequantize(weight, alpha, ic, oc, blockSize, 4, true);
+        std::unique_ptr<Convolution2DT> conv(new Convolution2DT);
+        conv->common.reset(new Convolution2DCommonT);
+        conv->common->kernelX     = 1;
+        conv->common->kernelY     = 1;
+        conv->common->inputCount  = ic;
+        conv->common->outputCount = oc;
+        conv->bias                = bias;
+        conv->quanParameter = IDSTEncoder::encode(weight.data(), alpha, blockSize, oc * (ic / blockSize), true,
+                                                  nullptr, -8, {4, false});
+        return conv;
+    }
+
+    // x: [seq][ic], w: [oc][ic] -> out: [seq][oc]
+    static void convRef(const std::vector<float>& x, const std::vector<float>& w, const std::vector<float>& b,
+                        std::vector<float>& out, int seq, int ic, int oc) {
+        out.assign((size_t)seq * oc, 0.0f);
+        for (int t = 0; t < seq; ++t) {
+            for (int o = 0; o < oc; ++o) {
+                float sum = b[o];
+                for (int i = 0; i < ic; ++i) {
+                    sum += w[(size_t)o * ic + i] * x[(size_t)t * ic + i];
+                }
+                out[(size_t)t * oc + o] = sum;
+            }
+        }
+    }
+
+    bool runGroup(bool gateUp, const std::vector<int>& areas, const char* tag, int precision) {
+        const int ic = 1152, oc = 64, blockSize = 128;
+        const int numMembers = gateUp ? 2 : 3;
+        const int numOuts    = gateUp ? 1 : numMembers;
+        std::vector<std::vector<float>> weights(numMembers), biases(numMembers);
+        std::unique_ptr<OpT> op(new OpT);
+        op->type                   = OpType_FusedLinear;
+        op->main.type              = OpParameter_FusedLinearParam;
+        op->main.value             = new FusedLinearParamT;
+        op->defaultDimentionFormat = MNN_DATA_FORMAT_NC4HW4;
+        auto param                 = op->main.AsFusedLinearParam();
+        param->act_silu_mul        = gateUp;
+        param->has_ln              = false;
+        for (int i = 0; i < numMembers; ++i) {
+            param->convs.push_back(member(ic, oc, blockSize, 17 * i + 3, weights[i], biases[i]));
+        }
+
+        auto x0   = _Input({areas[0], ic, 1, 1}, NC4HW4);
+        auto expr = Expr::create(std::move(op), {x0}, numOuts);
+        std::vector<VARP> ys;
+        for (int i = 0; i < numOuts; ++i) {
+            ys.push_back(Variable::create(expr, i));
+        }
+        auto buffer = Variable::save(ys);
+        MNN::ScheduleConfig config;
+        config.type      = MNN_FORWARD_METAL;
+        config.numThread = 1;
+        BackendConfig bnConfig;
+        bnConfig.precision = (BackendConfig::PrecisionMode)precision;
+        bnConfig.memory    = BackendConfig::Memory_Low;
+        config.backendConfig = &bnConfig;
+        std::shared_ptr<Executor::RuntimeManager> rtmgr(Executor::RuntimeManager::createRuntimeManager(config));
+        std::shared_ptr<Module> module(Module::load({}, {}, (uint8_t*)buffer.data(), buffer.size(), rtmgr));
+        if (nullptr == module) {
+            MNN_ERROR("FusedProjReplaySwitch: module load failed (%s)\n", tag);
+            return false;
+        }
+
+        for (int area : areas) {
+            std::vector<float> input((size_t)ic * area);
+            for (size_t i = 0; i < input.size(); ++i) {
+                input[i] = ((float)((i * 40503u) % 65536) / 65536.0f) - 0.5f;
+            }
+            std::vector<std::vector<float>> refs(numMembers);
+            for (int i = 0; i < numMembers; ++i) {
+                convRef(input, weights[i], biases[i], refs[i], area, ic, oc);
+            }
+            std::vector<std::vector<float>> expected(numOuts);
+            if (gateUp) {
+                // MUL_SILU convention: in0 = up (member 1), in1 = gate (member 0).
+                expected[0].resize((size_t)area * oc);
+                for (size_t k = 0; k < expected[0].size(); ++k) {
+                    const float g  = refs[0][k];
+                    expected[0][k] = refs[1][k] * (g / (1.0f + std::exp(-g)));
+                }
+            } else {
+                expected = refs;
+            }
+            std::vector<std::vector<float>> packed(numOuts);
+            for (int i = 0; i < numOuts; ++i) {
+                packed[i] = packC4(expected[i], area, oc);
+            }
+
+            auto x = _Input({area, ic, 1, 1}, NC4HW4);
+            auto xC4 = packC4(input, area, ic);
+            ::memcpy(x->writeMap<float>(), xC4.data(), xC4.size() * sizeof(float));
+            x->unMap();
+            // Two stable fingerprints arm the recording on the third forward; the fourth replays it.
+            for (int rep = 0; rep < 4; ++rep) {
+                auto outs = module->onForward({x});
+                if ((int)outs.size() != numOuts) {
+                    MNN_ERROR("FusedProjReplaySwitch: %s area=%d got %zu outputs\n", tag, area, outs.size());
+                    return false;
+                }
+                for (int i = 0; i < numOuts; ++i) {
+                    auto ptr = outs[i]->readMap<float>();
+                    if (nullptr == ptr) {
+                        MNN_ERROR("FusedProjReplaySwitch: readMap null %s area=%d out=%d\n", tag, area, i);
+                        return false;
+                    }
+                    if (!checkVector<float>(ptr, packed[i].data(), (int)packed[i].size(), 0.005f)) {
+                        MNN_ERROR("FusedProjReplaySwitch FAILED: %s area=%d rep=%d out=%d\n", tag, area, rep, i);
+                        return false;
+                    }
+                    outs[i]->unMap();
+                }
+            }
+        }
+        MNN_PRINT("FusedProjReplaySwitch passed: %s (%d members, %d areas x4)\n", tag, numMembers, (int)areas.size());
+        return true;
+    }
+
+    virtual bool run(int precision) override {
+        if (MNNTestSuite::get()->pStaus.forwardType != MNN_FORWARD_METAL) {
+            MNN_PRINT("FusedProjReplaySwitch: skipped (Metal-only test, run with backend=1).\n");
+            return true;
+        }
+        MNN_PRINT("\n## FusedProjReplaySwitch (precision=%d)\n", precision);
+        // Area >= 128 reaches the gate/up dual fold, where the gate child never encodes.
+        // Area 4 loses decode-fusion eligibility to the g4mN ladder, so the owner must switch structure there.
+        return runGroup(false, {16, 24, 32, 128, 16}, "QKV no-LN (owner generation never moves)", precision) &&
+               runGroup(false, {1, 4, 16, 128, 1, 4, 24, 128, 16}, "QKV decode/prefill switch", precision) &&
+               runGroup(true, {16, 24, 32, 128, 192, 16}, "GateUp silu-mul/dual fold", precision) &&
+               runGroup(true, {1, 4, 16, 128, 1, 192, 128, 4, 16}, "GateUp decode/prefill switch", precision);
+    }
+};
+MNNTestSuiteRegister(MetalFusedProjReplaySwitchTest, "op/fused_proj_replay_switch_metal");
+
+// Gates the in-kernel 32x64 wquant split-k tile lowered to area 64-127 small weight
+// (non-tensor regime). Run with the local probe forcing non-tensor + wquant small.
+class MetalConvWqSmallTileTest : public MNNTestCase {
+public:
+    virtual bool run(int precision) override {
+        auto status = MNNTestSuite::get()->pStaus;
+        if (status.forwardType != MNN_FORWARD_METAL) {
+            MNN_PRINT("ConvWqSmallTile: skipped (Metal-only, backend=1).\n");
+            return true;
+        }
+        BackendConfig bnConfig;
+        bnConfig.precision = (BackendConfig::PrecisionMode)precision;
+        bnConfig.memory = BackendConfig::Memory_Low;
+        auto exe = Executor::newExecutor(MNN_FORWARD_METAL, bnConfig, 1);
+        ExecutorScope scope(exe);
+        MNN_PRINT("\n## ConvWqSmallTile (precision=%d)\n", precision);
+        struct Case { int ic, oc, area, blockSize; };
+        const Case cases[] = {
+            {1024, 1024, 64, 64},  {1024, 1024, 96, 64},  {1024, 1024, 127, 64}, {1024, 1024, 128, 64},
+            {1536, 1536, 96, 64},  {2048, 2048, 64, 64},  {2048, 2048, 96, 64},  {2048, 2048, 127, 64},
+            {1024, 2048, 96, 64},  {2048, 1024, 96, 64},
+        };
+        MetalConvWQuantTest unit;
+        int n = 0;
+        for (auto& c : cases) {
+            for (int nbit : {4, 8}) {
+                for (bool async : {false, true}) {
+                    if (!unit.testUnit(MNN_FORWARD_METAL, c.ic, c.oc, 1, c.area, c.blockSize, nbit, async, precision,
+                                       "wq-small-tile")) {
+                        MNN_ERROR("ConvWqSmallTile FAILED: ic=%d oc=%d area=%d block=%d w%d async=%d\n", c.ic, c.oc,
+                                  c.area, c.blockSize, nbit, (int)async);
+                        return false;
+                    }
+                    ++n;
+                }
+            }
+        }
+        MNN_PRINT("ConvWqSmallTile passed: %d cases\n", n);
+        return true;
+    }
+};
+MNNTestSuiteRegister(MetalConvWqSmallTileTest, "op/conv_wq_small_tile_metal");
+
+#endif // MNN_METAL_ENABLED && MNN_LOW_MEMORY

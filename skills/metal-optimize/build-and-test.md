@@ -91,9 +91,9 @@ EOF
 
 | 维度 | 覆盖点 | 为什么 |
 |---|---|---|
-| **Prompt 长度** | 短 (~50 tok) + 中 (~512 tok) + 长 (~2048 tok) | 触发不同 kernel 路径（mShortSeq / mQkSimdMatrix / mQkTensorMatrix / mFlashAttnPrefill） |
+| **Prompt 长度** | 短 (~50 tok) + 中 (~512 tok) + 长 (~2048 tok) | 触发不同 kernel 路径（`AttnRoute`：decode/prefill × sdpa/faTc/faSg/三段，及 `qkSimdMatrix` / `qkTensorMatrix` 特化） |
 | **FA on / off** | config `attention_mode` ∈ {8, 10}（FA on）与 {0, 1, 2}（FA off）各一份 | 决定走 flash-attn 还是三段 pipeline (prefill_qk[_tensor] + softmax + prefill_qkv[_tensor])。两条路径都要正确（无 env 覆盖，改 config 换路） |
-| **CAUSAL_TRI（数据驱动，无 env）** | 用真实 mask 张量 vs 标量哨兵 mask 两类模型覆盖 | causal-tri/bound 现由 `mCausalLayout`（inputs[3] 形状）自动 gate，非手动 env。**任何 attention/softmax 改动都要同时覆盖 causal（标量 mask）与非 causal（真实张量 mask）两条路径**，见下方 § "Attention causal 假设" |
+| **CAUSAL_TRI（数据驱动，无 env）** | 用真实 mask 张量 vs 标量哨兵 mask 两类模型覆盖 | causal-tri/bound 现由 `AttnFacts::causal`（inputs[3] 形状）自动 gate，非手动 env。**任何 attention/softmax 改动都要同时覆盖 causal（标量 mask）与非 causal（真实张量 mask）两条路径**，见下方 § "Attention causal 假设" |
 | **每一个新增 env var** | 默认（不设）+ 每个显式值都跑一遍 | Env 只在 static 初始化时读一次（`static const int kX = getenv(...)`），不同值 = 完全不同分支 |
 | **至少 2 个模型 shape** | `head_dim ∈ {64, 128, 256}` × `group_size ∈ {1, 2, 4, 8}` | Qwen3-0.6B (D=128, G=2)、Qwen3-4B (D=128, G=4)、Qwen3.5-2B (D=256, G=4) — 每个都可能踩不同 layout / stride 分支 |
 | **Mask 语义（数据驱动）** | 非 causal 模型（SWA / prefix LM / bidirectional）**无需再设 env** | Metal 从 mask 张量形状自动判定：真实张量 ⇒ 逐元素 honor、关全部 causal 优化；标量/无 mask+kvcache ⇒ causal。若非 causal 仍乱码，查 `gen_attention_mask` 是否为该模型产出真实张量 mask（非误走标量）。详见下方 § "Attention causal 假设"。 |
@@ -205,7 +205,7 @@ diff off.log on.log
 Metal 后端**两条** prefill attention 路径**都硬编码了 "attention mask 是 causal lower-triangular" 的假设**，运行时不做验证：
 
 - **三段路径**（`prefill_qk[_tensor]` + `softmax` + `prefill_qkv[_tensor]`）：CAUSAL_TRI host 只 dispatch 对角线以下 tile；CAUSAL_BOUND softmax 只归约 valid prefix + zero-pad；AV 用 `av_k_upper` 早退。**违反假设 → 上三角"应有效"位置被静默丢弃**。见 `MetalAttentionShader.hpp:558/651` 的 `Assumption:` 注释。
-- **FA 路径**（`prefill_flash_attn`）：`in_bounds = (kv_col_abs <= q_abs + kv_valid_offset)` hard-code causal。见 `MetalAttention.mm:531`。
+- **融合 prefill 路径**（`prefill_flash_attn_tc` / `prefill_flash_attn_sg`）：整 tile causal early-exit + `in_bounds` 形式的对角线判定，hard-code causal。两者都由路由的 `fusedPrefillOk` 门控（要求 `mFacts.causal`），非 causal 形态根本不会选到它们。
 
 **因此以下模型加载 Metal 后端会静默错**（不崩、不 warning、只是输出乱）：
 
@@ -237,5 +237,5 @@ diff <(awk '/^prompt file is/{f=1;next}/^#####/{f=0}f' /tmp/a.log) \
 - 加载 SWA / prefix / bidirectional 模型：**无需再设任何 env**（数据驱动）；真实张量 mask 自动触发逐元素 honor、关掉 causal-tri/bound/FA。前提是 `gen_attention_mask` 为该模型产出真实张量 mask（SWA 走 `attention_type=mix` 双平面；确认导出 config 正确）
 - 不确定模型是不是 causal：读 HF `config.json` 里有没有 `sliding_window` / `attention_bias` / `is_encoder_decoder` 字段
 
-**注意**：causal-tri/bound 及 FA-v1/faTc 的 causal 假设现由 `mCausalLayout`（inputs[3] 形状）统一 gate。真实张量 mask 会一并关掉 FA（含 FA-v1 那条以前无 opt-out 的路径）。
+**注意**：causal-tri/bound 及两条融合 prefill（faTc / faSg）的 causal 假设现由 `AttnFacts::causal`（inputs[3] 形状）统一 gate。真实张量 mask 会一并关掉它们。
 

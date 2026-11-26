@@ -70,8 +70,8 @@ struct MetalEnv {
     const char* opProfileTimeline;
     // MNN_METAL_OP_PROFILE_LEGACY=1: per-op command-buffer profile mode.
     bool opProfileLegacy;
-    // MNN_METAL_PIPELINE_INFO=1: log kernel name, occupancy limits, and
-    // specialization macros for every source-compiled pipeline.
+    // MNN_METAL_PIPELINE_INFO=1: log device identity (gen/tier/cores) plus kernel
+    // name, occupancy limits, and specialization macros for each compiled pipeline.
     bool pipelineInfo;
 
     static const MetalEnv& get() {

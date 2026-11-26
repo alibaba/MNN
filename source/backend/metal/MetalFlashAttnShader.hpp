@@ -2,309 +2,11 @@
 //  MetalFlashAttnShader.hpp
 //  MNN
 //
-//  Fused prefill flash-attention Metal kernel (online softmax).
-//  Pipeline-compile macros: ftype, HEAD_DIM (64/128/256), GROUP_SIZE, HAS_MASK,
-//  ATTENTION_C4, QUANT_K/QUANT_V (int8 K/V with per-token scale+bias).
-//  Tile: Q_TILE=16, KV_TILE=32, 4 simdgroups per threadgroup.
+//  Fused prefill flash-attention Metal kernels: online softmax, score never materialized.
 //
 
 #if MNN_METAL_ENABLED
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
-
-const char* gPrefillFlashAttn = R"metal(
-#include <metal_stdlib>
-#include <simd/simd.h>
-using namespace metal;
-
-struct FaParam {
-    int query_seq_len;
-    int q_seq_piece_len;
-    int key_seq_len;
-    int head_num;
-    int group;
-    int head_dim;
-    float scale;
-    int max_kv_len;
-    int batch;
-    int kv_align_len;
-    int mask_batch;
-    int mask_head_num;
-    int mask_q_len;
-    int mask_k_len;
-    float v_scale;
-    float k_scale;
-};
-
-static inline long fa_mask_offset(constant FaParam& param, int b, int hn, int q, int k) {
-    int mask_b = param.mask_batch <= 1 ? 0 : b;
-    int mask_h = param.mask_head_num <= 1 ? 0 : hn;
-    int mask_q = param.mask_q_len <= 1 ? 0 : min(q, param.mask_q_len - 1);
-    int mask_k_start = max(param.key_seq_len - param.mask_k_len, 0);
-    int local_k = param.mask_k_len <= 1 ? 0 : clamp(k - mask_k_start, 0, param.mask_k_len - 1);
-    return ((long(mask_b) * param.mask_head_num + mask_h) * param.mask_q_len + mask_q) * (long)param.mask_k_len + local_k;
-}
-
-#define Q_TILE      16
-#define KV_TILE     32
-#define NSG         4
-#define NQ_PER_SG   (Q_TILE / NSG)                    // 4
-#define NO_PER_SG   ((HEAD_DIM / 8) / NSG)            // 2 (D=64) or 4 (D=128)
-
-kernel void prefill_flash_attn(
-    const device ftype* Q       [[buffer(0)]],
-    device ftype* O             [[buffer(1)]],
-#ifdef QUANT_K
-    const device char* K        [[buffer(2)]],
-#else
-    const device ftype* K       [[buffer(2)]],
-#endif
-#ifdef QUANT_V
-    const device char* V        [[buffer(3)]],
-#else
-    const device ftype* V       [[buffer(3)]],
-#endif
-    constant FaParam& param     [[buffer(4)]],
-    constant int& seq_idx       [[buffer(5)]],
-    constant int& kv_start_arg  [[buffer(6)]],
-    constant int& kv_len_arg    [[buffer(7)]],
-#ifdef HAS_MASK
-    const device ftype* Mask    [[buffer(8)]],
-#endif
-#ifdef QUANT_K
-    const device ftype* k_scales [[buffer(9)]],
-#endif
-#ifdef QUANT_V
-    const device ftype* v_scales [[buffer(10)]],
-#endif
-    uint3 tgpig  [[threadgroup_position_in_grid]],
-    ushort tiisg [[thread_index_in_simdgroup]],
-    ushort sgitg [[simdgroup_index_in_threadgroup]])
-{
-    const int block_q = int(tgpig.x);
-    const int hb      = int(tgpig.y);
-    const int b       = hb / param.head_num;
-    const int h       = hb % param.head_num;
-    const int kh      = h / param.group;
-
-    const int seq_q            = param.query_seq_len;
-    const int seq_k            = param.key_seq_len;
-    const int kv_valid_offset  = seq_k - seq_q;
-    const int q_row_base       = block_q * Q_TILE + seq_idx * param.q_seq_piece_len;
-    const int kv_heads         = param.head_num / param.group;
-
-    threadgroup half  sq[Q_TILE * HEAD_DIM];
-    threadgroup float sf[Q_TILE * KV_TILE];
-    threadgroup half  ss[Q_TILE * KV_TILE];
-    threadgroup float so[Q_TILE * HEAD_DIM];
-#ifdef QUANT_K
-    // Per-SG 8x8 scratch for dequanting K int8 -> fp16 before simdgroup_load.
-    threadgroup half sK[NSG * 8 * 8];
-#endif
-#ifdef QUANT_V
-    threadgroup half sV[NSG * 8 * 8];
-#endif
-
-    const int tid = int(sgitg) * 32 + int(tiisg);
-
-    // Zero O accumulator
-    for (int i = tid; i < Q_TILE * HEAD_DIM; i += NSG * 32) {
-        so[i] = 0.0f;
-    }
-
-    // Load Q tile
-    for (int i = tid; i < Q_TILE * HEAD_DIM; i += NSG * 32) {
-        int row   = i / HEAD_DIM;
-        int col   = i % HEAD_DIM;
-        int q_row = q_row_base + row;
-        if (q_row < seq_q) {
-            long q_off = ((long)(b * seq_q + q_row) * param.head_num + h) * param.head_dim + col;
-            sq[i] = half(Q[q_off]);
-        } else {
-            sq[i] = half(0.0f);
-        }
-    }
-
-    float M[NQ_PER_SG];
-    float S[NQ_PER_SG];
-    for (int j = 0; j < NQ_PER_SG; j++) {
-        M[j] = -INFINITY;
-        S[j] = 0.0f;
-    }
-
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-
-    const int kv_end = kv_start_arg + kv_len_arg;
-    for (int kv_block = kv_start_arg; kv_block < kv_end; kv_block += KV_TILE) {
-        // Whole-tile causal early-exit
-        int max_attend_k = q_row_base + Q_TILE - 1 + kv_valid_offset;
-        if (kv_block > max_attend_k) {
-            break;
-        }
-
-        // ============ (1) QK: Q * K^T -> sf ============
-        // Each SG owns 8 kv cols, spans all 16 Q rows -> 2 stacked 8x8 accumulators.
-        {
-            const int col_base = int(sgitg) * 8;
-            simdgroup_float8x8 mQK_top = make_filled_simdgroup_matrix<float, 8>(0.0f);
-            simdgroup_float8x8 mQK_bot = make_filled_simdgroup_matrix<float, 8>(0.0f);
-
-            for (int k_step = 0; k_step < HEAD_DIM; k_step += 8) {
-                simdgroup_half8x8 mQ_top;
-                simdgroup_half8x8 mQ_bot;
-                simdgroup_load(mQ_top, sq + k_step, HEAD_DIM);
-                simdgroup_load(mQ_bot, sq + 8 * HEAD_DIM + k_step, HEAD_DIM);
-
-                const int K_row_stride = param.batch * kv_heads * param.head_dim;
-                simdgroup_half8x8 mK;
-#ifdef QUANT_K
-                // int8 K: dequant per-row (per-kv-token) into small tg scratch.
-                // 8 rows x 8 cols = 64 halves per SG; first 8 lanes each handle one row.
-                threadgroup half* my_sK = sK + int(sgitg) * 64;
-                const device char* K_char = K
-                    + (((kv_block + col_base) * param.batch + b) * kv_heads + kh) * param.head_dim
-                    + k_step;
-                if (int(tiisg) < 8) {
-                    int row = int(tiisg);
-                    int kv_tok = kv_block + col_base + row;
-                    float ks = k_scales[kv_tok * 2];
-                    float kb = k_scales[kv_tok * 2 + 1];
-                    for (int c = 0; c < 8; c++) {
-                        my_sK[row * 8 + c] = half(float(K_char[row * K_row_stride + c]) * ks + kb);
-                    }
-                }
-                threadgroup_barrier(mem_flags::mem_threadgroup);
-                simdgroup_load(mK, my_sK, 8, ulong2(0, 0), true);
-#else
-                const device ftype* K_ptr = K
-                    + (((kv_block + col_base) * param.batch + b) * kv_heads + kh) * param.head_dim
-                    + k_step;
-                simdgroup_load(mK, K_ptr, K_row_stride, ulong2(0, 0), true);
-#endif
-
-                simdgroup_multiply_accumulate(mQK_top, mQ_top, mK, mQK_top);
-                simdgroup_multiply_accumulate(mQK_bot, mQ_bot, mK, mQK_bot);
-            }
-            simdgroup_store(mQK_top, sf + col_base, KV_TILE);
-            simdgroup_store(mQK_bot, sf + 8 * KV_TILE + col_base, KV_TILE);
-        }
-
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-
-        // ============ (2) Online softmax + rescale so ============
-        for (int j = 0; j < NQ_PER_SG; j++) {
-            int q_row = int(sgitg) * NQ_PER_SG + j;
-            int q_abs = q_row_base + q_row;
-
-            float s = sf[q_row * KV_TILE + int(tiisg)] * param.scale;
-
-            int kv_col_abs = kv_block + int(tiisg);
-            bool in_bounds = (q_abs < seq_q)
-                             && (kv_col_abs < seq_k)
-                             && (kv_col_abs <= q_abs + kv_valid_offset);
-            if (!in_bounds) {
-                s = -INFINITY;
-            }
-
-#ifdef HAS_MASK
-            if (in_bounds) {
-                long mask_off = fa_mask_offset(param, b, h, q_abs, kv_col_abs);
-                s += float(Mask[mask_off]);
-            }
-#endif
-
-            float M_new = simd_max(fmax(M[j], s));
-            float ms = (M[j] == -INFINITY) ? 0.0f : exp(M[j] - M_new);
-            float vs = (s    == -INFINITY) ? 0.0f : exp(s    - M_new);
-            S[j] = S[j] * ms + simd_sum(vs);
-            M[j] = M_new;
-
-            ss[q_row * KV_TILE + int(tiisg)] = half(vs);
-
-            for (int d = int(tiisg); d < HEAD_DIM; d += 32) {
-                so[q_row * HEAD_DIM + d] *= ms;
-            }
-        }
-
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-
-        // ============ (3) P * V -> so ============
-        {
-            const int d_stride  = HEAD_DIM / NSG;
-            const int d_base_sg = int(sgitg) * d_stride;
-            for (int cc = 0; cc < NO_PER_SG; cc++) {
-                int d_base = d_base_sg + cc * 8;
-
-                simdgroup_float8x8 mO_top;
-                simdgroup_float8x8 mO_bot;
-                simdgroup_load(mO_top, so + d_base, HEAD_DIM);
-                simdgroup_load(mO_bot, so + 8 * HEAD_DIM + d_base, HEAD_DIM);
-
-                for (int k_step = 0; k_step < KV_TILE; k_step += 8) {
-                    simdgroup_half8x8 mP_top;
-                    simdgroup_half8x8 mP_bot;
-                    simdgroup_load(mP_top, ss + k_step, KV_TILE);
-                    simdgroup_load(mP_bot, ss + 8 * KV_TILE + k_step, KV_TILE);
-
-                    const int V_row_stride = param.batch * kv_heads * param.head_dim;
-                    simdgroup_half8x8 mV;
-#ifdef QUANT_V
-                    // int8 V: dequant per-row (per-kv-token) into small tg scratch.
-                    // 8 rows (kv positions) x 8 cols (d); first 8 lanes each handle one row.
-                    threadgroup half* my_sV = sV + int(sgitg) * 64;
-                    const device char* V_char = V
-                        + (((kv_block + k_step) * param.batch + b) * kv_heads + kh) * param.head_dim
-                        + d_base;
-                    if (int(tiisg) < 8) {
-                        int row = int(tiisg);
-                        int kv_tok = kv_block + k_step + row;
-                        float vs = v_scales[kv_tok * 2];
-                        float vb = v_scales[kv_tok * 2 + 1];
-                        for (int c = 0; c < 8; c++) {
-                            my_sV[row * 8 + c] = half(float(V_char[row * V_row_stride + c]) * vs + vb);
-                        }
-                    }
-                    threadgroup_barrier(mem_flags::mem_threadgroup);
-                    simdgroup_load(mV, my_sV, 8);
-#else
-                    const device ftype* V_ptr = V
-                        + (((kv_block + k_step) * param.batch + b) * kv_heads + kh) * param.head_dim
-                        + d_base;
-                    simdgroup_load(mV, V_ptr, V_row_stride);
-#endif
-
-                    simdgroup_multiply_accumulate(mO_top, mP_top, mV, mO_top);
-                    simdgroup_multiply_accumulate(mO_bot, mP_bot, mV, mO_bot);
-                }
-
-                simdgroup_store(mO_top, so + d_base, HEAD_DIM);
-                simdgroup_store(mO_bot, so + 8 * HEAD_DIM + d_base, HEAD_DIM);
-            }
-        }
-
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-    }
-
-    // ============ Epilogue: normalize + write O ============
-    for (int j = 0; j < NQ_PER_SG; j++) {
-        int q_row = int(sgitg) * NQ_PER_SG + j;
-        int q_abs = q_row_base + q_row;
-        if (q_abs >= seq_q) continue;
-
-        float inv_S = (S[j] > 0.0f) ? (1.0f / S[j]) : 0.0f;
-        for (int d = int(tiisg); d < HEAD_DIM; d += 32) {
-            float v = so[q_row * HEAD_DIM + d] * inv_S;
-#ifdef ATTENTION_C4
-            long o_off = (long)(h * (param.head_dim / 4) + (d / 4)) * 4 * param.batch * seq_q
-                       + (long)(b * seq_q + q_abs) * 4
-                       + (d & 3);
-#else
-            long o_off = ((long)(b * seq_q + q_abs) * param.head_num + h) * param.head_dim + d;
-#endif
-            O[o_off] = ftype(v);
-        }
-    }
-}
-)metal";
 
 //  prefill_flash_attn_tc -- fused prefill attention on the Metal tensor API.
 //  Each simdgroup runs its own 16x32x16 matmul with input cooperative tensors,
@@ -360,8 +62,7 @@ static inline long fatc_mask_offset(constant FaParam& param, int b, int hn, int 
 #define FATC_TD    (FATC_DDIM / 16)     // head_dim frags
 #define FATC_NEG   (-1.0e30f)
 
-// QK destination capacity per lane; element i maps to
-//   m = fm + ((i>>2)&1)*8,  n = fn + (i&3) + ((i>>3)&1)*16
+// Scalar score capacity per lane; cooperative indices are converted at the MMA boundary.
 #define FATC_SCAP  (FATC_BK / 2)
 
 #define FATC_DDIM (HEAD_DIM / FATC_WN)
@@ -423,6 +124,32 @@ static inline long fatc_mask_offset(constant FaParam& param, int b, int hn, int 
 #define FATC_DESC_PV matmul2d_descriptor(16, 32, FATC_PV_K, false, false, true, \
                                        matmul2d_descriptor::mode::multiply_accumulate)
 
+// Scalar tiles keep [column-fragment][row-half][four columns] order on both layouts.
+static inline ushort fatc_col(ushort j) {
+#ifdef MNN_METAL_COOP_PRE_G17
+    return (j & 1) + (j >> 1) * 8;
+#else
+    return j;
+#endif
+}
+static inline ushort fatc_acc_index(ushort i) {
+#ifdef MNN_METAL_COOP_PRE_G17
+    return (i & ~12) | ((i & 4) << 1) | ((i & 8) >> 1);
+#else
+    return i;
+#endif
+}
+static inline ushort fatc_left_index(ushort i, ushort k) {
+    return k == 32 ? fatc_acc_index(i) : i;
+}
+static inline ftype4 fatc_load4(const device ftype* p) {
+#ifdef MNN_METAL_COOP_PRE_G17
+    return ftype4(p[0], p[1], p[8], p[9]);
+#else
+    return *(const device ftype4*)p;
+#endif
+}
+
 kernel void prefill_flash_attn_tc(
     const device ftype* Q       [[buffer(0)]],
     device ftype* O             [[buffer(1)]],
@@ -447,10 +174,8 @@ kernel void prefill_flash_attn_tc(
     const int seq_k = param.key_seq_len;
     const int kv_valid_offset = seq_k - seq_q;
     const int kv_heads = param.head_num / param.group;
-    // Each simdgroup owns 16 consecutive query rows of this threadgroup's 64.
+    // Each row group owns 16 queries; its SIMD-groups split the head dimension.
 #ifdef FATC_QREV
-    // Reverse the x-major tile mapping so the longest causal tiles launch
-    // first; otherwise the tail runs with the machine mostly idle.
     const int q_tiles = (param.q_seq_piece_len + FATC_BQ - 1) / FATC_BQ;
     const int q_tile  = q_tiles - 1 - int(tgpig.x);
 #else
@@ -462,11 +187,14 @@ kernel void prefill_flash_attn_tc(
     const int q_row_base = q_block_base + row_group * 16;
     const int d_base = d_group * FATC_DDIM;
 
-    // Per-lane base offsets inside a cooperative tensor tile (kernel-dev-and-optimize.md §1.10):
-    // fn indexes 4 consecutive elements of the fast axis, fm the slow axis.
+    // Lanes own the same two rows, but pre-g17 packs pairs of columns instead of four consecutive columns.
     const ushort qid = tiisg >> 2;
     const ushort fm  = (qid & 4) | ((tiisg >> 1) & 3);
+#ifdef MNN_METAL_COOP_PRE_G17
+    const ushort fn  = ((tiisg >> 3) & 1) * 4 + (tiisg & 1) * 2;
+#else
     const ushort fn  = ((qid & 2) | (tiisg & 1)) * 4;
+#endif
 
     matmul2d<FATC_DESC_QK, metal::execution_simdgroup> mm;
     matmul2d<FATC_DESC_PV, metal::execution_simdgroup> mm_pv;
@@ -503,7 +231,6 @@ kernel void prefill_flash_attn_tc(
     auto CT = mm_pv.get_destination_cooperative_tensor<metal::remove_addrspace_t<decltype(ct_a_ref)>, metal::remove_addrspace_t<decltype(ct_b_ref)>, float>();
     FATC_O_FOREACH(FATC_DECL_O)
 #undef FATC_DECL_O
-    // Zero the persistent destination CTs.
 #define FATC_ZERO_O(IDX, CT) CT[i] = 0.0f;
     for (ushort i = 0; i < 16; i++) {
         FATC_O_FOREACH(FATC_ZERO_O)
@@ -526,8 +253,6 @@ kernel void prefill_flash_attn_tc(
     // exp2-based softmax wants logits in log2 units; fold scale*log2(e) into Q.
     const float qscale = param.scale * M_LOG2E_F;
 
-    // Hoisted addressing: all offsets below are 32-bit and loop-invariant except
-    // for the tile index, and every gather reads 4 consecutive halves.
     const int q_row_stride = param.head_num * param.head_dim;
     const int k_row_stride = param.batch * kv_heads * param.head_dim;
     const int v_row_stride = param.batch * kv_heads * param.head_dim;
@@ -548,7 +273,7 @@ kernel void prefill_flash_attn_tc(
 
 #if defined(FATC_Q_CT)
     // Build one QK left-input CT per K-step and reuse across tiles (Q is
-    // kv-invariant). FATC_Q_CT implies wide-K QK, so FATC_TDK = HEAD_DIM/32.
+    // kv-invariant). FATC_Q_CT implies wide-K QK, so FATC_TDK = FATC_DDIM/32.
 #if FATC_TDK == 2
 #define FATC_Q_FOREACH(F) F(0, ct_q0) F(1, ct_q1)
 #elif FATC_TDK == 4
@@ -565,9 +290,9 @@ kernel void prefill_flash_attn_tc(
             const device ftype* qp = q_lane + ((dd) * FATC_NH + int(h)) * 16;                     \
             for (ushort g = 0; g < 2; g++) {                                                       \
                 const bool row_ok = (int(fm) + g * 8) < q_valid_rows;                              \
-                ftype4 qv = row_ok ? *(const device ftype4*)(qp + g * 8 * q_row_stride) : ftype4(0);\
+                ftype4 qv = row_ok ? fatc_load4(qp + g * 8 * q_row_stride) : ftype4(0);             \
                 for (ushort j = 0; j < 4; j++) {                                                   \
-                    ctq[h * 8 + g * 4 + j] = ftype(float(qv[j]) * qscale);                         \
+                    ctq[fatc_left_index(h * 8 + g * 4 + j, FATC_QK_K)] = ftype(float(qv[j]) * qscale); \
                 }                                                                                  \
             }                                                                                      \
         }                                                                                          \
@@ -577,7 +302,7 @@ kernel void prefill_flash_attn_tc(
 #undef FATC_DECL_Q
     FATC_Q_FOREACH(FATC_FILL_Q)
 #undef FATC_FILL_Q
-#elif defined(FATC_Q_REG)
+#elif defined(FATC_Q_REG) && !defined(MNN_METAL_COOP_PRE_G17)
     // Load and pre-scale Q for this q-tile once; reuse across every kv0 tile.
     // Footprint per lane is FATC_TD*8 halves = HEAD_DIM/2 bytes: 128 B at
     // HEAD_DIM=128, 256 B at HEAD_DIM=256. Watch occupancy if HEAD_DIM grows.
@@ -586,7 +311,7 @@ kernel void prefill_flash_attn_tc(
         const device ftype* qp = q_lane + dd * 16;
         for (ushort g = 0; g < 2; g++) {
             const bool row_ok = (int(fm) + g * 8) < q_valid_rows;
-            ftype4 qv = row_ok ? *(const device ftype4*)(qp + g * 8 * q_row_stride) : ftype4(0);
+            ftype4 qv = row_ok ? fatc_load4(qp + g * 8 * q_row_stride) : ftype4(0);
             for (ushort j = 0; j < 4; j++) {
                 q_reg[dd][g * 4 + j] = ftype(float(qv[j]) * qscale);
             }
@@ -633,7 +358,7 @@ kernel void prefill_flash_attn_tc(
 
 #if defined(FATC_Q_CT)
             // A was filled once before the kv loop.
-#elif defined(FATC_Q_REG)
+#elif defined(FATC_Q_REG) && !defined(MNN_METAL_COOP_PRE_G17)
             // K=32 extends the K=16 A layout along K: element i sits at
             // (k = fn + (i&3) + ((i>>3)&1)*16, m = fm + ((i>>2)&1)*8), i.e.
             // 16-K frag (i>>3) of this step.
@@ -646,15 +371,25 @@ kernel void prefill_flash_attn_tc(
                 const device ftype* qp = q_lane + (dd * FATC_NH + h) * 16;
                 for (ushort g = 0; g < 2; g++) {
                     const bool row_ok = (int(fm) + g * 8) < q_valid_rows;
-                    ftype4 qv = row_ok ? *(const device ftype4*)(qp + g * 8 * q_row_stride) : ftype4(0);
+                    ftype4 qv = row_ok ? fatc_load4(qp + g * 8 * q_row_stride) : ftype4(0);
                     for (ushort j = 0; j < 4; j++) {
-                        ct_a[h * 8 + g * 4 + j] = ftype(float(qv[j]) * qscale);
+                        ct_a[fatc_left_index(h * 8 + g * 4 + j, FATC_QK_K)] = ftype(float(qv[j]) * qscale);
                     }
                 }
             }
 #endif
 #if defined(FATC_KV_DEV_TENSOR)
             // no B fill: matmul2d reads the K tile directly
+#else
+#ifdef MNN_METAL_COOP_PRE_G17
+            // Keep cooperative operand indices static on older GPU compilers.
+            #pragma unroll
+            for (ushort i = 0; i < FATC_QK_K; ++i) {
+                const int d = d_base + dd * FATC_QK_K + fm + (i >> 3) * 8;
+                const int kv = kv0 + fn + (i & 1) + ((i >> 1) & 3) * 8;
+                const long headOffset = ((long)b * kv_heads + kh) * param.head_dim;
+                ct_b[i] = kv < seq_k ? K[headOffset + (long)kv * k_row_stride + d] : ftype(0);
+            }
 #else
             // B stored [n=kv][k=d]: k = fn + (j&3) + h*16, n = fm + g*8 + f*16
             for (ushort h = 0; h < FATC_NH; h++) {
@@ -670,20 +405,21 @@ kernel void prefill_flash_attn_tc(
                 }
             }
 #endif
+#endif
             // D capacity is K-independent (it tracks N), so the accumulate
             // carry-in fill is the same for both QK widths.
             for (ushort i = 0; i < FATC_SCAP; i++) {
-                ct_c[i] = s_acc[i];
+                ct_c[fatc_acc_index(i)] = s_acc[i];
             }
             mm.run(ct_a, ct_b, ct_c);
             for (ushort i = 0; i < FATC_SCAP; i++) {
-                s_acc[i] = ct_c[i];
+                s_acc[i] = ct_c[fatc_acc_index(i)];
             }
         }
 
 #if FATC_WN > 1
         {
-            float* slot = &s_xchg[sgitg][int(tiisg) * FATC_SCAP];
+            threadgroup float* slot = &s_xchg[sgitg][int(tiisg) * FATC_SCAP];
             for (ushort i = 0; i < FATC_SCAP; i++) {
                 slot[i] = s_acc[i];
             }
@@ -700,20 +436,19 @@ kernel void prefill_flash_attn_tc(
         }
 #endif
 
-        // ---- mask, in registers. In a destination tile element i sits at
-        // (m = fm + ((i>>2)&1)*8, n = fn + (i&3) + ((i>>3)&1)*16).
+        // ---- mask, in the scalar score layout ----
         const bool tile_all_valid = (kv0 + FATC_BK - 1) <= kv_no_mask_end && (kv0 + FATC_BK) <= seq_k;
         if (!tile_all_valid) {
         for (ushort i = 0; i < FATC_SCAP; i++) {
                 const int qr = q_row_base + int(fm) + ((i >> 2) & 1) * 8;
-                const int kv = kv0 + int(fn) + (i & 3) + ((i >> 3) & 1) * 16;
+                const int kv = kv0 + int(fn) + fatc_col(i & 3) + ((i >> 3) & 1) * 16;
                 const bool ok = (kv < seq_k) && (kv <= qr + kv_valid_offset);
                 s_acc[i] = ok ? s_acc[i] : FATC_NEG;
             }
 #ifdef HAS_MASK
         for (ushort i = 0; i < FATC_SCAP; i++) {
                 const int qr = q_row_base + int(fm) + ((i >> 2) & 1) * 8;
-                const int kv = kv0 + int(fn) + (i & 3) + ((i >> 3) & 1) * 16;
+                const int kv = kv0 + int(fn) + fatc_col(i & 3) + ((i >> 3) & 1) * 16;
                 if (s_acc[i] > FATC_NEG && kv < seq_k && qr < seq_q) {
                     s_acc[i] += M_LOG2E_F * float(Mask[fatc_mask_offset(param, b, h, qr, kv)]);
                 }
@@ -748,8 +483,7 @@ kernel void prefill_flash_attn_tc(
             run_max[r] = m_new[r];
         }
 #ifdef FATC_O_CT
-        // Rescale each persistent O destination CT by the online-softmax factor.
-#define FATC_RESCALE_O(IDX, CT) CT[i] *= f;
+#define FATC_RESCALE_O(IDX, CT) CT[fatc_acc_index(i)] *= f;
         for (ushort i = 0; i < 16; i++) {
             const float f = factor[(i >> 2) & 1];
             FATC_O_FOREACH(FATC_RESCALE_O)
@@ -770,7 +504,7 @@ kernel void prefill_flash_attn_tc(
         for (int ik = 0; ik < FATC_TK / FATC_PV_NH; ik++) {
             auto ct_a = mm_pv.get_left_input_cooperative_tensor<float, ftype, float>();
             for (ushort j = 0; j < 8 * FATC_PV_NH; j++) {
-                ct_a[j] = s_acc[ik * 8 * FATC_PV_NH + j];
+                ct_a[fatc_left_index(j, FATC_PV_K)] = s_acc[ik * 8 * FATC_PV_NH + j];
             }
 #ifdef FATC_KV_DEV_TENSOR
             // V straight from the tile: origin (n = T_IDX*32 along head_dim,
@@ -789,10 +523,10 @@ kernel void prefill_flash_attn_tc(
                 for (ushort f = 0; f < 2; f++) { \
                     for (ushort g = 0; g < 2; g++) { \
                         const int kv = kv0 + (ik * FATC_PV_NH + hh) * 16 + int(fm) + g * 8; \
-                        ftype4 vv = *(const device ftype4*)(v_head + (long)kv * v_row_stride + d_base + (T_IDX) * 32 + f * 16); \
+                        ftype4 vv = fatc_load4(v_head + (long)kv * v_row_stride + d_base + (T_IDX) * 32 + f * 16); \
                         for (ushort j = 0; j < 4; j++) { \
                             const ushort i = hh * 16 + f * 8 + g * 4 + j; \
-                            ct_b[i] = vv[j]; \
+                            ct_b[fatc_acc_index(i)] = vv[j]; \
                         } \
                     } \
                 } \
@@ -821,24 +555,23 @@ kernel void prefill_flash_attn_tc(
             for (ushort f = 0; f < 2; f++) {
             for (ushort g = 0; g < 2; g++) {
                         const int kv = kv0 + ik * 16 + int(fm) + g * 8;
-                        ftype4 vv = *(const device ftype4*)(v_head + (long)kv * v_row_stride + t * 32 + f * 16);
+                        ftype4 vv = fatc_load4(v_head + (long)kv * v_row_stride + t * 32 + f * 16);
                 for (ushort j = 0; j < 4; j++) {
                             const ushort i = f * 8 + g * 4 + j;
-                            ct_b[i] = vv[j];
-                            ct_c[i] = o_acc[t][i];
+                            ct_b[fatc_acc_index(i)] = vv[j];
+                            ct_c[fatc_acc_index(i)] = o_acc[t][i];
                         }
                     }
                 }
                 mm_pv.run(ct_a, ct_b, ct_c);
         for (ushort i = 0; i < 16; i++) {
-                    o_acc[t][i] = ct_c[i];
+                    o_acc[t][i] = ct_c[fatc_acc_index(i)];
                 }
             }
         }
 #endif
     }
 
-    // ---- epilogue: normalize per row, then write out ----
     float inv_s[2];
     for (int r = 0; r < 2; r++) {
         inv_s[r] = (run_sum[r] > 0.0f) ? (1.0f / run_sum[r]) : 0.0f;
@@ -847,7 +580,7 @@ kernel void prefill_flash_attn_tc(
     // Unpack the persistent destination CTs into a scalar array once, so the
     // existing store loop below stays generic.
     float o_acc[FATC_TO][16];
-#define FATC_UNPACK_O(IDX, CT) o_acc[IDX][i] = CT[i];
+#define FATC_UNPACK_O(IDX, CT) o_acc[IDX][i] = CT[fatc_acc_index(i)];
     for (ushort i = 0; i < 16; i++) {
         FATC_O_FOREACH(FATC_UNPACK_O)
     }
@@ -860,7 +593,7 @@ kernel void prefill_flash_attn_tc(
             if (qr >= seq_q) {
                 continue;
             }
-            const int d = d_base + t * 32 + int(fn) + (i & 3) + (i >> 3) * 16;
+            const int d = d_base + t * 32 + int(fn) + fatc_col(i & 3) + (i >> 3) * 16;
             const float v = o_acc[t][i] * inv_s[r];
 #ifdef ATTENTION_C4
             long o_off = (long)(h * (param.head_dim / 4) + (d / 4)) * 4 * param.batch * seq_q
@@ -876,9 +609,7 @@ kernel void prefill_flash_attn_tc(
 )metal";
 
 // prefill_flash_attn_sg -- fused prefill without tensor cooperative inputs.
-// BQ=32, BK=16/32 by D, WM=4. Q resident in smem, K/V stream through separate
-// smem tiles coalesced along head_dim. S stays in 8x8 fp32 fragments and never
-// hits global memory. Macros: ftype, HEAD_DIM (64/128), HAS_MASK, ATTENTION_C4.
+// Macros: ftype, HEAD_DIM (64/128), HAS_MASK, ATTENTION_C4, FASG_LOADBATCH/FASG_VB.
 const char* gPrefillFlashAttnSg = R"metal(
 #include <metal_stdlib>
 #include <simd/simd.h>

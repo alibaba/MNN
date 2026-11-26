@@ -57,11 +57,16 @@ protected:
     KVMeta* mMeta;
     std::string mBaseFileName;
     std::string mBasePrefixFileName;
-    
-    void createKVCacheFile(std::string keyPath = "", std::string valuePath = "");
+    // Actual paths behind mKeyCacheFD / mValueCacheFD: a prefix write redirects
+    // them away from mBaseFileName, so removal must follow the recorded paths.
+    std::string mKeyCachePath;
+    std::string mValueCachePath;
+
+    ErrorCode createKVCacheFile(std::string keyPath = "", std::string valuePath = "");
+    void closeKVCacheFile();
     void removeKVCacheFile();
-    void resetKVCacheFileSize(size_t keySize, size_t valueSize);
-    void mmapKVCache(size_t keySize, size_t valueSize, file_t specKeyFile = INVALID_FILE, file_t specValueFile = INVALID_FILE);
+    ErrorCode resetKVCacheFileSize(size_t keySize, size_t valueSize);
+    ErrorCode mmapKVCache(size_t keySize, size_t valueSize, file_t specKeyFile = INVALID_FILE, file_t specValueFile = INVALID_FILE);
     void unmapKVCache(size_t keySize, size_t valueSize);
     
 public:

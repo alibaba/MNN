@@ -18,6 +18,25 @@
 
 namespace MNN {
 
+namespace {
+// Prefix files are only read during onAlloc; close them on every exit path, failures included.
+struct ScopedPrefixFile {
+    file_t fd;
+    explicit ScopedPrefixFile(const std::string& path) : fd(MNNOpenFile(path.c_str(), MNN_FILE_READ | MNN_FILE_WRITE)) {
+        if (fd == INVALID_FILE) {
+            MNN_PRINT("Failed to open the file: %s\n", path.c_str());
+        }
+    }
+    ~ScopedPrefixFile() {
+        if (fd != INVALID_FILE) {
+            MNNCloseFile(fd);
+        }
+    }
+    ScopedPrefixFile(const ScopedPrefixFile&) = delete;
+    ScopedPrefixFile& operator=(const ScopedPrefixFile&) = delete;
+};
+} // namespace
+
 void MetalKVCacheManager::addReplayUser(MetalExecution* execution) {
     mReplayUsers.emplace_back(execution);
 }
@@ -47,11 +66,6 @@ ErrorCode MetalKVCacheManager::onAlloc(KVMeta* meta, int seq_len) {
     mMeta = meta;
     auto mtbn = static_cast<MetalBackend *>(mBackend);
     auto context = (__bridge MNNMetalContext *)mtbn->context();
-    auto abortAlloc = [&]() {
-        onClear();
-        mCurrentKeySize = 0;
-        mCurrentValueSize = 0;
-    };
 
     auto kv_seq_len = mMeta != nullptr ? mMeta->add : seq_len;
     int keyByte = mQuantKey ? 1 : (mtbn->useFp16InsteadFp32() ? 2 : 4);
@@ -62,35 +76,26 @@ ErrorCode MetalKVCacheManager::onAlloc(KVMeta* meta, int seq_len) {
         std::string pathk    = MNNFilePathConcat(mConfig.mPrefixCacheDir, mMeta->file_name) + "_" + std::to_string(mMeta->layer_index) + ".k";
         std::string pathv    = MNNFilePathConcat(mConfig.mPrefixCacheDir, mMeta->file_name) + "_" + std::to_string(mMeta->layer_index++) + ".v";
         mMeta->layer_index = mMeta->layer_index % mMeta->layer_nums;
-        auto old_key_fd   = MNNOpenFile(pathk.c_str(), MNN_FILE_READ | MNN_FILE_WRITE);
-        auto old_value_fd = MNNOpenFile(pathv.c_str(), MNN_FILE_READ | MNN_FILE_WRITE);
-        if (old_key_fd == INVALID_FILE || old_value_fd == INVALID_FILE) {
-            MNN_ERROR("MNN::Metal: failed to open prefix kv cache files: %s / %s\n", pathk.c_str(), pathv.c_str());
-            if (old_key_fd != INVALID_FILE) {
-                MNNCloseFile(old_key_fd);
-            }
-            if (old_value_fd != INVALID_FILE) {
-                MNNCloseFile(old_value_fd);
-            }
-            return OUT_OF_MEMORY;
+        ScopedPrefixFile oldKeyFile(pathk), oldValueFile(pathv);
+        if (oldKeyFile.fd == INVALID_FILE || oldValueFile.fd == INVALID_FILE) {
+            return FILE_OPEN_FAILED;
         }
 
         // get kv cache file info
-        auto oldKeySize = MNNGetFileSize(old_key_fd);
-        auto oldValueSize = MNNGetFileSize(old_value_fd);
+        auto oldKeySize = MNNGetFileSize(oldKeyFile.fd);
+        auto oldValueSize = MNNGetFileSize(oldValueFile.fd);
         if (oldKeySize == INVALID_SIZE || oldValueSize == INVALID_SIZE) {
-            MNN_ERROR("MNN::Metal: failed to stat prefix kv cache files: %s / %s\n", pathk.c_str(), pathv.c_str());
-            MNNCloseFile(old_key_fd);
-            MNNCloseFile(old_value_fd);
-            return OUT_OF_MEMORY;
+            return FILE_OPEN_FAILED;
         }
         const size_t keyRowBytes = (size_t)mKvNumHead * mHeadDim * keyByte;
         const size_t valueRowBytes = (size_t)mKvNumHead * mHeadDim * valueByte;
         size_t oldKeyMaxLength = oldKeySize / keyRowBytes;
         size_t oldValueMaxLength = oldValueSize / valueRowBytes;
         size_t oldMaxLength = ALIMIN(oldKeyMaxLength, oldValueMaxLength);
-        if(oldMaxLength < meta->seqlen_in_disk) {
+        if(oldMaxLength < (size_t)meta->seqlen_in_disk) {
+            // Loading past the file's end would expose uninitialized rows as history.
             MNN_ERROR("[Error]: Kvcache in disk size smaller than saved lengthInDiskToload:%d\n", (int)meta->seqlen_in_disk);
+            return INPUT_DATA_ERROR;
         }
 
         int kv_seq_len = ROUND_UP(meta->add + meta->seqlen_in_disk, mConfig.mKvAlignNum);
@@ -98,36 +103,27 @@ ErrorCode MetalKVCacheManager::onAlloc(KVMeta* meta, int seq_len) {
         mCurrentKeySize = ALIMAX((size_t)mKvNumHead * mMaxLength * mHeadDim * keyByte, (size_t)oldKeySize);
         mCurrentValueSize = ALIMAX((size_t)mKvNumHead * mMaxLength * mHeadDim * valueByte, (size_t)oldValueSize);
 
-        createKVCacheFile();
-        mKVCacheInDisk = true;
-        if (mKeyCacheFD == INVALID_FILE || mValueCacheFD == INVALID_FILE) {
-            MNN_ERROR("MNN::Metal: failed to create prefix kv cache files\n");
-            MNNCloseFile(old_key_fd);
-            MNNCloseFile(old_value_fd);
-            abortAlloc();
-            return OUT_OF_MEMORY;
+        auto code = createKVCacheFile();
+        if (code != NO_ERROR) {
+            return code;
         }
-        resetKVCacheFileSize(mCurrentKeySize, mCurrentValueSize);
-        const size_t keyFileSize = MNNGetFileSize(mKeyCacheFD);
-        const size_t valueFileSize = MNNGetFileSize(mValueCacheFD);
-        if (keyFileSize == INVALID_SIZE || keyFileSize < mCurrentKeySize ||
-            valueFileSize == INVALID_SIZE || valueFileSize < mCurrentValueSize) {
-            MNN_ERROR("MNN::Metal: failed to resize prefix kv cache files\n");
-            MNNCloseFile(old_key_fd);
-            MNNCloseFile(old_value_fd);
-            abortAlloc();
-            return OUT_OF_MEMORY;
+        code = resetKVCacheFileSize(mCurrentKeySize, mCurrentValueSize);
+        if (code != NO_ERROR) {
+            return code;
         }
-        bool expanded = expandKVCacheInDisk(oldKeySize, oldValueSize, mCurrentKeySize, mCurrentValueSize,
-                                            (int)meta->seqlen_in_disk, true, old_key_fd, old_value_fd);
-        MNNCloseFile(old_key_fd);
-        MNNCloseFile(old_value_fd);
-        if (!expanded) {
-            abortAlloc();
-            return OUT_OF_MEMORY;
+        code = expandKVCacheInDisk(oldKeySize, oldValueSize, mCurrentKeySize, mCurrentValueSize,
+                                   (int)meta->seqlen_in_disk, true, oldKeyFile.fd, oldValueFile.fd);
+        if (code != NO_ERROR) {
+            // Nothing of this allocation is usable: drop files, mappings and buffers
+            // here instead of leaving a half-built cache for the next layer to trip on.
+            onClear();
+            mCurrentKeySize = 0;
+            mCurrentValueSize = 0;
+            return code;
         }
 
         mPastLength = meta->seqlen_in_disk;
+        mKVCacheInDisk = true;
 
         return NO_ERROR;
     }
@@ -166,37 +162,33 @@ ErrorCode MetalKVCacheManager::onAlloc(KVMeta* meta, int seq_len) {
             mMeta->layer_index++;
             mMeta->layer_index = mMeta->layer_index % mMeta->layer_nums;
         }
-        createKVCacheFile(keyStoredDst, valueStoredDst);
+        auto code = createKVCacheFile(keyStoredDst, valueStoredDst);
+        if (code != NO_ERROR) {
+            return code;
+        }
+        code = resetKVCacheFileSize(totalSize, valueTotalSize);
+        if (code != NO_ERROR) {
+            return code;
+        }
+        code = mmapKVCache(totalSize, valueTotalSize);
+        if (code != NO_ERROR) {
+            return code;
+        }
         mKVCacheInDisk = true;
-        if (mKeyCacheFD == INVALID_FILE || mValueCacheFD == INVALID_FILE) {
-            MNN_ERROR("MNN::Metal: failed to create on-disk kv cache files\n");
-            abortAlloc();
-            return OUT_OF_MEMORY;
-        }
-        resetKVCacheFileSize(totalSize, valueTotalSize);
-        const size_t keyFileSize = MNNGetFileSize(mKeyCacheFD);
-        const size_t valueFileSize = MNNGetFileSize(mValueCacheFD);
-        if (keyFileSize == INVALID_SIZE || keyFileSize < totalSize ||
-            valueFileSize == INVALID_SIZE || valueFileSize < valueTotalSize) {
-            MNN_ERROR("MNN::Metal: failed to resize on-disk kv cache to %zu bytes\n", totalSize);
-            abortAlloc();
-            return OUT_OF_MEMORY;
-        }
-        mmapKVCache(totalSize, valueTotalSize);
-        if (nullptr == mMapKeyAddr || nullptr == mMapValueAddr) {
-            MNN_ERROR("MNN::Metal: OUT_OF_MEMORY mapping on-disk kv cache of %zu bytes\n", totalSize);
-            abortAlloc();
-            return OUT_OF_MEMORY;
-        }
+        auto abortAlloc = [&]() {
+            onClear();
+            mCurrentKeySize = 0;
+            mCurrentValueSize = 0;
+        };
         mKeyBuffer = [[context device] newBufferWithBytesNoCopy:mMapKeyAddr length:totalSize options:MTLResourceStorageModeShared  deallocator:nil];
         if (nil == mKeyBuffer) {
-            MNN_ERROR("MNN::Metal: OUT_OF_MEMORY allocating on-disk kv cache of %zu bytes\n", totalSize);
+            MNN_ERROR("MNN::Metal: OUT_OF_MEMORY wrapping on-disk kv cache of %zu bytes\n", totalSize);
             abortAlloc();
             return OUT_OF_MEMORY;
         }
         mValueBuffer = [[context device] newBufferWithBytesNoCopy:mMapValueAddr length:valueTotalSize options:MTLResourceStorageModeShared  deallocator:nil];
         if (nil == mValueBuffer) {
-            MNN_ERROR("MNN::Metal: OUT_OF_MEMORY allocating on-disk kv cache of %zu bytes\n", valueTotalSize);
+            MNN_ERROR("MNN::Metal: OUT_OF_MEMORY wrapping on-disk kv cache of %zu bytes\n", valueTotalSize);
             abortAlloc();
             return OUT_OF_MEMORY;
         }
@@ -270,21 +262,19 @@ ErrorCode MetalKVCacheManager::onAlloc(KVMeta* meta, int seq_len) {
         auto newValueBuf = MetalBackend::getBuffer(new_value.get());
         auto new_value_ptr = (uint8_t*)[newValueBuf.first contents] + newValueBuf.second;
         ::memset(new_value_ptr, 0, (size_t)mKvNumHead * mMaxLength * mHeadDim * valueByte);
+        id<MTLBuffer> newKScale = nil, newVScale = nil;
         if (useDynamicScaleBuffer()) {
             int scaleByte = mtbn->useFp16InsteadFp32() ? 2 : 4;
-            mKScaleBuffer = [[context device] newBufferWithLength:mMaxLength * scaleByte * 2 options:MTLResourceStorageModeShared];
-            if (nil == mKScaleBuffer) {
-                MNN_ERROR("MNN::Metal: OUT_OF_MEMORY allocating kv scale buffers for %d tokens\n", mMaxLength);
-                abortAlloc();
-                mMaxLength = prevMaxLength;
-                mCurrentKeySize = prevKeySize;
-                mCurrentValueSize = prevValueSize;
-                return OUT_OF_MEMORY;
-            }
-            mVScaleBuffer = [[context device] newBufferWithLength:mMaxLength * scaleByte * 2 options:MTLResourceStorageModeShared];
-            if (nil == mVScaleBuffer) {
-                MNN_ERROR("MNN::Metal: OUT_OF_MEMORY allocating kv scale buffers for %d tokens\n", mMaxLength);
-                abortAlloc();
+            newKScale = [[context device] newBufferWithLength:mMaxLength * scaleByte * 2 options:MTLResourceStorageModeShared];
+            newVScale = [[context device] newBufferWithLength:mMaxLength * scaleByte * 2 options:MTLResourceStorageModeShared];
+            if (nil == newKScale || nil == newVScale) {
+                MNN_ERROR("MNN::Metal: OUT_OF_MEMORY allocating kv scale buffers for %d tokens, keep old cache\n", mMaxLength);
+                // Only the K/V reservation was taken; the scale buffers were
+                // never created, so ARC has nothing to release here.
+                mBackend->onReleaseBuffer(new_key.get(), Backend::STATIC);
+                mBackend->onReleaseBuffer(new_value.get(), Backend::STATIC);
+                new_key.reset();
+                new_value.reset();
                 mMaxLength = prevMaxLength;
                 mCurrentKeySize = prevKeySize;
                 mCurrentValueSize = prevValueSize;
@@ -292,17 +282,64 @@ ErrorCode MetalKVCacheManager::onAlloc(KVMeta* meta, int seq_len) {
             }
             // See the in-disk branch above: zero scale+bias so padded tokens
             // dequantize to 0 instead of uninitialized (possibly NaN) bias.
-            ::memset([mKScaleBuffer contents], 0, mMaxLength * scaleByte * 2);
-            ::memset([mVScaleBuffer contents], 0, mMaxLength * scaleByte * 2);
-        } else {
-            mKScaleBuffer = nil;
-            mVScaleBuffer = nil;
+            ::memset([newKScale contents], 0, mMaxLength * scaleByte * 2);
+            ::memset([newVScale contents], 0, mMaxLength * scaleByte * 2);
         }
         mPastKey.reset(new_key.release());
         mPastValue.reset(new_value.release());
+        mKScaleBuffer = newKScale;
+        mVScaleBuffer = newVScale;
+
     }
     return NO_ERROR;
 }
+ErrorCode MetalKVCacheManager::growTo(int kvSeqLen, int pastLength) {
+    auto mtbn = static_cast<MetalBackend *>(mBackend);
+    int keyByte = mQuantKey ? 1 : (mtbn->useFp16InsteadFp32() ? 2 : 4);
+    int valueByte = mQuantValue ? 1 : (mtbn->useFp16InsteadFp32() ? 2 : 4);
+    // copy mPastLength including all remove/reverse to new buffer first
+    auto copy_len = mPastLength;
+    bool needCopy = mPastLength > 0;
+    size_t old_size = (size_t)mKvNumHead * copy_len * mHeadDim * keyByte;
+    const auto oldKeyTotalSize = mCurrentKeySize;
+    const auto oldValueTotalSize = mCurrentValueSize;
+    const auto oldMaxLength = mMaxLength;
+    const auto oldPastLength = mPastLength;
+    // align max kv_seq_len to mKvAlignNum, for simd/tensor matrix load alignment
+    mMaxLength = ROUND_UP(kvSeqLen + mConfig.mExpandChunk, mConfig.mKvAlignNum);
+    mCurrentKeySize = (size_t)mKvNumHead * mMaxLength * mHeadDim * keyByte;
+    mCurrentValueSize = (size_t)mKvNumHead * mMaxLength * mHeadDim * valueByte;
+    mPastLength = pastLength;
+    auto rollback = [&]() {
+        mMaxLength = oldMaxLength;
+        mCurrentKeySize = oldKeyTotalSize;
+        mCurrentValueSize = oldValueTotalSize;
+        mPastLength = oldPastLength;
+    };
+    if (mKVCacheInDisk) {
+        auto code = expandKVCacheInDisk(oldKeyTotalSize, oldValueTotalSize, mCurrentKeySize, mCurrentValueSize,
+                                        (int)copy_len, needCopy);
+        if (code != NO_ERROR) {
+            rollback();
+            return code;
+        }
+        return NO_ERROR;
+    }
+    if (!expandKVCacheInMem(old_size, (int)copy_len, needCopy)) {
+        rollback();
+        return OUT_OF_MEMORY;
+    }
+    return NO_ERROR;
+}
+
+ErrorCode MetalKVCacheManager::ensureCapacity(int kvSeqLen) {
+    if (kvSeqLen > mMaxLength) {
+        invalidateReplay();
+        return growTo(kvSeqLen, mPastLength);
+    }
+    return NO_ERROR;
+}
+
 ErrorCode MetalKVCacheManager::onRealloc(KVMeta* meta) {
     mMeta = meta;
     auto kv_seq_len = mMeta->previous + mMeta->add - mMeta->remove + mMeta->computeReverseSize();
@@ -337,13 +374,15 @@ ErrorCode MetalKVCacheManager::onRealloc(KVMeta* meta) {
         mPastLength = (int)start;
 
         if(mKVCacheInDisk) {
-            if (!expandKVCacheInDisk(oldKeyTotalSize, oldValueTotalSize, mCurrentKeySize, mCurrentValueSize,
-                                     (int)copy_len, needCopy)) {
+            auto code = expandKVCacheInDisk(oldKeyTotalSize, oldValueTotalSize, mCurrentKeySize, mCurrentValueSize,
+                                            (int)copy_len, needCopy);
+            if (code != NO_ERROR) {
+                // The old mapping is already gone; compacting into it would dereference null.
                 mMaxLength = oldMaxLength;
                 mCurrentKeySize = oldKeyTotalSize;
                 mCurrentValueSize = oldValueTotalSize;
-                mPastLength = oldPastLength;
-                return OUT_OF_MEMORY;
+                mPastLength = copy_len;
+                return code;
             }
         } else if (!expandKVCacheInMem(old_size, (int)copy_len, needCopy)) {
             // A failed reservation must not leave the cache smaller than the tokens this
@@ -357,6 +396,7 @@ ErrorCode MetalKVCacheManager::onRealloc(KVMeta* meta) {
                 retryOk = expandKVCacheInMem(old_size, (int)copy_len, needCopy);
             }
             if (!retryOk) {
+                // Nothing was expanded: the cache still holds exactly the old tokens.
                 mMaxLength = oldMaxLength;
                 mCurrentKeySize = oldKeyTotalSize;
                 mCurrentValueSize = oldValueTotalSize;
@@ -378,6 +418,9 @@ ErrorCode MetalKVCacheManager::onRealloc(KVMeta* meta) {
         if(mKVCacheInDisk) {
             key_ptr = mMapKeyAddr;
             value_ptr = mMapValueAddr;
+            if (key_ptr == nullptr || value_ptr == nullptr) {
+                return OUT_OF_MEMORY;
+            }
         } else {
             auto keyBuf = MetalBackend::getBuffer(mPastKey.get());
             key_ptr = (int8_t*)[keyBuf.first contents] + keyBuf.second;
@@ -460,23 +503,6 @@ bool MetalKVCacheManager::expandKVCacheInMem(size_t oldSize, int copy_len, bool 
         releaseAcquired();
         return false;
     }
-    auto context = (__bridge MNNMetalContext *)mtbn->context();
-    id<MTLBuffer> newKScale = nil, newVScale = nil;
-    if (useDynamicScaleBuffer()) {
-        int scaleByte = mtbn->useFp16InsteadFp32() ? 2 : 4;
-        newKScale = [[context device] newBufferWithLength:mMaxLength * scaleByte * 2 options:MTLResourceStorageModeShared];
-        if (nil == newKScale) {
-            MNN_ERROR("MNN::Metal: OUT_OF_MEMORY expanding kv scale to %d, keep old cache\n", mMaxLength);
-            releaseAcquired();
-            return false;
-        }
-        newVScale = [[context device] newBufferWithLength:mMaxLength * scaleByte * 2 options:MTLResourceStorageModeShared];
-        if (nil == newVScale) {
-            MNN_ERROR("MNN::Metal: OUT_OF_MEMORY expanding kv scale to %d, keep old cache\n", mMaxLength);
-            releaseAcquired();
-            return false;
-        }
-    }
 
     // memset for qkv matmul mad, in case dirty data
     auto new_key_ptr = (uint8_t*)[newKeyBuf.first contents] + newKeyBuf.second;
@@ -495,6 +521,22 @@ bool MetalKVCacheManager::expandKVCacheInMem(size_t oldSize, int copy_len, bool 
         ::memcpy(new_value_ptr, value_ptr, (size_t)copy_len * mKvNumHead * mHeadDim * valueByte);
     }
 
+    auto context = (__bridge MNNMetalContext *)mtbn->context();
+    id<MTLBuffer> newKScale = nil, newVScale = nil;
+    if (useDynamicScaleBuffer()) {
+        int scaleByte = mtbn->useFp16InsteadFp32() ? 2 : 4;
+        newKScale = [[context device] newBufferWithLength:mMaxLength * scaleByte * 2 options:MTLResourceStorageModeShared];
+        newVScale = [[context device] newBufferWithLength:mMaxLength * scaleByte * 2 options:MTLResourceStorageModeShared];
+        if (nil == newKScale || nil == newVScale) {
+            MNN_ERROR("MNN::Metal: OUT_OF_MEMORY expanding kv scale to %d, keep old cache\n", mMaxLength);
+            releaseAcquired();
+            return false;
+        }
+    }
+
+    mPastKey.reset(new_key.release());
+    mPastValue.reset(new_value.release());
+
     if (useDynamicScaleBuffer()) {
         int scaleByte = mtbn->useFp16InsteadFp32() ? 2 : 4;
         // Zero before the copy so the grown tail past copy_len is not left
@@ -511,79 +553,81 @@ bool MetalKVCacheManager::expandKVCacheInMem(size_t oldSize, int copy_len, bool 
         mKScaleBuffer = nil;
         mVScaleBuffer = nil;
     }
-    mPastKey.reset(new_key.release());
-    mPastValue.reset(new_value.release());
     return true;
 }
 
-bool MetalKVCacheManager::expandKVCacheInDisk(size_t oldKeySize, size_t oldValueSize, size_t curKeySize,
-                                              size_t curValueSize, int copy_len, bool need_copy,
-                                              file_t specKeyFile, file_t specValueFile) {
+ErrorCode MetalKVCacheManager::expandKVCacheInDisk(size_t oldKeySize, size_t oldValueSize, size_t curKeySize,
+                                                   size_t curValueSize, int copy_len, bool need_copy,
+                                                   file_t specKeyFile, file_t specValueFile) {
     auto mtbn = static_cast<MetalBackend *>(mBackend);
     auto context = (__bridge MNNMetalContext *)mtbn->context();
 
+    auto code = mmapKVCache(oldKeySize, oldValueSize, specKeyFile, specValueFile);
+    if (code != NO_ERROR) {
+        mKeyBuffer = nil;
+        mValueBuffer = nil;
+        return code;
+    }
     std::unique_ptr<int8_t[]> prevKey, prevValue;
     if (need_copy) {
-        mmapKVCache(oldKeySize, oldValueSize, specKeyFile, specValueFile);
-        if (nullptr == mMapKeyAddr || nullptr == mMapValueAddr) {
-            MNN_ERROR("MNN::Metal: OUT_OF_MEMORY mapping old kv cache of %zu bytes\n", oldKeySize);
-            unmapKVCache(oldKeySize, oldValueSize);
-            return false;
-        }
         prevKey.reset(new (std::nothrow) int8_t[oldKeySize]);
         prevValue.reset(new (std::nothrow) int8_t[oldValueSize]);
         if (nullptr == prevKey.get() || nullptr == prevValue.get()) {
             MNN_ERROR("MNN::Metal: OUT_OF_MEMORY backing up kv cache of %zu bytes\n", oldKeySize);
             unmapKVCache(oldKeySize, oldValueSize);
-            return false;
+            mKeyBuffer = nil;
+            mValueBuffer = nil;
+            return OUT_OF_MEMORY;
         }
         ::memcpy(prevKey.get(),   mMapKeyAddr,   oldKeySize);
         ::memcpy(prevValue.get(), mMapValueAddr, oldValueSize);
     }
+
     unmapKVCache(oldKeySize, oldValueSize);
-
-    resetKVCacheFileSize(curKeySize, curValueSize);
-    const size_t keyFileSize = MNNGetFileSize(mKeyCacheFD);
-    const size_t valueFileSize = MNNGetFileSize(mValueCacheFD);
-    if (keyFileSize == INVALID_SIZE || keyFileSize < curKeySize ||
-        valueFileSize == INVALID_SIZE || valueFileSize < curValueSize) {
-        MNN_ERROR("MNN::Metal: failed to expand kv cache files to %zu bytes\n", curKeySize);
-        return false;
+    code = resetKVCacheFileSize(curKeySize, curValueSize);
+    if (code != NO_ERROR) {
+        mKeyBuffer = nil;
+        mValueBuffer = nil;
+        return code;
     }
-    mmapKVCache(curKeySize, curValueSize);
-    if (nullptr == mMapKeyAddr || nullptr == mMapValueAddr) {
-        MNN_ERROR("MNN::Metal: OUT_OF_MEMORY mapping kv cache of %zu bytes\n", curKeySize);
-        unmapKVCache(curKeySize, curValueSize);
-        return false;
+    code = mmapKVCache(curKeySize, curValueSize);
+    if (code != NO_ERROR) {
+        // The mapping helper already unmapped the half pair; drop the wrappers
+        // here so no caller can encode against a stale MTLBuffer.
+        mKeyBuffer = nil;
+        mValueBuffer = nil;
+        return code;
     }
 
-    // reset id<MTLBuffer>
+    // reset id<MTLBuffer>: build every replacement first and only publish the
+    // ones that exist; a nil buffer must never be handed to the shaders.
     auto newKeyBuffer = [[context device] newBufferWithBytesNoCopy:mMapKeyAddr length:curKeySize options:MTLResourceStorageModeShared  deallocator:nil];
     if (nil == newKeyBuffer) {
         MNN_ERROR("MNN::Metal: OUT_OF_MEMORY expanding on-disk kv cache to %zu bytes\n", curKeySize);
         unmapKVCache(curKeySize, curValueSize);
-        return false;
+        mKeyBuffer = nil;
+        mValueBuffer = nil;
+        return OUT_OF_MEMORY;
     }
     auto newValueBuffer = [[context device] newBufferWithBytesNoCopy:mMapValueAddr length:curValueSize options:MTLResourceStorageModeShared  deallocator:nil];
     if (nil == newValueBuffer) {
         MNN_ERROR("MNN::Metal: OUT_OF_MEMORY expanding on-disk kv cache to %zu bytes\n", curValueSize);
         unmapKVCache(curKeySize, curValueSize);
-        return false;
+        mKeyBuffer = nil;
+        mValueBuffer = nil;
+        return OUT_OF_MEMORY;
     }
     id<MTLBuffer> newKScale = nil, newVScale = nil;
     if (useDynamicScaleBuffer()) {
         int scaleByte = mtbn->useFp16InsteadFp32() ? 2 : 4;
         newKScale = [[context device] newBufferWithLength:mMaxLength * scaleByte * 2 options:MTLResourceStorageModeShared];
-        if (nil == newKScale) {
-            MNN_ERROR("MNN::Metal: OUT_OF_MEMORY expanding on-disk kv scale to %d tokens\n", mMaxLength);
-            unmapKVCache(curKeySize, curValueSize);
-            return false;
-        }
         newVScale = [[context device] newBufferWithLength:mMaxLength * scaleByte * 2 options:MTLResourceStorageModeShared];
-        if (nil == newVScale) {
+        if (nil == newKScale || nil == newVScale) {
             MNN_ERROR("MNN::Metal: OUT_OF_MEMORY expanding on-disk kv scale to %d tokens\n", mMaxLength);
             unmapKVCache(curKeySize, curValueSize);
-            return false;
+            mKeyBuffer = nil;
+            mValueBuffer = nil;
+            return OUT_OF_MEMORY;
         }
     }
     mKeyBuffer   = newKeyBuffer;
@@ -606,7 +650,6 @@ bool MetalKVCacheManager::expandKVCacheInDisk(size_t oldKeySize, size_t oldValue
         mVScaleBuffer = nil;
     }
 
-
     // Step 3: Move the kvcache from temporary buffers in memory to disk
     memset(mMapKeyAddr, 0, curKeySize);
     memset(mMapValueAddr, 0, curValueSize);
@@ -615,7 +658,7 @@ bool MetalKVCacheManager::expandKVCacheInDisk(size_t oldKeySize, size_t oldValue
         ::memcpy(mMapKeyAddr, prevKey.get(), oldKeySize);
         ::memcpy(mMapValueAddr, prevValue.get(), oldValueSize);
     }
-    return true;
+    return NO_ERROR;
 }
 
 void MetalKVCacheManager::onClear() {
@@ -625,11 +668,16 @@ void MetalKVCacheManager::onClear() {
         mValueBuffer = nil;
 
         unmapKVCache(mCurrentKeySize, mCurrentValueSize);
-        if (!mSaveShareKvPrefix) {
-            removeKVCacheFile();
-        }
         mKVCacheInDisk = false;
     }
+    // A retained prefix owns its files, but the descriptors are ours either way;
+    // a failed alloc also leaves files behind without mKVCacheInDisk ever set.
+    if (mSaveShareKvPrefix) {
+        closeKVCacheFile();
+    } else {
+        removeKVCacheFile();
+    }
+    mSaveShareKvPrefix = false;
     mPastKey.reset();
     mPastValue.reset();
     mKScaleBuffer = nil;

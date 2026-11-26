@@ -23,6 +23,7 @@
 		A1B0000000000000000000A9 /* RVVConvRunLineDepthwiseTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = A1B0000000000000000000B9 /* RVVConvRunLineDepthwiseTest.cpp */; };
 		B2C0000000000000000000A1 /* FusedProjTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2C0000000000000000000B1 /* FusedProjTest.cpp */; };
 		B2C0000000000000000000A2 /* MetalConvWQuantTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2C0000000000000000000B2 /* MetalConvWQuantTest.cpp */; };
+		B2C0000000000000000000A3 /* AttentionTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2C0000000000000000000B3 /* AttentionTest.cpp */; };
 		CE1A4A5D2C8596D900A62A4F /* MNN.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CE1A4A5C2C8596D900A62A4F /* MNN.framework */; };
 /* End PBXBuildFile section */
 
@@ -60,6 +61,7 @@
 		CE1A4A5C2C8596D900A62A4F /* MNN.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MNN.framework; path = ../MNN.framework; sourceTree = "<group>"; };
 		B2C0000000000000000000B1 /* FusedProjTest.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = FusedProjTest.cpp; path = ../../../../../test/op/FusedProjTest.cpp; sourceTree = SOURCE_ROOT; };
 		B2C0000000000000000000B2 /* MetalConvWQuantTest.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = MetalConvWQuantTest.cpp; path = ../../../../../test/op/MetalConvWQuantTest.cpp; sourceTree = SOURCE_ROOT; };
+		B2C0000000000000000000B3 /* AttentionTest.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = AttentionTest.cpp; path = ../../../../../test/op/AttentionTest.cpp; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -117,6 +119,7 @@
 				A1B0000000000000000000B9 /* RVVConvRunLineDepthwiseTest.cpp */,
 				B2C0000000000000000000B1 /* FusedProjTest.cpp */,
 				B2C0000000000000000000B2 /* MetalConvWQuantTest.cpp */,
+				B2C0000000000000000000B3 /* AttentionTest.cpp */,
 			);
 			path = "mnn-llm";
 			sourceTree = "<group>";
@@ -226,6 +229,7 @@
 				A1B0000000000000000000A9 /* RVVConvRunLineDepthwiseTest.cpp in Sources */,
 				B2C0000000000000000000A1 /* FusedProjTest.cpp in Sources */,
 				B2C0000000000000000000A2 /* MetalConvWQuantTest.cpp in Sources */,
+				B2C0000000000000000000A3 /* AttentionTest.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

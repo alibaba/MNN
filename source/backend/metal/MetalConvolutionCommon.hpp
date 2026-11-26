@@ -61,6 +61,14 @@ protected:
     id<MTLBuffer> mConstBuffer = nil;
 };
 
+// Pipeline-load helpers shared by the FP and weight-quant conv1x1 prepare stages.
+NSMutableDictionary* conv1x1Macros(bool fp16);
+id<MTLComputePipelineState> loadConv1x1Pipeline(MetalBackend* backend,
+                                                const std::vector<std::string>& keys,
+                                                const std::string& source,
+                                                const char* name,
+                                                NSDictionary* macros);
+
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */
 

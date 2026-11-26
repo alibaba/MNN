@@ -745,9 +745,9 @@ MNNTestSuiteRegister(FusedQKVP4LNTest, "op/fused_qkv_p4_ln");
 // --- Quantized decode-shape coverage -----------------------------------------
 //
 // The float cases above never reach a backend's fused GEMV path: Metal's
-// mIs2sgDecode is only set for quantized convs under Memory_Low. These cases
-// run at seq == 1 with 4/8-bit weights under their own Memory_Low executor so
-// Metal actually exercises setupQKVFusion / setupGateUpFusion / setupLNFusion.
+// mDecodeFusionEligible is only set for quantized convs under Memory_Low. These cases
+// run at seq == 1 with 4/8-bit weights under their own Memory_Low executor to
+// exercise the Metal FusedLinear group GEMV and its optional LN fold.
 // The mixed-bit case makes the projection fusion fail on purpose (quant layout
 // mismatch): the LayerNorm must then stay a separate dispatch — the regression
 // guard for MetalFusedProj::setupFusion ignoring the projection-fusion result.
@@ -1088,7 +1088,7 @@ public:
 };
 MNNTestSuiteRegister(FusedGateUpLNQuant8PrefillTest, "op/fused_gateup_ln_quant8_prefill");
 
-// Mixed 4/8-bit q/k/v + LN: setupQKVFusion rejects the quant-layout mismatch,
+// Mixed 4/8-bit q/k/v + LN: the group GEMV rejects the quant-layout mismatch,
 // so the LN fold must be skipped and the LayerNorm dispatched separately —
 // wrong output here means the projection-fusion result was ignored again.
 class FusedQKVLNQuantMixedTest : public MNNTestCase {

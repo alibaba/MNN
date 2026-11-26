@@ -295,112 +295,10 @@ MetalBackend::MetalBackend(const MetalRuntime* runtime, bool usefp16AsFp32, Back
         }
     }
 #endif
-    if(((MetalRuntime *)mRuntime)->useTensorOps()) {
-        mSupportTensorApi = true;
-        // Probe every matmul2d shape MNN kernels use so a header that rejects
-        // one disables the tensor API here instead of failing per dispatch.
-        const char * src_tensor_f16 = "\n"
-            "#include <metal_stdlib> \n"
-            "#include <metal_tensor> \n"
-            "#include <MetalPerformancePrimitives/MetalPerformancePrimitives.h> \n"
-            " \n"
-            "using namespace metal; \n"
-            "using namespace mpp::tensor_ops; \n"
-            " \n"
-            "template <int M, int N, int K> \n"
-            "static void probe_static_shape(threadgroup half* buf) { \n"
-            "    auto tA = tensor<threadgroup half, dextents<int32_t, 2>, tensor_inline>(buf, dextents<int32_t, 2>(K, M)); \n"
-            "    auto tB = tensor<threadgroup half, dextents<int32_t, 2>, tensor_inline>(buf + M * K, dextents<int32_t, 2>(K, N)); \n"
-            "    matmul2d< \n"
-            "        matmul2d_descriptor(M, N, K, false, true, false, matmul2d_descriptor::mode::multiply_accumulate), \n"
-            "        execution_simdgroups<4>> mm; \n"
-            "    auto cT = mm.template get_destination_cooperative_tensor<decltype(tA), decltype(tB), float>(); \n"
-            "    auto sA = tA.slice(0, 0); \n"
-            "    auto sB = tB.slice(0, 0); \n"
-            "    mm.run(sA, sB, cT); \n"
-            "    auto tC = tensor<threadgroup float, dextents<int32_t, 2>, tensor_inline>((threadgroup float*)buf, dextents<int32_t, 2>(N, M)); \n"
-            "    cT.store(tC); \n"
-            "} \n"
-            " \n"
-            "kernel void dummy_kernel( \n"
-            "    tensor<device  half, dextents<int32_t, 2>> A [[buffer(0)]], \n"
-            "    tensor<device  half, dextents<int32_t, 2>> B [[buffer(1)]], \n"
-            "    device float * C [[buffer(2)]], \n"
-            "    uint2 tgid [[threadgroup_position_in_grid]]) \n"
-            "{ \n"
-            "    auto tA = A.slice(0, (int)tgid.y); \n"
-            "    auto tB = B.slice((int)tgid.x, 0); \n"
-            " \n"
-            "    matmul2d< \n"
-            "        matmul2d_descriptor(16, 8, dynamic_extent), \n"
-            "        execution_simdgroups<4>> mm; \n"
-            " \n"
-            "    auto cT = mm.get_destination_cooperative_tensor<decltype(tA), decltype(tB), float>(); \n"
-            " \n"
-            "    auto sA = tA.slice(0, 0); \n"
-            "    auto sB = tB.slice(0, 0); \n"
-            "    mm.run(sB, sA, cT); \n"
-            " \n"
-            "    auto tC = tensor<device float, dextents<int32_t, 2>, tensor_inline>(C, dextents<int32_t, 2>(4, 4)); \n"
-            " \n"
-            "    cT.store(tC); \n"
-            " \n"
-            "    threadgroup half sdata[6144]; \n"
-            "    probe_static_shape<32, 32, 32>(sdata); \n"
-            "    probe_static_shape<32, 64, 64>(sdata); \n"
-            "    probe_static_shape<32, 64, 32>(sdata); \n"
-            "    probe_static_shape<64, 64, 32>(sdata); \n"
-            "}";
-        
-        auto pipeline = makeComputePipelineWithSourceOption(src_tensor_f16, "dummy_kernel", nullptr);
-        if(pipeline == nullptr) {
-            MNN_PRINT("Metal4 Tensor api compile err, disable tensor api.\n");
-            mSupportTensorApi = false;
-        }
-    }
-    if (mSupportTensorApi) {
-        // Separate probe for matmul2d input cooperative tensors (needed by
-        // fused attention to keep QK destination as the PV left operand).
-        const char* src_coop_input = "\n"
-            "#include <metal_stdlib> \n"
-            "#include <metal_tensor> \n"
-            "#include <MetalPerformancePrimitives/MetalPerformancePrimitives.h> \n"
-            "using namespace metal; \n"
-            "using namespace mpp::tensor_ops; \n"
-            " \n"
-            "template <bool TB, typename AT> \n"
-            "static float probe_coop_input(float seed) { \n"
-            "    matmul2d<matmul2d_descriptor(16, 32, 16, false, TB, true, \n"
-            "             matmul2d_descriptor::mode::multiply_accumulate), \n"
-            "             metal::execution_simdgroup> mm; \n"
-            "    auto ct_a = mm.template get_left_input_cooperative_tensor<AT, half, float>(); \n"
-            "    auto ct_b = mm.template get_right_input_cooperative_tensor<AT, half, float>(); \n"
-            "    auto ct_c = mm.template get_destination_cooperative_tensor<metal::remove_addrspace_t<decltype(ct_a)>, \n"
-            "             metal::remove_addrspace_t<decltype(ct_b)>, float>(); \n"
-            "    for (ushort i = 0; i < 8; i++) { ct_a[i] = AT(seed); } \n"
-            "    for (ushort i = 0; i < 16; i++) { ct_b[i] = half(seed); ct_c[i] = 0.0f; } \n"
-            "    mm.run(ct_a, ct_b, ct_c); \n"
-            "    float acc = 0.0f; \n"
-            "    for (ushort i = 0; i < 16; i++) { acc += float(ct_c[i]); } \n"
-            "    return acc; \n"
-            "} \n"
-            " \n"
-            "kernel void probe_kernel(device float* out [[buffer(0)]], \n"
-            "                        uint tid [[thread_position_in_grid]]) { \n"
-            "    float acc = probe_coop_input<true,  half >(1.0f) \n"
-            "              + probe_coop_input<false, half >(1.0f) \n"
-            "              + probe_coop_input<false, float>(1.0f); \n"
-            "    out[tid] = acc; \n"
-            "}";
-        auto coopPipeline = makeComputePipelineWithSourceOption(src_coop_input, "probe_kernel", nullptr);
-        mSupportTensorCoopInput = (coopPipeline != nullptr);
-        if (!mSupportTensorCoopInput) {
-            MNN_PRINT("Metal4 tensor input-cooperative-tensor unsupported, fused attention disabled.\n");
-        }
-    }
     _commandBuffer = nil;
     setUpGPUEnabledSwitch();
 }
+
 MetalBackend::~MetalBackend() {
     flushEncoder();
     // Pool chunks return to the runtime allocator here; wait so the next
@@ -556,16 +454,6 @@ size_t MetalBackend::getTensorSizeInBytes(const Tensor* tensor) const {
     size_t align = 4 * sizeof(int);
     size = ROUND_UP(size, align);
     return size;
-}
-
-void MetalBackend::aliasTensor(const Tensor* tensor, const Tensor* owner, size_t byteOffset) {
-    auto des = TensorUtils::getDescribeOrigin(tensor);
-    // Hand the tensor's own region back before re-pointing, so the pool can reuse
-    // it; nothing reads through this tensor's old address afterwards.
-    des->mem = nullptr;
-    _MetalApplyTensor((uint8_t*)owner->buffer().device,
-                      TensorUtils::getDescribeOrigin(owner)->offset + byteOffset,
-                      const_cast<Tensor*>(tensor));
 }
 
 bool MetalBackend::onCanShareBuffer(const Tensor* source, const Tensor* view) const {
@@ -1118,8 +1006,8 @@ ErrorCode MetalBackend::onResizeEnd() {
     if (err != NO_ERROR) {
         return err;
     }
-    // Export-time fused projections wire up leader/follower from the exported
-    // order; must run after compute() so the STATIC re-home sticks.
+    // FusedLinear installs its Decode plan once the allocator has computed
+    // the input and output ranges and the LinearAttention folds are applied.
     for (auto* host : mFusedProjs) {
         host->setupFusion();
     }
@@ -1725,14 +1613,21 @@ void MetalBackend::wait(int traceSite) const {
     mRuntime->_waiting = nil;
 }
 
-id<MTLComputePipelineState> MetalBackend::makeComputePipelineWithSourceOption(const char* csource, const char* cname, MTLCompileOptions *options) const{
+id<MTLComputePipelineState> MetalBackend::makeComputePipelineWithSourceOption(const char* csource, const char* cname,
+                                                                           MTLCompileOptions* options,
+                                                                           bool optional) const {
     auto ctx = (__bridge MNNMetalContext *)context();
     auto source = [[NSString alloc] initWithUTF8String:csource];
     auto name = [[NSString alloc] initWithUTF8String:cname];
     auto pipeline = [ctx pipelineWithSourceOption:source name:name options:options];
+#if MNN_METAL_OP_PROFILE
+    mRuntime->recordPipelineMacros(pipeline, options);
+#endif
     if (nil == pipeline) {
-        mRuntime->pCurrentStatus = NOT_SUPPORT;
-        MNN_ERROR("pipelineWithSourceOption error.\n");
+        if (!optional) {
+            mRuntime->pCurrentStatus = NOT_SUPPORT;
+        }
+        MNN_ERROR("Metal pipeline creation failed: %s (%s).\n", cname, optional ? "optional" : "required");
     } else if (MetalEnv::get().pipelineInfo) {
         MNN_PRINT("[PipelineInfo] %s maxThreads=%lu execWidth=%lu smem=%lu macros=%s\n", cname,
                   (unsigned long)pipeline.maxTotalThreadsPerThreadgroup,
@@ -1758,10 +1653,40 @@ id<MTLComputePipelineState> MetalRuntime::findPipeline(const std::vector<std::st
 void MetalRuntime::insertPipeline(const std::vector<std::string>& keys, id<MTLComputePipelineState> pipeline) const {
     if (nil != pipeline) {
         mCachePipeine.insert(std::make_pair(keys, pipeline));
+#if MNN_METAL_OP_PROFILE
+        mPipelineKeys[pipeline] = keys;
+#endif
     } else {
         mFailedPipeline.insert(keys);
     }
 }
+#if MNN_METAL_OP_PROFILE
+const std::vector<std::string>* MetalRuntime::pipelineKeys(id<MTLComputePipelineState> pipeline) const {
+    auto iter = mPipelineKeys.find(pipeline);
+    return iter == mPipelineKeys.end() ? nullptr : &iter->second;
+}
+const std::string* MetalRuntime::pipelineMacros(id<MTLComputePipelineState> pipeline) const {
+    auto iter = mPipelineMacros.find(pipeline);
+    return iter == mPipelineMacros.end() ? nullptr : &iter->second;
+}
+void MetalRuntime::recordPipelineMacros(id<MTLComputePipelineState> pipeline, MTLCompileOptions* options) const {
+    if (nil == pipeline || nil == options || nil == options.preprocessorMacros) {
+        return;
+    }
+    // NSDictionary order is unspecified; sort for a reproducible baseline.
+    std::vector<std::pair<std::string, std::string>> entries;
+    for (NSString* key in options.preprocessorMacros) {
+        entries.emplace_back(key.UTF8String,
+                             [[NSString stringWithFormat:@"%@", options.preprocessorMacros[key]] UTF8String]);
+    }
+    std::sort(entries.begin(), entries.end());
+    std::string desc;
+    for (const auto& e : entries) {
+        desc += e.first + "=" + e.second + ";";
+    }
+    mPipelineMacros[pipeline] = std::move(desc);
+}
+#endif
 bool MetalRuntime::pipelineCompileFailed(const std::vector<std::string>& keys) const {
     return mFailedPipeline.find(keys) != mFailedPipeline.end();
 }
@@ -1864,8 +1789,6 @@ MetalRuntime* MetalRuntime::create(const Backend::Info& info) {
     return rt;
 }
 
-// The family API cannot tell GPU generations or die tiers apart, so they come from
-// architecture.name. Neither separates M- from A-chips, hence device.name.
 static MetalGpuInfo parseGpuInfo(id<MTLDevice> device) {
     MetalGpuInfo info;
     if (@available(iOS 17.0, macOS 14.0, *)) {
@@ -1874,7 +1797,13 @@ static MetalGpuInfo parseGpuInfo(id<MTLDevice> device) {
         if (archName != nullptr && strncmp(archName, kPrefix, strlen(kPrefix)) == 0) {
             info.gen = atoi(archName + strlen(kPrefix));
             switch (archName[strlen(archName) - 1]) {
-                case 'p': info.tier = MetalGpuInfo::TierPhone; break;
+                // iPhone dies report 'p' (iPhone 16 Pro = applegpu_g17p, 17 Pro = g18p), and one
+                // 'p' generation covers that family's base and Pro chips alike (g18p = A19 *and*
+                // A19 Pro), so architecture.name cannot split phone tiers.
+                // They join the Base ladder so routing depends on generation alone, which is
+                // what lets M-series measurements stand in for a same-generation iPhone;
+                // generations above the newest measured rung share that rung, phone or Mac.
+                case 'p': info.tier = MetalGpuInfo::TierBase; break;
                 case 'g': info.tier = MetalGpuInfo::TierBase; break;
                 case 's': info.tier = MetalGpuInfo::TierPro; break;
                 case 'c': info.tier = MetalGpuInfo::TierMax; break;
@@ -1883,7 +1812,9 @@ static MetalGpuInfo parseGpuInfo(id<MTLDevice> device) {
             }
         }
     }
-    info.aSeries = [[device name] hasPrefix:@"Apple A"];
+    if (MetalEnv::get().pipelineInfo) {
+        MNN_PRINT("[gpuInfo] gen=%d tier=%d\n", info.gen, (int)info.tier);
+    }
     return info;
 }
 
@@ -1899,20 +1830,18 @@ MetalRuntime::MetalRuntime(void* context) {
         mSimdGroupReduce = [[ctx device] supportsFamily:MTLGPUFamilyApple7];
         mSimdGroupReduce |= [[ctx device] supportsFamily:(MTLGPUFamily)MTLGPUFamilyMetal3_MNN];
         mSimdGroupMatrix = [[ctx device] supportsFamily:MTLGPUFamilyApple7];
-#ifdef MNN_METAL_TENSOR
         // An OS-side term: true on any chip the Metal 4 stack serves, whether or not it
         // has tensor hardware.
         mMetal4TensorApi = [[ctx device] supportsFamily:(MTLGPUFamily)MTLGPUFamilyMetal4_MNN];
-#endif
     }
 
     // ---- Layer 2: hardware identity ----
     mGpuInfo = parseGpuInfo([ctx device]);
 
-    // ---- Layer 3: cross-op route policy ----
-    // Only enable tensor API where it maps to in-core neural accelerators
-    // (gen >= 17); earlier Metal 4 chips reuse the simdgroup kernels.
-    mUseTensorOps = mMetal4TensorApi && mGpuInfo.gen >= 17;
+    // ---- Layer 3: enabled capabilities ----
+#ifdef MNN_METAL_TENSOR
+    mSupportTensorApi = mMetal4TensorApi && mGpuInfo.gen >= 13;
+#endif
     mStaticAllocator.reset(new EagerBufferAllocator(allocator));
     mDynamic.resize(METAL_SEPERATE_MAX_COUNT);
     for (auto& buf : mDynamic) {

@@ -207,9 +207,9 @@ Use the steps below when a committed test is warranted; a bugfix alone does not 
 
 Since 2026-07-31 the causal assumption on Metal is **data-driven** — the old
 `MNN_METAL_QK_CAUSAL_TRI` env is deleted: `MetalAttention.mm`
-`_computePathFlags` derives `mCausalLayout` from the mask input. A scalar
+`_collectFacts` derives `AttnFacts::causal` from the mask input. A scalar
 sentinel mask (or no mask + KV cache) routes to the causal-optimized kernels
-(CAUSAL_TRI / CAUSAL_BOUND / FA); a real mask tensor disables all causal
+(CAUSAL_TRI / CAUSAL_BOUND / fused prefill); a real mask tensor disables all causal
 optimizations (including FA / faTc) and honors the mask element-wise.
 
 The remaining silent-error mode is therefore on the **export / mask-generation
@@ -225,7 +225,7 @@ smoke list, or when introducing a new Attention / softmax / prefill_qk /
 prefill_qkv shader change, you must:
 
 1. Verify the non-causal model actually emits a **real mask tensor** (not the
-   scalar sentinel), so `mCausalLayout == false`; then greedy-diff the first
+   scalar sentinel), so `AttnFacts::causal == false`; then greedy-diff the first
    20 tokens against the CPU backend (recipe in
    [`build-and-test.md`](../metal-optimize/build-and-test.md) § "Attention
    causal 假设"). If it garbles, the root cause is almost always the
@@ -234,9 +234,9 @@ prefill_qkv shader change, you must:
    (causal) model and one real-mask-tensor (non-causal) model — since the two
    compile and dispatch different kernel variants.
 
-No env pin in stage entries is needed. FA routing is config-driven
-(`attention_mode/8`) and real-mask models never route to FA, so no
-correctness workaround is required either.
+No env pin in stage entries is needed. Fused-prefill routing is data-driven
+(the resolver requires a causal mask) and real-mask models never route to the
+fused kernels, so no correctness workaround is required either.
 
 Full risk breakdown, gate conditions, and remediation options: see
 [`skills/general-debug/kernel-assumptions.md`](../general-debug/kernel-assumptions.md) (§7 后端 kernel 隐式假设违反)

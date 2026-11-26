@@ -2368,6 +2368,21 @@ inline int ck_output_offset(int b, int t, int h, int d, constant LinearAttnParam
 #define CK_DESC_TF matmul2d_descriptor(16, CK_W, 16, false, false, true, \
                                        matmul2d_descriptor::mode::multiply_accumulate)
 
+static inline ushort ck_col(ushort j) {
+#ifdef MNN_METAL_COOP_PRE_G17
+    return (j & 1) + (j >> 1) * 8;
+#else
+    return j;
+#endif
+}
+static inline ushort ck_acc_index(ushort i) {
+#ifdef MNN_METAL_COOP_PRE_G17
+    return (i & ~12) | ((i & 4) << 1) | ((i & 8) >> 1);
+#else
+    return i;
+#endif
+}
+
 // Grid: (ceil(L / 64), B * H), 4 simdgroups per threadgroup.
 kernel void linear_attn_chunk64_prep_inplace(
     device ftype* conv_out                  [[buffer(0)]],
@@ -2491,7 +2506,11 @@ kernel void linear_attn_chunk64_prep_inplace(
 
     const ushort qid = tiisg >> 2;
     const ushort fm = (qid & 4) | ((tiisg >> 1) & 3);
+#ifdef MNN_METAL_COOP_PRE_G17
+    const ushort fn = ((tiisg >> 3) & 1) * 4 + (tiisg & 1) * 2;
+#else
     const ushort fn = ((qid & 2) | (tiisg & 1)) * 4;
+#endif
     matmul2d<CK_DESC_TT, metal::execution_simdgroup> mm;
 
     // A = -strict_lower((K * beta) @ K^T * exp(gc_m - gc_n)).
@@ -2506,11 +2525,20 @@ kernel void linear_attn_chunk64_prep_inplace(
                 int m = int(sgitg) * 16 + int(fm) + int(g) * 8;
                 int token = c0 + m;
                 for (ushort j = 0; j < 4; ++j) {
-                    int d = kt * 16 + int(fn) + int(j);
+                    int d = kt * 16 + int(fn) + ck_col(j);
                     float kv = token < L ? float(convBase[(param.key_dim + kHead * CK_DK + d) * L + token]) : 0.0f;
                     ctA[g * 4 + j] = ftype(kv * kInvTg[m] * betaTg[m]);
                 }
             }
+#ifdef MNN_METAL_COOP_PRE_G17
+            for (ushort i = 0; i < 16; ++i) {
+                int n = nt * 32 + fn + (i & 1) + ((i >> 1) & 3) * 8;
+                int token = c0 + n;
+                int d = kt * 16 + fm + (i >> 3) * 8;
+                float kv = token < L ? float(convBase[(param.key_dim + kHead * CK_DK + d) * L + token]) : 0.0f;
+                ctB[i] = ftype(kv * kInvTg[n]);
+            }
+#else
             for (ushort g = 0; g < 4; ++g) {
                 int n = nt * 32 + int(fm) + (int(g) & 1) * 8 + (int(g) >> 1) * 16;
                 int token = c0 + n;
@@ -2520,13 +2548,14 @@ kernel void linear_attn_chunk64_prep_inplace(
                     ctB[g * 4 + j] = ftype(kv * kInvTg[n]);
                 }
             }
-            for (int i = 0; i < 16; ++i) ctC[i] = acc[i];
+#endif
+            for (int i = 0; i < 16; ++i) ctC[ck_acc_index(i)] = acc[i];
             mm.run(ctA, ctB, ctC);
-            for (int i = 0; i < 16; ++i) acc[i] = ctC[i];
+            for (int i = 0; i < 16; ++i) acc[i] = ctC[ck_acc_index(i)];
         }
         for (ushort i = 0; i < 16; ++i) {
             int m = int(sgitg) * 16 + int(fm) + ((int(i) >> 2) & 1) * 8;
-            int n = nt * 32 + int(fn) + (int(i) & 3) + (int(i) >> 3) * 16;
+            int n = nt * 32 + int(fn) + ck_col(i & 3) + (int(i) >> 3) * 16;
             float av = m > n ? -acc[i] * exp(gcTg[m] - gcTg[n]) : 0.0f;
             aTg[m * CK_CHUNK + n] = av;
         }
@@ -2621,11 +2650,20 @@ kernel void linear_attn_chunk64_prep_inplace(
                 int m = int(sgitg) * 16 + int(fm) + int(g) * 8;
                 int token = c0 + m;
                 for (ushort j = 0; j < 4; ++j) {
-                    int d = kt * 16 + int(fn) + int(j);
+                    int d = kt * 16 + int(fn) + ck_col(j);
                     float qv = token < L ? float(convBase[(kHead * CK_DK + d) * L + token]) : 0.0f;
                     ctA[g * 4 + j] = ftype(qv * qInvTg[m]);
                 }
             }
+#ifdef MNN_METAL_COOP_PRE_G17
+            for (ushort i = 0; i < 16; ++i) {
+                int n = nt * 32 + fn + (i & 1) + ((i >> 1) & 3) * 8;
+                int token = c0 + n;
+                int d = kt * 16 + fm + (i >> 3) * 8;
+                float kv = token < L ? float(convBase[(param.key_dim + kHead * CK_DK + d) * L + token]) : 0.0f;
+                ctB[i] = ftype(kv * kInvTg[n]);
+            }
+#else
             for (ushort g = 0; g < 4; ++g) {
                 int n = nt * 32 + int(fm) + (int(g) & 1) * 8 + (int(g) >> 1) * 16;
                 int token = c0 + n;
@@ -2635,13 +2673,14 @@ kernel void linear_attn_chunk64_prep_inplace(
                     ctB[g * 4 + j] = ftype(kv * kInvTg[n]);
                 }
             }
-            for (int i = 0; i < 16; ++i) ctC[i] = acc[i];
+#endif
+            for (int i = 0; i < 16; ++i) ctC[ck_acc_index(i)] = acc[i];
             mm.run(ctA, ctB, ctC);
-            for (int i = 0; i < 16; ++i) acc[i] = ctC[i];
+            for (int i = 0; i < 16; ++i) acc[i] = ctC[ck_acc_index(i)];
         }
         for (ushort i = 0; i < 16; ++i) {
             int m = int(sgitg) * 16 + int(fm) + ((int(i) >> 2) & 1) * 8;
-            int n = nt * 32 + int(fn) + (int(i) & 3) + (int(i) >> 3) * 16;
+            int n = nt * 32 + int(fn) + ck_col(i & 3) + (int(i) >> 3) * 16;
             float pv = m >= n ? acc[i] * exp(gcTg[m] - gcTg[n]) : 0.0f;
             if (c0 + m < L) {
                 scratchBase[(CK_P_CHANNEL + n) * L + c0 + m] = ftype(pv);
@@ -2688,12 +2727,16 @@ kernel void linear_attn_chunk64_recurrent_inplace(
 
     const ushort qid = tiisg >> 2;
     const ushort fm = (qid & 4) | ((tiisg >> 1) & 3);
+#ifdef MNN_METAL_COOP_PRE_G17
+    const ushort fn = ((tiisg >> 3) & 1) * 4 + (tiisg & 1) * 2;
+#else
     const ushort fn = ((qid & 2) | (tiisg & 1)) * 4;
+#endif
 
     for (int kt = int(sgitg); kt < CK_DK_TILES; kt += CK_NSG) {
         for (ushort i = 0; i < 16; ++i) {
             int dk = kt * 16 + int(fm) + ((int(i) >> 2) & 1) * 8;
-            int n = int(fn) + (int(i) & 3) + (int(i) >> 3) * 16;
+            int n = int(fn) + ck_col(i & 3) + (int(i) >> 3) * 16;
             stateTg[kt][tiisg][i] = float(recurrent_state[(long)(bh * CK_DV + n0 + n) * CK_DK + dk]);
         }
     }
@@ -2729,22 +2772,22 @@ kernel void linear_attn_chunk64_recurrent_inplace(
                     int token = c0 + m;
                     float scale = betaTg[m] * exp(gcTg[m]) * kInvTg[m];
                     for (ushort j = 0; j < 4; ++j) {
-                        int d = kt * 16 + int(fn) + int(j);
+                        int d = kt * 16 + int(fn) + ck_col(j);
                         float kv = token < L ? float(convBase[(param.key_dim + kHead * CK_DK + d) * L + token]) : 0.0f;
                         ctA[g * 4 + j] = ftype(kv * scale);
                     }
                 }
                 for (ushort i = 0; i < 16; ++i) {
-                    ctB[i] = stateTg[kt][tiisg][i];
-                    ctC[i] = acc[i];
+                    ctB[ck_acc_index(i)] = stateTg[kt][tiisg][i];
+                    ctC[ck_acc_index(i)] = acc[i];
                 }
                 mm.run(ctA, ctB, ctC);
-                for (int i = 0; i < 16; ++i) acc[i] = ctC[i];
+                for (int i = 0; i < 16; ++i) acc[i] = ctC[ck_acc_index(i)];
             }
             for (ushort i = 0; i < 16; ++i) {
                 int m = int(sgitg) * 16 + int(fm) + ((int(i) >> 2) & 1) * 8;
                 int token = c0 + m;
-                int n = int(fn) + (int(i) & 3) + (int(i) >> 3) * 16;
+                int n = int(fn) + ck_col(i & 3) + (int(i) >> 3) * 16;
                 float vv = token < L ? float(attn_out[ck_output_offset(b, token, h, n0 + n, param)]) : 0.0f;
                 vnTg[m][n] = vv * betaTg[m] - acc[i];
             }
@@ -2763,7 +2806,7 @@ kernel void linear_attn_chunk64_recurrent_inplace(
             for (ushort g = 0; g < 2; ++g) {
                 int m = int(sgitg) * 16 + int(fm) + int(g) * 8;
                 for (ushort j = 0; j < 4; ++j) {
-                    int tokenK = kt * 16 + int(fn) + int(j);
+                    int tokenK = kt * 16 + int(fn) + ck_col(j);
                     ctA[g * 4 + j] = c0 + m < L
                         ? scratchBase[(CK_A_CHANNEL + tokenK) * L + c0 + m]
                         : ftype(0);
@@ -2771,17 +2814,17 @@ kernel void linear_attn_chunk64_recurrent_inplace(
             }
             for (ushort i = 0; i < 16; ++i) {
                 int tokenK = kt * 16 + int(fm) + ((int(i) >> 2) & 1) * 8;
-                int n = int(fn) + (int(i) & 3) + (int(i) >> 3) * 16;
-                ctB[i] = vnTg[tokenK][n];
-                ctC[i] = vnewAcc[i];
+                int n = int(fn) + ck_col(i & 3) + (int(i) >> 3) * 16;
+                ctB[ck_acc_index(i)] = vnTg[tokenK][n];
+                ctC[ck_acc_index(i)] = vnewAcc[i];
             }
             mm.run(ctA, ctB, ctC);
-            for (int i = 0; i < 16; ++i) vnewAcc[i] = ctC[i];
+            for (int i = 0; i < 16; ++i) vnewAcc[i] = ctC[ck_acc_index(i)];
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
         for (ushort i = 0; i < 16; ++i) {
             int m = int(sgitg) * 16 + int(fm) + ((int(i) >> 2) & 1) * 8;
-            int n = int(fn) + (int(i) & 3) + (int(i) >> 3) * 16;
+            int n = int(fn) + ck_col(i & 3) + (int(i) >> 3) * 16;
             vnTg[m][n] = vnewAcc[i];
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -2798,17 +2841,17 @@ kernel void linear_attn_chunk64_recurrent_inplace(
                 int token = c0 + m;
                 float scale = exp(gcTg[m]) * qInvTg[m];
                 for (ushort j = 0; j < 4; ++j) {
-                    int d = kt * 16 + int(fn) + int(j);
+                    int d = kt * 16 + int(fn) + ck_col(j);
                     float qv = token < L ? float(convBase[(kHead * CK_DK + d) * L + token]) : 0.0f;
                     ctA[g * 4 + j] = ftype(qv * scale);
                 }
             }
             for (ushort i = 0; i < 16; ++i) {
-                ctB[i] = stateTg[kt][tiisg][i];
-                ctC[i] = outAcc[i];
+                ctB[ck_acc_index(i)] = stateTg[kt][tiisg][i];
+                ctC[ck_acc_index(i)] = outAcc[i];
             }
             mm.run(ctA, ctB, ctC);
-            for (int i = 0; i < 16; ++i) outAcc[i] = ctC[i];
+            for (int i = 0; i < 16; ++i) outAcc[i] = ctC[ck_acc_index(i)];
         }
         for (int kt = 0; kt < CK_NT; ++kt) {
             auto ctA = mm.get_left_input_cooperative_tensor<ftype, float, float>();
@@ -2817,7 +2860,7 @@ kernel void linear_attn_chunk64_recurrent_inplace(
             for (ushort g = 0; g < 2; ++g) {
                 int m = int(sgitg) * 16 + int(fm) + int(g) * 8;
                 for (ushort j = 0; j < 4; ++j) {
-                    int tokenK = kt * 16 + int(fn) + int(j);
+                    int tokenK = kt * 16 + int(fn) + ck_col(j);
                     ctA[g * 4 + j] = c0 + m < L
                         ? scratchBase[(CK_P_CHANNEL + tokenK) * L + c0 + m]
                         : ftype(0);
@@ -2825,19 +2868,19 @@ kernel void linear_attn_chunk64_recurrent_inplace(
             }
             for (ushort i = 0; i < 16; ++i) {
                 int tokenK = kt * 16 + int(fm) + ((int(i) >> 2) & 1) * 8;
-                int n = int(fn) + (int(i) & 3) + (int(i) >> 3) * 16;
-                ctB[i] = vnTg[tokenK][n];
-                ctC[i] = outAcc[i];
+                int n = int(fn) + ck_col(i & 3) + (int(i) >> 3) * 16;
+                ctB[ck_acc_index(i)] = vnTg[tokenK][n];
+                ctC[ck_acc_index(i)] = outAcc[i];
             }
             mm.run(ctA, ctB, ctC);
-            for (int i = 0; i < 16; ++i) outAcc[i] = ctC[i];
+            for (int i = 0; i < 16; ++i) outAcc[i] = ctC[ck_acc_index(i)];
         }
 
         for (ushort i = 0; i < 16; ++i) {
             int m = int(sgitg) * 16 + int(fm) + ((int(i) >> 2) & 1) * 8;
             int token = c0 + m;
             if (token >= L) continue;
-            int n = int(fn) + (int(i) & 3) + (int(i) >> 3) * 16;
+            int n = int(fn) + ck_col(i & 3) + (int(i) >> 3) * 16;
             attn_out[ck_output_offset(b, token, h, n0 + n, param)] = ftype(outAcc[i]);
         }
 
@@ -2851,7 +2894,7 @@ kernel void linear_attn_chunk64_recurrent_inplace(
                 auto ctB = mm.get_right_input_cooperative_tensor<ftype, float, float>();
                 auto ctC = mm.get_destination_cooperative_tensor<metal::remove_addrspace_t<decltype(ctA)>, metal::remove_addrspace_t<decltype(ctB)>, float>();
                 for (ushort i = 0; i < 8; ++i) {
-                    int tokenK = kt * 16 + int(fn) + (int(i) & 3);
+                    int tokenK = kt * 16 + int(fn) + ck_col(i & 3);
                     int token = c0 + tokenK;
                     int dk = mt * 16 + int(fm) + (int(i) >> 2) * 8;
                     float kv = token < L ? float(convBase[(param.key_dim + kHead * CK_DK + dk) * L + token]) : 0.0f;
@@ -2859,12 +2902,12 @@ kernel void linear_attn_chunk64_recurrent_inplace(
                 }
                 for (ushort i = 0; i < 16; ++i) {
                     int tokenK = kt * 16 + int(fm) + ((int(i) >> 2) & 1) * 8;
-                    int n = int(fn) + (int(i) & 3) + (int(i) >> 3) * 16;
-                    ctB[i] = vnTg[tokenK][n];
-                    ctC[i] = acc[i];
+                    int n = int(fn) + ck_col(i & 3) + (int(i) >> 3) * 16;
+                    ctB[ck_acc_index(i)] = vnTg[tokenK][n];
+                    ctC[ck_acc_index(i)] = acc[i];
                 }
                 mm.run(ctA, ctB, ctC);
-                for (int i = 0; i < 16; ++i) acc[i] = ctC[i];
+                for (int i = 0; i < 16; ++i) acc[i] = ctC[ck_acc_index(i)];
             }
             for (ushort i = 0; i < 16; ++i) {
                 stateTg[mt][tiisg][i] = totalDecay * stateTg[mt][tiisg][i] + acc[i];
@@ -2876,7 +2919,7 @@ kernel void linear_attn_chunk64_recurrent_inplace(
     for (int kt = int(sgitg); kt < CK_DK_TILES; kt += CK_NSG) {
         for (ushort i = 0; i < 16; ++i) {
             int dk = kt * 16 + int(fm) + ((int(i) >> 2) & 1) * 8;
-            int n = int(fn) + (int(i) & 3) + (int(i) >> 3) * 16;
+            int n = int(fn) + ck_col(i & 3) + (int(i) >> 3) * 16;
             recurrent_state[(long)(bh * CK_DV + n0 + n) * CK_DK + dk] = ftype(stateTg[kt][tiisg][i]);
         }
     }

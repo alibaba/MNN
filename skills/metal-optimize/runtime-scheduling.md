@@ -204,10 +204,11 @@ tensor 地址随之变化又会使 encode replay 失效。
 
 `source/backend/metal/MetalAttention.mm` 将稳定的 encode 决策与每 token 参数更新分离：
 
-- `_computePathFlags()` 计算路径；`_writeCopyParam` / `_writeQKVParam` / `_writeSoftmaxParam`
+- `_resolveRoute()`（= `_collectFacts()` + `_resolvePlan()`）计算路径，产出 `AttnRoute` 枚举
+  与该路由的旋钮；`_makeCopyParam` / `_makeQKVParam` / `_makeSoftmaxParam`
   写参数，`onEncode` 与 `onReplayUpdate` 共用，避免两套更新逻辑漂移。
-- `_pathSignature()` 编码影响 kernel 变体与事件布局的结构 flag，
-  包括短 KV 变体和 `mQkvSimdReduce` 等路径；指纹变化就退回正常 encode 并重录。
+- `_pathSignature()` 编码影响 kernel 变体与事件布局的结构字段（route + 各特化 flag），
+  包括短 KV 变体和 `qkvSimdReduce` 等；指纹变化就退回正常 encode 并重录。
 - `onReplayUpdate` 更新参数 buffer 和录制事件中随 KV 长度变化的 grid / bytes，
   保证 `pastLength` 恰好前进一次。
 
