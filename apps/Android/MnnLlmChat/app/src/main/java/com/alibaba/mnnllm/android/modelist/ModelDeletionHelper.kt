@@ -13,6 +13,9 @@ import java.io.File
 /** Subdirs under tmps/<base> used by MmapUtils.getMmapDir() for ModelScope/Modelers; keep in sync with MmapUtils. */
 private val TMPS_SOURCE_SUBDIRS = listOf("modelscope", "modelers")
 
+/** Model ids of on-device models carry this prefix, see [LocalModelsProvider.modelsIn]. */
+private const val LOCAL_MODEL_PREFIX = "local/"
+
 /**
  * Helper class for model deletion with proper cleanup.
  *
@@ -166,9 +169,14 @@ object ModelDeletionHelper {
      *
      * @param context Android context
      * @param modelId The model ID to delete
+     * @param localPath For `local/` models, the folder the weights live in. Ignored otherwise.
      * @return DeletionResult with cleanup status
      */
-    fun deleteModelWithCleanup(context: Context, modelId: String): DeletionResult {
+    fun deleteModelWithCleanup(
+        context: Context,
+        modelId: String,
+        localPath: String? = null
+    ): DeletionResult {
         val errors = mutableListOf<String>()
 
         // 1. Clear mmap cache first (while model still exists for path calculation)
@@ -188,13 +196,18 @@ object ModelDeletionHelper {
             false
         }
 
-        // 3. Delete the model files via ModelDownloadManager
-        val modelDeleted = try {
-            ModelDownloadManager.getInstance(context).deleteModel(modelId)
-            true
-        } catch (e: Exception) {
-            errors.add("Failed to delete model: ${e.message}")
-            false
+        // 3. Delete the model files. The downloader only knows the `.mnnmodels` tree, so a local
+        // model has to be removed from disk directly.
+        val modelDeleted = if (modelId.startsWith(LOCAL_MODEL_PREFIX)) {
+            deleteLocalModelFiles(context, localPath, errors)
+        } else {
+            try {
+                ModelDownloadManager.getInstance(context).deleteModel(modelId)
+                true
+            } catch (e: Exception) {
+                errors.add("Failed to delete model: ${e.message}")
+                false
+            }
         }
 
         return DeletionResult(
@@ -203,6 +216,62 @@ object ModelDeletionHelper {
             chatSessionsCleared = chatSessionsCleared,
             errors = errors
         )
+    }
+
+    /**
+     * True when [localPath] sits under one of [LocalModelsProvider]'s roots. Guards against acting
+     * on a stale or hand-built path: the deletion below is recursive, so an unexpected path must be
+     * refused rather than trusted.
+     */
+    private fun isDeletableLocalRoot(context: Context, localPath: File): Boolean {
+        val roots = listOfNotNull(
+            LocalModelsProvider.importedModelsDir(context),
+            LocalModelsProvider.dropInModelsDir(context),
+            File(LocalModelsProvider.ADB_MODELS_DIR)
+        )
+        val target = localPath.canonicalFile
+        return roots.any { root ->
+            val canonicalRoot = root.canonicalFile
+            // Refuse the root itself: a picker aimed at the shared directory is not a model folder.
+            target != canonicalRoot && target.path.startsWith(canonicalRoot.path + File.separator)
+        }
+    }
+
+    /**
+     * Whether the app can actually remove [localPath]. A folder pushed to `/data/local/tmp` by adb
+     * belongs to the shell user, so delete would fail on it; the menu entry is hidden in that case
+     * instead of offering an action that cannot work.
+     */
+    fun canDeleteLocalModel(context: Context, localPath: String?): Boolean {
+        if (localPath.isNullOrEmpty()) return false
+        val dir = File(localPath)
+        if (!dir.exists()) return true
+        if (!isDeletableLocalRoot(context, dir)) return false
+        return dir.canWrite() && dir.parentFile?.canWrite() == true
+    }
+
+    private fun deleteLocalModelFiles(context: Context, localPath: String?, errors: MutableList<String>): Boolean {
+        if (localPath.isNullOrEmpty()) {
+            errors.add("Local model has no path")
+            return false
+        }
+        val dir = File(localPath)
+        if (!dir.exists()) {
+            // Already gone; the list entry is what needs to disappear.
+            return true
+        }
+        if (!isDeletableLocalRoot(context, dir)) {
+            errors.add("Refusing to delete outside the local model directories: $localPath")
+            return false
+        }
+        return try {
+            val deleted = dir.deleteRecursively()
+            if (!deleted) errors.add("Failed to remove some files under $localPath")
+            deleted
+        } catch (e: Exception) {
+            errors.add("Failed to delete local model: ${e.message}")
+            false
+        }
     }
 
     /**

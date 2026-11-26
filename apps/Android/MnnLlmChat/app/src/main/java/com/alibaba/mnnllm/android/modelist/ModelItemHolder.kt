@@ -150,16 +150,42 @@ class ModelItemHolder(
             if (item.itemId == R.id.menu_delete_model) {
                 DialogUtils.showDeleteConfirmationDialog(v.context) {
                     MainScope().launch {
+                        val context = v.context
                         try {
                             // Use ModelDeletionHelper for proper cleanup of mmap cache and chat sessions
-                            val result = ModelDeletionHelper.deleteModelWithCleanup(v.context, modelId!!)
+                            val result = ModelDeletionHelper.deleteModelWithCleanup(
+                                context,
+                                modelId!!,
+                                modelItem.localPath
+                            )
                             if (!result.modelDeleted) {
-                                Log.w(TAG, "Model deletion incomplete: ${result.errors.joinToString()}")
+                                // The files are still on disk, so the entry has to stay: a model that
+                                // vanished from the list but still occupies space is worse than a
+                                // failed delete, and the user needs to know why nothing happened.
+                                Log.w(TAG, "Model deletion failed: ${result.errors.joinToString()}")
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.delete_model_failed),
+                                    Toast.LENGTH_LONG
+                                ).show()
+                                return@launch
                             }
-                            // Notify the listener that the model was deleted successfully
+                            if (result.errors.isNotEmpty()) {
+                                Log.w(TAG, "Model deletion incomplete: ${result.errors.joinToString()}")
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.delete_model_partial),
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
                             modelItemListener.onItemDeleted(modelItem)
                         } catch (e: Exception) {
                             Log.e(TAG, "Failed to delete model: $modelId", e)
+                            Toast.makeText(
+                                context,
+                                context.getString(R.string.delete_model_failed),
+                                Toast.LENGTH_LONG
+                            ).show()
                         }
                     }
                 }
@@ -229,11 +255,17 @@ class ModelItemHolder(
         
         // Determine if model is deletable
         // Deletable condition:
-        // 1. Must be a downloaded model (has download info) -> This excludes manually added local models
+        // 1. Downloaded from a hub (has download info), or an on-device model under one of the
+        //    local roots -> a local model has no download info, but its folder can still be removed
         // 2. Must NOT be a builtin model -> This excludes builtin models
+        // 3. For a local model, the folder must actually be writable. Models adb-pushed to
+        //    /data/local/tmp belong to the shell user, so offering "delete" there would only fail.
         val isDownloaded = modelWrapper.downloadedModelInfo != null
+        val isLocal = modelItem.isLocal && !modelItem.localPath.isNullOrEmpty()
         val isBuiltin = modelItem.isBuiltin || modelItem.modelId?.startsWith("Builtin/") == true
-        val isDeletable = isDownloaded && !isBuiltin
+        val isDeletable = (isDownloaded || (isLocal && ModelDeletionHelper.canDeleteLocalModel(
+            v.context, modelItem.localPath
+        ))) && !isBuiltin
 
         // Delete, settings, and model info are always available
         popupMenu.menu.findItem(R.id.menu_delete_model).setVisible(isDeletable)

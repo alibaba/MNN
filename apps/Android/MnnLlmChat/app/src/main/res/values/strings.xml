@@ -19,6 +19,8 @@
     <string name="model_hello_prompt_diffusion">Please input prompt\nI can generate an image for you</string>
     <string name="model_hello_prompt_sana">Please upload a face image to convert to anime</string>
     <string name="delete_model">Delete Model</string>
+    <string name="delete_model_failed">Could not delete the model files. They are stored in a location this app cannot modify.</string>
+    <string name="delete_model_partial">Model removed from the list, but some files could not be deleted.</string>
     <string name="pause_download">Pause Download</string>
     <string name="start_download">Start Download</string>
     <string name="download_preparing">Download preparing</string>

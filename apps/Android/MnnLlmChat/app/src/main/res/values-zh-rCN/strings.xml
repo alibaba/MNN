@@ -17,6 +17,8 @@
     <string name="model_hello_prompt_diffusion">请输入提示词\n我可以生成图片哦</string>
     <string name="model_hello_prompt_sana">请输入人脸图片，可以转为动漫图片</string>
     <string name="delete_model">删除模型</string>
+    <string name="delete_model_failed">无法删除模型文件：文件所在位置当前应用没有修改权限。</string>
+    <string name="delete_model_partial">已从列表移除，但部分文件未能删除。</string>
     <string name="pause_download">暂停下载</string>
     <string name="downloading_paused">已暂停: %1$.2f%%</string>
     <string name="start_download">开始下载</string>
