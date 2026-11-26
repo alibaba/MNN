@@ -32,15 +32,18 @@ const CoreFunctions* indexedLinearCore(Backend* backend) {
 }
 
 #ifdef MNN_USE_NEON
+// vuzp1q/vuzp2q are AArch64-only; the portable vuzpq pair deinterleaves identically on both ABIs.
 static inline void splitGateUp(const uint16_t* src, uint16_t* gate, uint16_t* up) {
     auto v = vld1q_u16(src);
-    vst1_u16(gate, vget_low_u16(vuzp1q_u16(v, v)));
-    vst1_u16(up, vget_low_u16(vuzp2q_u16(v, v)));
+    auto p = vuzpq_u16(v, v);
+    vst1_u16(gate, vget_low_u16(p.val[0]));
+    vst1_u16(up, vget_low_u16(p.val[1]));
 }
 static inline void splitGateUp(const uint32_t* src, uint32_t* gate, uint32_t* up) {
     auto v = vld1q_u32(src);
-    vst1_u32(gate, vget_low_u32(vuzp1q_u32(v, v)));
-    vst1_u32(up, vget_low_u32(vuzp2q_u32(v, v)));
+    auto p = vuzpq_u32(v, v);
+    vst1_u32(gate, vget_low_u32(p.val[0]));
+    vst1_u32(up, vget_low_u32(p.val[1]));
 }
 #endif
 
