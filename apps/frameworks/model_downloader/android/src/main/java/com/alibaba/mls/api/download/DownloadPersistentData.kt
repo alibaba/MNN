@@ -134,6 +134,9 @@ object DownloadPersistentData {
             preferences.remove(metadataKey)
         }
         
+        // Local imports never owned legacy basename-only preferences: they may belong to a remote model.
+        if (modelId.startsWith("local/")) return
+
         // Also remove from SharedPreferences (cleanup) - removeProgress originally used getLastFileName
         val oldModelIdKey = getLastFileName(modelId)
         val sharedPreferences = context.getSharedPreferences("DOWNLOAD_$oldModelIdKey", Context.MODE_PRIVATE)
