@@ -41,6 +41,8 @@
 #include "CommonOpCreator.hpp"
 #include "core/IDSTEncoder.hpp"
 #include "core/TensorUtils.hpp"
+#include "backend/metal/MetalConv1x1Decode.hpp"
+#include "backend/metal/MetalConv1x1Prefill.hpp"
 
 using namespace MNN;
 using namespace MNN::Express;
@@ -760,7 +762,8 @@ public:
 
     // `weight` stays dequantized for the fp32 reference.
     static std::unique_ptr<Convolution2DT> member(int ic, int oc, int blockSize, int seed,
-                                                  std::vector<float>& weight, std::vector<float>& bias) {
+                                                  std::vector<float>& weight, std::vector<float>& bias,
+                                                  int nbit = 4) {
         weight.resize((size_t)oc * ic);
         for (size_t i = 0; i < weight.size(); ++i) {
             weight[i] = ((float)(((i + (size_t)seed) * 1103515245u + 12345u) % 65536) / 65536.0f) - 0.5f;
@@ -770,7 +773,7 @@ public:
             bias[o] = ((float)(((o + seed) * 2654435761u) % 65536) / 65536.0f) - 0.5f;
         }
         std::vector<float> alpha;
-        quantizeDequantize(weight, alpha, ic, oc, blockSize, 4, true);
+        quantizeDequantize(weight, alpha, ic, oc, blockSize, nbit, true);
         std::unique_ptr<Convolution2DT> conv(new Convolution2DT);
         conv->common.reset(new Convolution2DCommonT);
         conv->common->kernelX     = 1;
@@ -778,8 +781,9 @@ public:
         conv->common->inputCount  = ic;
         conv->common->outputCount = oc;
         conv->bias                = bias;
+        const int clampMin        = -(1 << (nbit - 1));
         conv->quanParameter = IDSTEncoder::encode(weight.data(), alpha, blockSize, oc * (ic / blockSize), true,
-                                                  nullptr, -8, {4, false});
+                                                  nullptr, clampMin, {nbit, false});
         return conv;
     }
 
@@ -798,9 +802,10 @@ public:
         }
     }
 
-    bool runGroup(bool gateUp, const std::vector<int>& areas, const char* tag, int precision) {
+    bool runGroup(bool gateUp, const std::vector<int>& areas, const char* tag, int precision, int nbit = 4,
+                  int qkvMembers = 3) {
         const int ic = 1152, oc = 64, blockSize = 128;
-        const int numMembers = gateUp ? 2 : 3;
+        const int numMembers = gateUp ? 2 : qkvMembers;
         const int numOuts    = gateUp ? 1 : numMembers;
         std::vector<std::vector<float>> weights(numMembers), biases(numMembers);
         std::unique_ptr<OpT> op(new OpT);
@@ -812,7 +817,7 @@ public:
         param->act_silu_mul        = gateUp;
         param->has_ln              = false;
         for (int i = 0; i < numMembers; ++i) {
-            param->convs.push_back(member(ic, oc, blockSize, 17 * i + 3, weights[i], biases[i]));
+            param->convs.push_back(member(ic, oc, blockSize, 17 * i + 3, weights[i], biases[i], nbit));
         }
 
         auto x0   = _Input({areas[0], ic, 1, 1}, NC4HW4);
@@ -878,7 +883,8 @@ public:
                         MNN_ERROR("FusedProjReplaySwitch: readMap null %s area=%d out=%d\n", tag, area, i);
                         return false;
                     }
-                    if (!checkVector<float>(ptr, packed[i].data(), (int)packed[i].size(), 0.005f)) {
+                    const float tol = (precision == 2) ? 0.01f : 0.002f;
+                    if (!checkVector<float>(ptr, packed[i].data(), (int)packed[i].size(), tol)) {
                         MNN_ERROR("FusedProjReplaySwitch FAILED: %s area=%d rep=%d out=%d\n", tag, area, rep, i);
                         return false;
                     }
@@ -899,9 +905,16 @@ public:
         // Area >= 128 reaches the gate/up dual fold, where the gate child never encodes.
         // Area 4 loses decode-fusion eligibility to the g4mN ladder, so the owner must switch structure there.
         return runGroup(false, {16, 24, 32, 128, 16}, "QKV no-LN (owner generation never moves)", precision) &&
-               runGroup(false, {1, 4, 16, 128, 1, 4, 24, 128, 16}, "QKV decode/prefill switch", precision) &&
+               runGroup(false, {1, 2, 3, 4, 5, 8, 16, 128, 1, 4, 24, 128, 16}, "QKV decode/prefill switch", precision) &&
+               runGroup(false, {1, 2, 3, 4, 5, 8, 16, 32, 128, 1, 4}, "QKV 4-proj short/wide/decode switch", precision, 4, 4) &&
                runGroup(true, {16, 24, 32, 128, 192, 16}, "GateUp silu-mul/dual fold", precision) &&
-               runGroup(true, {1, 4, 16, 128, 1, 192, 128, 4, 16}, "GateUp decode/prefill switch", precision);
+               runGroup(true, {1, 2, 3, 4, 5, 8, 16, 128, 1, 192, 128, 4, 16}, "GateUp decode/prefill switch", precision) &&
+               runGroup(false, {48, 128}, "QKV wide prefill W8", precision, 8) &&
+               runGroup(true, {128, 192}, "GateUp dual prefill W8", precision, 8) &&
+               runGroup(false, {48, 128}, "QKV wide prefill W2", precision, 2) &&
+               runGroup(true, {128, 192}, "GateUp dual prefill W2", precision, 2) &&
+               runGroup(false, {48, 128}, "QKV wide prefill W3", precision, 3) &&
+               runGroup(true, {128, 192}, "GateUp dual prefill W3", precision, 3);
     }
 };
 MNNTestSuiteRegister(MetalFusedProjReplaySwitchTest, "op/fused_proj_replay_switch_metal");
@@ -948,5 +961,297 @@ public:
     }
 };
 MNNTestSuiteRegister(MetalConvWqSmallTileTest, "op/conv_wq_small_tile_metal");
+
+class MetalConvPrefillEdgeTest : public MNNTestCase {
+public:
+    virtual bool run(int precision) override {
+        // Pure routing & descriptor regressions (platform-independent).
+        {
+            PrefillCaps caps;
+            caps.allowTensorApi = false;
+            caps.hasSgMatrix = true;
+            caps.hasSgReduce = true;
+            caps.lowMemoryKernelsAvailable = true;
+            caps.gpuGen = 15;
+            caps.maxThreadgroupMemoryBytes = 32768;
+
+            // area * oc overflows signed 32-bit int; must still select SgInKernel32x64.
+            QuantPrefillShape huge;
+            huge.area = 16384;
+            huge.ic = 2048;
+            huge.oc = 151936;
+            huge.blockCount = 16;
+            huge.dequantBits = 4;
+            huge.fp16Storage = true;
+            auto hugePlan = selectSimdInKernelPrefill(caps, huge);
+            MNNTEST_ASSERT(hugePlan.kernel == PrefillKernel::SgInKernel32x64);
+
+            // SgInKernel32x64 needs 768 * 16 = 12288 B of threadgroup memory.
+            PrefillCaps smallTg = caps;
+            smallTg.maxThreadgroupMemoryBytes = 8192;
+            auto smallTgPlan = selectSimdInKernelPrefill(smallTg, huge);
+            MNNTEST_ASSERT(smallTgPlan.kernel != PrefillKernel::SgInKernel32x64);
+
+            // Outer-dequant grids must cover padded C4 rows when oc % 4 != 0.
+            QuantPrefillShape unalignedOc;
+            unalignedOc.area = 64;
+            unalignedOc.ic = 64;
+            unalignedOc.oc = 65;
+            unalignedOc.blockCount = 1;
+            unalignedOc.dequantBits = 4;
+            unalignedOc.fp16Storage = true;
+            QuantPrefillPlan rowPlan;
+            rowPlan.kernel = PrefillKernel::TensorRowDeviceM64;
+            auto rowDesc = describeQuantPrefill(rowPlan, unalignedOc);
+            MNNTEST_ASSERT(rowDesc.dequant.grid.x == 68);
+            QuantPrefillPlan packedPlan;
+            packedPlan.kernel = PrefillKernel::SgPreDequantM32;
+            auto packedDesc = describeQuantPrefill(packedPlan, unalignedOc);
+            MNNTEST_ASSERT(packedDesc.dequant.grid.x == 68);
+
+            // Large pack grid must not overflow 32-bit int on ic * area.
+            QuantPrefillShape hugePack = unalignedOc;
+            hugePack.area = 16384;
+            hugePack.ic = 131072;
+            auto hugePackDesc = describeQuantPrefill(rowPlan, hugePack);
+            const size_t expectedPackX = ((size_t)(hugePack.ic / 4) * hugePack.area + 127) / 128;
+            MNNTEST_ASSERT(hugePackDesc.pack.grid.x == expectedPackX);
+
+            // Tensor M/N tile and K-split routing invariants across W2/W3/W4/W8.
+            PrefillCaps tensorCaps = caps;
+            tensorCaps.allowTensorApi = true;
+            tensorCaps.gpuGen = 16;
+            for (int bits : {2, 3, 4, 8}) {
+                QuantPrefillShape s;
+                s.ic = 2048;
+                s.oc = 1024;
+                s.blockCount = 32;
+                s.dequantBits = bits;
+                s.fp16Storage = true;
+
+                s.area = 4;
+                MNNTEST_ASSERT(selectQuantPrefill(tensorCaps, s).kernel == PrefillKernel::SgReduceG4mN);
+                s.area = 8;
+                auto p8 = selectQuantPrefill(tensorCaps, s);
+                MNNTEST_ASSERT(p8.kernel == PrefillKernel::TensorInKernel8x64 && p8.kPartitions == 8);
+                MNNTEST_ASSERT(p8.loopK64);
+                s.area = 12;
+                MNNTEST_ASSERT(selectQuantPrefill(tensorCaps, s).kernel == PrefillKernel::TensorInKernel16x64);
+                s.area = 24;
+                MNNTEST_ASSERT(selectQuantPrefill(tensorCaps, s).kernel == PrefillKernel::TensorInKernel32x64);
+                s.area = 48;
+                auto p48 = selectQuantPrefill(tensorCaps, s);
+                MNNTEST_ASSERT(p48.kernel == PrefillKernel::TensorInKernel64x64 && p48.kPartitions == 1);
+
+                // Small oc <= 32 selects narrow N=32 tile + K-split=8 when blocks allow.
+                s.area = 64;
+                s.oc = 32;
+                auto pN32 = selectQuantPrefill(tensorCaps, s);
+                MNNTEST_ASSERT(pN32.kernel == PrefillKernel::TensorInKernel64x64 && pN32.tileN == 32 &&
+                               pN32.kPartitions == 8);
+                auto dN32 = describeQuantPrefill(pN32, s);
+                MNNTEST_ASSERT(dN32.main.grid.x == 1 && dN32.main.grid.y == 1 && dN32.main.grid.z == 8);
+
+                // Small gridXY with blockCount == 1 cannot K-split, so it falls back to N=32.
+                s.oc = 256;
+                s.blockCount = 1;
+                auto pNoKs = selectQuantPrefill(tensorCaps, s);
+                MNNTEST_ASSERT(pNoKs.tileN == 32 && pNoKs.kPartitions == 1);
+                auto dNoKs = describeQuantPrefill(pNoKs, s);
+                MNNTEST_ASSERT(dNoKs.main.grid.y == 8 && dNoKs.main.grid.z == 1);
+
+                // TG-starved multi-block shape triggers K-split=8 (gridXY=4) and K-split=2 (blockCount=2).
+                s.blockCount = 32;
+                MNNTEST_ASSERT(selectQuantPrefill(tensorCaps, s).kPartitions == 8);
+                s.blockCount = 2;
+                MNNTEST_ASSERT(selectQuantPrefill(tensorCaps, s).kPartitions == 2);
+                // GateUpDual / SiluMul fusion is enabled across all W2/W3/W4/W8 on M64.
+                s.area = 128;
+                s.oc = 1024;
+                s.blockCount = 32;
+                s.dualOffer = true;
+                s.gateUpDualMinArea = 128;
+                MNNTEST_ASSERT(selectQuantPrefill(tensorCaps, s).fusion == PrefillFusion::GateUpDual);
+                s.dualOffer = false;
+
+                // FP32 gets FQ_PREFETCH on K=32 (W2/W4/W8) and K=64 on M=8 N=32.
+                s.fp16Storage = false;
+                s.area = 64;
+                auto pFp32 = selectQuantPrefill(tensorCaps, s);
+                auto dFp32 = describeQuantPrefill(pFp32, s);
+                const bool hasPrefetch = std::find(dFp32.main.keys.begin(), dFp32.main.keys.end(), "FQ_PREFETCH") !=
+                                         dFp32.main.keys.end();
+                MNNTEST_ASSERT(hasPrefetch == (bits != 3));
+                s.area = 8;
+                s.oc = 32;
+                auto pFp32M8N32 = selectQuantPrefill(tensorCaps, s);
+                MNNTEST_ASSERT(pFp32M8N32.loopK64 && pFp32M8N32.tileN == 32);
+            }
+
+            // M=8 W4B64 split-K threshold matrix (mirrors M5 Pro / M4 Pro verify shapes):
+            // gridXY <= 8 -> KS=8; gridXY <= 32 & ic >= 2048 -> KS=8 (ic < 2048 -> KS=4);
+            // gridXY <= 48 -> KS=4; gridXY > 48 (N >= 4096) -> 1-pass KS=1 + TK64.
+            {
+                PrefillCaps gen17Caps = tensorCaps;
+                gen17Caps.gpuGen = 17;
+                struct M8PlanCheck { int oc, ic, expKs, expTileN; };
+                const M8PlanCheck checks[] = {
+                    {16,    2048, 8, 32},
+                    {32,    2048, 8, 32},
+                    {64,    2048, 8, 0},
+                    {512,   2048, 8, 0},
+                    {1024,  1024, 4, 0},
+                    {1024,  2048, 8, 0},
+                    {1024,  3072, 8, 0},
+                    {2048,  1024, 4, 0},
+                    {2048,  2048, 8, 0},
+                    {3072,  2048, 4, 0},
+                    {4096,  2048, 1, 0},
+                    {6144,  1024, 1, 0},
+                    {6144,  2048, 1, 0},
+                    {12288, 4096, 1, 0},
+                };
+                for (const auto& ck : checks) {
+                    QuantPrefillShape sm;
+                    sm.area = 8;
+                    sm.ic = ck.ic;
+                    sm.oc = ck.oc;
+                    sm.blockCount = ck.ic / 64;
+                    sm.dequantBits = 4;
+                    sm.fp16Storage = true;
+                    auto pm = selectQuantPrefill(gen17Caps, sm);
+                    MNNTEST_ASSERT(pm.kernel == PrefillKernel::TensorInKernel8x64);
+                    MNNTEST_ASSERT(pm.loopK64 && !pm.hoistW4Scale);
+                    MNNTEST_ASSERT(pm.kPartitions == ck.expKs && pm.tileN == ck.expTileN);
+                }
+            }
+
+            // Non-Tensor short prefill (area 6..8, oc >= 512) uses SgInKernel8x16SplitK across W2/W3/W4/W8;
+            // Tensor API stays on TensorInKernel8x64 and small oc / tight smem fall back cleanly.
+            for (int bits : {2, 3, 4, 8}) {
+                QuantPrefillShape s8;
+                s8.area = 8;
+                s8.ic = 2048;
+                s8.oc = 1024;
+                s8.blockCount = 32;
+                s8.dequantBits = bits;
+                s8.fp16Storage = true;
+                MNNTEST_ASSERT(selectQuantPrefill(tensorCaps, s8).kernel == PrefillKernel::TensorInKernel8x64);
+                MNNTEST_ASSERT(selectQuantPrefill(caps, s8).kernel == PrefillKernel::SgInKernel8x16SplitK);
+                s8.area = 6;
+                MNNTEST_ASSERT(selectQuantPrefill(caps, s8).kernel == PrefillKernel::SgInKernel8x16SplitK);
+                s8.area = 5;
+                MNNTEST_ASSERT(selectQuantPrefill(caps, s8).kernel != PrefillKernel::SgInKernel8x16SplitK);
+                s8.area = 8;
+                s8.oc = 256;
+                MNNTEST_ASSERT(selectQuantPrefill(caps, s8).kernel != PrefillKernel::SgInKernel8x16SplitK);
+                s8.oc = 1024;
+                s8.fp16Storage = false;
+                PrefillCaps smem16k = caps;
+                smem16k.maxThreadgroupMemoryBytes = 16384;
+                MNNTEST_ASSERT(selectQuantPrefill(smem16k, s8).kernel != PrefillKernel::SgInKernel8x16SplitK);
+                MNNTEST_ASSERT(selectQuantPrefill(caps, s8).kernel == PrefillKernel::SgInKernel8x16SplitK);
+            }
+
+            // Decode GEMV: oc % 8 == 0 && oc % 16 != 0 at quadsPerBlock >= 32 should use Oc8Nsg4SplitK2, not Plain.
+            DecodeCaps decCaps;
+            auto decProfile = conv1x1ProfileFrom(Conv1x1DieClass::Pro, 16);
+            decCaps.tier = decProfile.tier;
+            decCaps.tgBudget = decProfile.tgBudget;
+            decCaps.wqEvenBlockFp16 = true;
+            DecodeShape decShape;
+            decShape.oc = 40;
+            decShape.icDiv4 = 256;
+            decShape.blockCount = 8; // quadsPerBlock = 32
+            decShape.dequantBits = 4;
+            MNNTEST_ASSERT(selectDecodeGemv(decCaps, decShape).variant == DecodeGemvVariant::Oc8Nsg4SplitK2);
+        }
+
+        if (MNNTestSuite::get()->pStaus.forwardType != MNN_FORWARD_METAL) {
+            MNN_PRINT("ConvPrefillEdge: skipped GPU cases (Metal-only, backend=1).\n");
+            return true;
+        }
+        BackendConfig bnConfig;
+        bnConfig.precision = (BackendConfig::PrecisionMode)precision;
+        bnConfig.memory = BackendConfig::Memory_Low;
+        auto exe = Executor::newExecutor(MNN_FORWARD_METAL, bnConfig, 1);
+        ExecutorScope scope(exe);
+        MNN_PRINT("\n## ConvPrefillEdge (precision=%d)\n", precision);
+
+        // Exercises MNN_METAL_SRC_PROTECT weight-tail guards (icDiv4 % 8 != 0, ic < 32,
+        // multi-block uneven last block), oc % 4 != 0 padding, M=8/16/32/64 & N=32 tiles,
+        // K-split=2/4/8 across W2/W3/W4/W8, and decode oc % 8 == 0 && oc % 16 != 0.
+        struct Case { int ic, oc, area, blockSize; };
+        const Case cases[] = {
+            {12,  17,  7,  12},
+            {20,  65,  8,  20},
+            {48,  65,  16, 48},
+            {48,  17,  64, 48},
+            {100, 65,  64, 100},
+            {124, 65,  64, 62},
+            {256, 32,  12, 32},   // M16 x N32 + KS=8
+            {256, 128, 16, 32},   // M16 x N64 + KS=8
+            {256, 65,  48, 32},   // M64 x N64 + KS=8 + oc%4!=0
+            {128, 256, 48, 64},   // M64 x N64 + KS=2
+            {128, 128, 64, 128},  // M64 x N32 (blockCount=1 narrow-N fallback)
+            {256, 32,  64, 32},   // M64 x N32 + KS=8
+            {256, 512, 8,  64},   // Non-Tensor SgInKernel8x16SplitK (full K tile)
+            {100, 517, 7,  100},  // Non-Tensor SgInKernel8x16SplitK (partial M/K/N tails)
+            {256, 512, 6,  64},   // Non-Tensor SgInKernel8x16SplitK (M=6 tail)
+            {256, 40,  1,  128},  // Decode Oc8Nsg4SplitK2 (oc%8==0, oc%16!=0, quadsPerBlock=32)
+            {256, 128, 2,  64},   // SgReduceG4mN (area=2 zero-shift W4 / W8)
+            {256, 128, 3,  64},   // SgReduceG4mN (area=3)
+            {256, 128, 5,  64},   // SgReduceG4mN (area=5)
+            {128, 65,  33, 64},   // Non-aligned M=33 (32x16 non-Tensor & M64 Tensor)
+            {128, 65,  47, 64},   // Non-aligned M=47 (32x16 non-Tensor & M64 Tensor)
+            {128, 548, 20, 64},   // Non-aligned oc%32!=0 (16x32 non-Tensor)
+        };
+        MetalConvWQuantTest unit;
+        int n = 0;
+        for (const auto& c : cases) {
+            for (int nbit : {2, 3, 4, 8}) {
+                for (bool async : {false, true}) {
+                    if (!unit.testUnit(MNN_FORWARD_METAL, c.ic, c.oc, 1, c.area, c.blockSize, nbit, async, precision,
+                                       "prefill-edge")) {
+                        MNN_ERROR("ConvPrefillEdge FAILED: ic=%d oc=%d area=%d block=%d w%d async=%d\n",
+                                  c.ic, c.oc, c.area, c.blockSize, nbit, (int)async);
+                        return false;
+                    }
+                    ++n;
+                }
+            }
+        }
+        // Full M=8 W4B64 LLM verify shape matrix (covering N=16..12288, K=1024..4096).
+        const Case llmM8Cases[] = {
+            {2048, 16,    8, 64},
+            {2048, 32,    8, 64},
+            {2048, 64,    8, 64},
+            {2048, 128,   8, 64},
+            {2048, 256,   8, 64},
+            {2048, 512,   8, 64},
+            {1024, 1024,  8, 64},
+            {2048, 1024,  8, 64},
+            {3072, 1024,  8, 64},
+            {2048, 2048,  8, 64},
+            {2048, 3072,  8, 64},
+            {2048, 4096,  8, 64},
+            {1024, 6144,  8, 64},
+            {2048, 6144,  8, 64},
+            {4096, 12288, 8, 64},
+        };
+        for (const auto& c : llmM8Cases) {
+            if (!unit.testUnit(MNN_FORWARD_METAL, c.ic, c.oc, 1, c.area, c.blockSize, 4, true, precision,
+                               "prefill-m8-llm")) {
+                MNN_ERROR("ConvPrefillEdge M8 LLM FAILED: ic=%d oc=%d area=%d block=%d\n",
+                          c.ic, c.oc, c.area, c.blockSize);
+                return false;
+            }
+            ++n;
+        }
+        MNN_PRINT("ConvPrefillEdge passed: %d cases\n", n);
+        return true;
+    }
+};
+MNNTestSuiteRegister(MetalConvPrefillEdgeTest, "op/conv_prefill_edge_metal");
 
 #endif // MNN_METAL_ENABLED && MNN_LOW_MEMORY

@@ -1065,8 +1065,8 @@ void MetalLinearAttention::onEncode(const std::vector<Tensor *> &inputs, const s
         const int readIdx = sc->mPendingIdx;
         [encoder setComputePipelineState:mVerifyFusedSGPipeline];
         MetalBackend::setTensor(mConvOut.get(), encoder, 0);
-        MetalBackend::setTensor(inputs[1], encoder, 1);
-        MetalBackend::setTensor(inputs[2], encoder, 2);
+        MetalBackend::setTensor(gateSrc, encoder, 1);
+        MetalBackend::setTensor(betaSrc, encoder, 2);
         MetalBackend::setTensor(sc->mRecurrentState.get(), encoder, 3);
         MetalBackend::setTensor(attentionOutput, encoder, 4);
         [encoder setBuffer:param offset:0 atIndex:5];

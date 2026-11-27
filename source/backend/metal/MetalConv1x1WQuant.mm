@@ -94,26 +94,35 @@ bool MetalConv1x1WQuant::quantLayoutCompatible(const MetalConv1x1WQuant* peer) c
     if (peer == nullptr || peer == this) {
         return false;
     }
-    if (mDequantBits != peer->mDequantBits || mBlockCount != peer->mBlockCount ||
-        mActivationType != peer->mActivationType) {
+    if (mDequantBits != peer->mDequantBits || mActivationType != peer->mActivationType) {
         return false;
     }
-    if (mConstBuffer == nil || peer->mConstBuffer == nil ||
-        mWeight == nullptr || peer->mWeight == nullptr ||
+    if (mWeight == nullptr || peer->mWeight == nullptr ||
+        mBias == nullptr || peer->mBias == nullptr ||
         mDequantScaleBias == nullptr || peer->mDequantScaleBias == nullptr) {
         return false;
     }
-    const auto* self  = (const Param*)mConstBuffer.contents;
-    const auto* other = (const Param*)peer->mConstBuffer.contents;
-    if (self->inputDepthQuad != other->inputDepthQuad ||
-        self->outputDepthQuad != other->outputDepthQuad ||
-        self->outputChannel != other->outputChannel ||
-        mOp->main_as_Convolution2D()->common()->inputCount() !=
-            peer->mOp->main_as_Convolution2D()->common()->inputCount()) {
+    const auto* selfCommon = mOp->main_as_Convolution2D()->common();
+    const auto* peerCommon = peer->mOp->main_as_Convolution2D()->common();
+    if (selfCommon->inputCount() != peerCommon->inputCount() ||
+        selfCommon->outputCount() != peerCommon->outputCount()) {
         return false;
     }
+    if (mConstBuffer != nil && peer->mConstBuffer != nil) {
+        if (mBlockCount != peer->mBlockCount) {
+            return false;
+        }
+        const auto* self  = (const Param*)mConstBuffer.contents;
+        const auto* other = (const Param*)peer->mConstBuffer.contents;
+        if (self->inputDepthQuad != other->inputDepthQuad ||
+            self->outputDepthQuad != other->outputDepthQuad ||
+            self->outputChannel != other->outputChannel) {
+            return false;
+        }
+    }
     // Packed layout as actually loaded: byte extent of the packed weight and of
-    // the per-block scale table.
+    // the per-block scale table. Matching outputCount + scale table extent implies
+    // matching blockCount even before peer->onResize() has run.
     return mWeight->usize() == peer->mWeight->usize() &&
            mDequantScaleBias->usize() == peer->mDequantScaleBias->usize();
 }
@@ -122,9 +131,31 @@ MetalConv1x1WQuant::QuantMember MetalConv1x1WQuant::decodeMember() const {
     return mDecodeFusionEligible && mFusedRowScale == nullptr ? quantMember() : QuantMember();
 }
 
-MetalConv1x1WQuant::QuantMember MetalConv1x1WQuant::widePrefillMember() const {
-    return mDequantBits == 4 && mPrefillPlan.kernel == PrefillKernel::TensorInKernel64x64 &&
-           mPrefillPlan.fusion == PrefillFusion::None ? quantMember() : QuantMember();
+MetalConv1x1WQuant::QuantMember MetalConv1x1WQuant::shortPrefillMember(int* reduceRows) const {
+    if (!mPrepared || mFusedRowScale != nullptr ||
+        mPrefillPlan.kernel != PrefillKernel::SgReduceG4mN ||
+        mPrefillPlan.pieceCount != 1 || mPrefillPlan.protectPieceTail ||
+        mPrefillPlan.reduceRowsPerPiece < 2 || mPrefillPlan.reduceRowsPerPiece > 4) {
+        return {};
+    }
+    if (reduceRows != nullptr) {
+        *reduceRows = mPrefillPlan.reduceRowsPerPiece;
+    }
+    return quantMember();
+}
+
+MetalConv1x1WQuant::QuantMember MetalConv1x1WQuant::multiProjPrefillMember() const {
+    return multiProjPrefillTileM() > 0 && mPrefillPlan.fusion == PrefillFusion::None ? quantMember() : QuantMember();
+}
+
+int MetalConv1x1WQuant::multiProjPrefillTileM() const {
+    switch (mPrefillPlan.kernel) {
+        case PrefillKernel::TensorInKernel8x64:  return 8;
+        case PrefillKernel::TensorInKernel16x64: return 16;
+        case PrefillKernel::TensorInKernel32x64: return 32;
+        case PrefillKernel::TensorInKernel64x64: return 64;
+        default: return 0;
+    }
 }
 
 MetalConv1x1WQuant::QuantMember MetalConv1x1WQuant::quantMember() const {
@@ -353,8 +384,8 @@ static id<MTLComputePipelineState> loadPrefillPipeline(MetalBackend* backend, co
     return pipeline;
 }
 
-// The group holds its own launch geometry; reuse this member's M64 specialization.
-id<MTLComputePipelineState> MetalConv1x1WQuant::widePrefillPipeline() const {
+// The group holds its own launch geometry; reuse this member's Tensor prefill specialization.
+id<MTLComputePipelineState> MetalConv1x1WQuant::multiProjPrefillPipeline() const {
     auto metal = static_cast<MetalBackend*>(backend());
     const auto* param = static_cast<const Param*>(mConstBuffer.contents);
     QuantPrefillShape shape;
@@ -364,8 +395,15 @@ id<MTLComputePipelineState> MetalConv1x1WQuant::widePrefillPipeline() const {
     shape.blockCount = mBlockCount;
     shape.dequantBits = mDequantBits;
     shape.fp16Storage = metal->useFp16InsteadFp32();
-    auto description = describeQuantPrefill(mPrefillPlan, shape);
-    description.main.specialize("FQ4_WIDE_OUTPUT");
+    QuantPrefillPlan multiProjPlan = mPrefillPlan;
+    multiProjPlan.kPartitions = 1;
+    multiProjPlan.tileN = 0;
+    if (!shape.fp16Storage) {
+        multiProjPlan.loopK64 = false;
+        multiProjPlan.doubleBuf = false;
+    }
+    auto description = describeQuantPrefill(multiProjPlan, shape);
+    description.main.specialize("FQ_MULTI_PROJ_OUTPUT");
     return loadPrefillPipeline(metal, description.main);
 }
 
@@ -466,7 +504,8 @@ ErrorCode MetalConv1x1WQuant::prepareQuantPrefill(const QuantPrefillPlan& plan, 
         // Historical launch formula, computed once from the actual input; ready, encode
         // and Replay all consume this saved dispatch.
         const auto threads = description.pack.threads.x;
-        const auto packThreads = std::make_pair(MTLSizeMake(UP_DIV(inputs[0]->elementSize() / 4, threads), 1, 1),
+        const size_t packQuads = (size_t)inputs[0]->elementSize() / 4;
+        const auto packThreads = std::make_pair(MTLSizeMake((packQuads + threads - 1) / threads, 1, 1),
                                                 MTLSizeMake(threads, 1, 1));
         auto code = build(mPack, description.pack, &packThreads);
         if (code != NO_ERROR) {
@@ -570,6 +609,11 @@ ErrorCode MetalConv1x1WQuant::prepareDecodeConv(const std::vector<Tensor*>& inpu
     [dic setValue:@"1" forKey:@(quant.c_str())];
     baseKeys.emplace_back("conv1x1_wquant_" + std::to_string(mDequantBits));
     if (rt->supportSimdGroupReduce()) {
+        auto context = (__bridge MNNMetalContext*)backend->context();
+        auto decodePipelineReady = [&](id<MTLComputePipelineState> pipeline, NSUInteger threads) {
+            return pipeline != nil && pipeline.maxTotalThreadsPerThreadgroup >= threads &&
+                   pipeline.staticThreadgroupMemoryLength <= context.device.maxThreadgroupMemoryLength;
+        };
         baseKeys.emplace_back("conv1x1_wquant_sg_reduce");
         const bool g16LmHeadRoute = oc > 16384 && ocDiv4 % 2 == 0 && !(oc % 8 == 0 && blockCount % 2 == 0);
         if (g16LmHeadRoute) {
@@ -577,17 +621,21 @@ ErrorCode MetalConv1x1WQuant::prepareDecodeConv(const std::vector<Tensor*>& inpu
             auto keys = baseKeys;
             keys.emplace_back(body.entry);
             mMain.pipeline = loadConv1x1Pipeline(backend, keys, conv1x1ShaderSource(body.source), body.entry, dic);
+            if (!decodePipelineReady(mMain.pipeline, body.threads)) {
+                mMain.pipeline = nil;
+                return NOT_SUPPORT;
+            }
             CONV1X1_SET_TAG(keys.back());
             mMain.threads = std::make_pair(MTLSizeMake(UP_DIV(oc, body.tileN), 1, 1), MTLSizeMake(body.threads, 1, 1));
         } else {
             const int rawIc = mOp->main_as_Convolution2D()->common()->inputCount();
             // Raw channels must divide evenly into blocks to keep the C4 tail out of tuned decode.
-            const bool wqEvenBlockFp16 = fp16 && (mDequantBits == 4 || mDequantBits == 8) &&
+            const bool wqEvenBlock = (fp16 || profile.tier.decodeFp32Validated) &&
                 blockCount > 0 && rawIc % blockCount == 0;
             DecodeCaps caps;
             caps.tier = profile.tier;
             caps.tgBudget = profile.tgBudget;
-            caps.wqEvenBlockFp16 = wqEvenBlockFp16;
+            caps.wqEvenBlockFp16 = wqEvenBlock;
             DecodeShape shape;
             shape.oc = oc;
             shape.icDiv4 = icDiv4;
@@ -603,10 +651,28 @@ ErrorCode MetalConv1x1WQuant::prepareDecodeConv(const std::vector<Tensor*>& inpu
                 mFusedRowScale = mRowScaleOffer;
             }
             keys.emplace_back(body.entry);
-            if (plan.variant == DecodeGemvVariant::Oc8Sg4K2) {
-                keys.emplace_back("oc8Sg4K2");
+            auto buildPlain = [&]() -> bool {
+                auto plainKeys = keys;
+                NSMutableDictionary* plainDic = [dic mutableCopy];
+                const int plainLpb = gemvPlainLanesPerBlock(icDiv4, blockCount, mDequantBits);
+                if (plainLpb > 0) {
+                    plainKeys.emplace_back("lanes" + std::to_string(plainLpb));
+                    [plainDic setValue:@(std::to_string(plainLpb).c_str()) forKey:@"GEMV_LANES_PER_BLOCK"];
+                }
+                mMain.threads = std::make_pair(MTLSizeMake(UP_DIV(oc, 8), 1, 1), MTLSizeMake(64, 1, 1));
+                mMain.pipeline = loadConv1x1Pipeline(backend, plainKeys, source, body.entry, plainDic);
+                if (!decodePipelineReady(mMain.pipeline, 64)) {
+                    mMain.pipeline = nil;
+                    return false;
+                }
+                CONV1X1_SET_TAG(plainKeys.back());
+                return true;
+            };
+            if (plan.variant == DecodeGemvVariant::Oc8Nsg4SplitK2) {
+                auto skKeys = keys;
+                skKeys.emplace_back("oc8Nsg4SplitK2");
                 if (plan.lanesPerBlock > 0) {
-                    keys.emplace_back("lpb" + std::to_string(plan.lanesPerBlock));
+                    skKeys.emplace_back("lanes" + std::to_string(plan.lanesPerBlock));
                 }
                 NSMutableDictionary *skDic = [dic mutableCopy];
                 [skDic setValue:@"2" forKey:@"GEMV_QUADS_PER_TG"];
@@ -615,15 +681,20 @@ ErrorCode MetalConv1x1WQuant::prepareDecodeConv(const std::vector<Tensor*>& inpu
                     [skDic setValue:@(std::to_string(plan.lanesPerBlock).c_str()) forKey:@"GEMV_LANES_PER_BLOCK"];
                 }
                 mMain.threads = std::make_pair(MTLSizeMake(UP_DIV(oc, 8), 1, 1), MTLSizeMake(128, 1, 1));
-                mMain.pipeline = loadConv1x1Pipeline(backend, keys, source, body.entry, skDic);
-                CONV1X1_SET_TAG("splitk2_gemv_g4m1_2sg_wquant_sg");
+                mMain.pipeline = loadConv1x1Pipeline(backend, skKeys, source, body.entry, skDic);
+                if (decodePipelineReady(mMain.pipeline, 128)) {
+                    CONV1X1_SET_TAG("splitk2_gemv_g4m1_2sg_wquant_sg");
+                } else if (!buildPlain()) {
+                    return NOT_SUPPORT;
+                }
             } else {
-                const bool useOc16Sg4K1 = plan.variant == DecodeGemvVariant::Oc16Sg4K1;
+                const bool useOc16Sg4K1 = plan.variant == DecodeGemvVariant::Oc16Nsg4SplitK1;
+                auto vKeys = keys;
                 if (useOc16Sg4K1) {
-                    keys.emplace_back("oc16Sg4K1");
+                    vKeys.emplace_back("oc16Nsg4SplitK1");
                 }
                 if (plan.lanesPerBlock > 0) {
-                    keys.emplace_back("lpb" + std::to_string(plan.lanesPerBlock));
+                    vKeys.emplace_back("lanes" + std::to_string(plan.lanesPerBlock));
                 }
                 NSMutableDictionary *dic4 = [dic mutableCopy];
                 if (useOc16Sg4K1) {
@@ -632,10 +703,16 @@ ErrorCode MetalConv1x1WQuant::prepareDecodeConv(const std::vector<Tensor*>& inpu
                 if (plan.lanesPerBlock > 0) {
                     [dic4 setValue:@(std::to_string(plan.lanesPerBlock).c_str()) forKey:@"GEMV_LANES_PER_BLOCK"];
                 }
+                const NSUInteger threads = 32 * plan.tgQuads;
                 mMain.threads = std::make_pair(MTLSizeMake(UP_DIV(oc, 4 * plan.tgQuads), 1, 1),
-                                          MTLSizeMake(32 * plan.tgQuads, 1, 1));
-                mMain.pipeline = loadConv1x1Pipeline(backend, keys, source, body.entry, dic4);
-                CONV1X1_SET_TAG(keys.back());
+                                          MTLSizeMake(threads, 1, 1));
+                mMain.pipeline = loadConv1x1Pipeline(backend, vKeys, source, body.entry, dic4);
+                if (decodePipelineReady(mMain.pipeline, threads)) {
+                    CONV1X1_SET_TAG(vKeys.back());
+                } else if (!useOc16Sg4K1 || !buildPlain()) {
+                    mMain.pipeline = nil;
+                    return NOT_SUPPORT;
+                }
             }
             // FusedLinear can use this member in a group GEMV.
             mDecodeFusionEligible = true;
@@ -682,6 +759,7 @@ uint64_t MetalConv1x1WQuant::replayStructure(const std::vector<Tensor*>& inputs)
     mixGrid(mReducer.threads);
     mix((uint64_t)mPrepared);
     mix((uint64_t)mPrefillPlan.kernel);
+    mix((uint64_t)mPrefillPlan.tileN);
     mix((uint64_t)mPrefillPlan.weightPreparation());
     mix((uint64_t)mPrefillPlan.kPartitions);
     mix((uint64_t)mPrefillPlan.fusion);

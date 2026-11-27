@@ -451,4 +451,72 @@ public:
     }
 };
 
+class TopKV2WideTest : public MNNTestCase {
+public:
+    virtual ~TopKV2WideTest() = default;
+    virtual bool run(int precision) {
+        // The exact ascending-index tie-break asserted below is a Metal kernel contract; CPU sorts by
+        // value only, meaning std::partial_sort leaves the order of equal values unspecified.
+        if (MNNTestSuite::get()->pStaus.forwardType != MNN_FORWARD_METAL) {
+            MNNTestSuite::get()->skipped++;
+            return true;
+        }
+        // Wide-row fast 2-pass path (LLM vocab sizes, k=1/40/64, tie-breaking, largest=true/false).
+        for (int cols : {65537, 248320}) {
+            const int rows = (cols == 65537) ? 2 : 1;
+            for (int k : {1, 40, 64}) {
+                for (bool largest : {true, false}) {
+                    VARP in0 = _Input({rows, cols}, NCHW, halide_type_of<float>());
+                    VARP in1 = _Scalar<int>(k);
+                    auto ptr = in0->writeMap<float>();
+                    for (int r = 0; r < rows; ++r) {
+                        for (int c = 0; c < cols; ++c) {
+                            ptr[r * cols + c] = 0.0f;
+                        }
+                        const float sign = largest ? 1.0f : -1.0f;
+                        for (int j = 0; j < k; ++j) {
+                            const int idx = (r == 0) ? ((j * 3793 + 17) % cols) : (cols - 1 - ((j * 2971 + 31) % cols));
+                            // Make j=0 and j=1 share identical value to test ascending-index tie-break.
+                            const int tier = (j <= 1) ? 0 : j;
+                            ptr[r * cols + idx] = sign * (float)(100 - tier);
+                        }
+                    }
+                    in0->unMap();
+                    auto resWide = _TopKV2WithLargest(in0, in1, largest);
+                    auto gotV = resWide[0]->readMap<float>();
+                    auto gotI = resWide[1]->readMap<int>();
+                    if (nullptr == gotV || nullptr == gotI) {
+                        MNN_ERROR("TopKV2 wide null output (cols=%d, k=%d, largest=%d)\n", cols, k, (int)largest);
+                        return false;
+                    }
+                    auto srcPtr = in0->readMap<float>();
+                    for (int r = 0; r < rows; ++r) {
+                        std::vector<std::pair<float, int>> ref(cols);
+                        for (int c = 0; c < cols; ++c) {
+                            ref[c] = {srcPtr[r * cols + c], c};
+                        }
+                        std::partial_sort(ref.begin(), ref.begin() + k, ref.end(),
+                                          [largest](const std::pair<float, int>& a, const std::pair<float, int>& b) {
+                                              if (a.first != b.first) {
+                                                  return largest ? (a.first > b.first) : (a.first < b.first);
+                                              }
+                                              return a.second < b.second;
+                                          });
+                        for (int j = 0; j < k; ++j) {
+                            if (std::fabs(gotV[r * k + j] - ref[j].first) > 1e-2f || gotI[r * k + j] != ref[j].second) {
+                                MNN_ERROR("TopKV2 wide mismatch cols=%d k=%d largest=%d row=%d pos=%d got=(%f,%d) exp=(%f,%d)\n",
+                                          cols, k, (int)largest, r, j, gotV[r * k + j], gotI[r * k + j],
+                                          ref[j].first, ref[j].second);
+                                return false;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return true;
+    }
+};
+
 MNNTestSuiteRegister(TopKV2Test, "op/TopKV2");
+MNNTestSuiteRegister(TopKV2WideTest, "op/TopKV2_wide");

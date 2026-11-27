@@ -35,6 +35,7 @@ struct QuantPrefillShape {
 enum class PrefillKernel {
     Unsupported,
     TensorInKernel8x64,
+    TensorInKernel16x64,
     TensorInKernel32x64,
     TensorInKernel64x64,
     TensorRowDeviceM64,
@@ -42,6 +43,7 @@ enum class PrefillKernel {
     SgReduceG4mN,
     SgReduceG16,
     SgReduceG8,
+    SgInKernel8x16SplitK,
     SgInKernel8x16,
     SgInKernel32x64,
     SgInKernel32x16,
@@ -58,6 +60,7 @@ enum class WeightPreparation { None, Packed, RowDevice };
 
 struct QuantPrefillPlan {
     PrefillKernel kernel = PrefillKernel::Unsupported;
+    int tileN = 0;
     int kPartitions = 1;
     bool doubleBuf = false;
     PrefillFusion fusion = PrefillFusion::None;
@@ -70,6 +73,7 @@ struct QuantPrefillPlan {
     bool usesTensorApi() const {
         switch (kernel) {
             case PrefillKernel::TensorInKernel8x64:
+            case PrefillKernel::TensorInKernel16x64:
             case PrefillKernel::TensorInKernel32x64:
             case PrefillKernel::TensorInKernel64x64:
             case PrefillKernel::TensorRowDeviceM64:
@@ -113,6 +117,13 @@ inline bool prefillBlockFitsQuads(int ic, int blockCount, int quads) {
 inline QuantPrefillPlan selectSimdInKernelPrefill(const PrefillCaps& c, const QuantPrefillShape& s) {
     QuantPrefillPlan p;
     const int icDiv4 = prefillUpDiv(s.ic, 4);
+
+    const size_t sg8SplitKSmem = s.fp16Storage ? 9216 : 20480;
+    if (c.hasSgMatrix && s.area >= 6 && s.area <= 8 && s.oc >= 512 &&
+        c.maxThreadgroupMemoryBytes >= sg8SplitKSmem) {
+        p.kernel = PrefillKernel::SgInKernel8x16SplitK;
+        return p;
+    }
     const bool lowBits = s.dequantBits == 2 || s.dequantBits == 3;
     const bool gemvAllArea = lowBits || (c.hasSgMatrix && !prefillBlockFitsQuads(s.ic, s.blockCount, 2));
     if (c.hasSgReduce && (s.area <= 16 || gemvAllArea)) {
@@ -135,14 +146,14 @@ inline QuantPrefillPlan selectSimdInKernelPrefill(const PrefillCaps& c, const Qu
         if (icDiv4 % 8 != 0 || !prefillBlockFitsQuads(s.ic, s.blockCount, 8)) {
             p.kernel = PrefillKernel::SgInKernel8x16;
         } else if (s.area >= 64 && s.area < 128 && s.oc >= 512 &&
-                   (size_t)icDiv4 * s.oc <= 1024 * 1024 && c.maxThreadgroupMemoryBytes >= 8192) {
+                   (size_t)icDiv4 * s.oc <= 1024 * 1024 && c.maxThreadgroupMemoryBytes >= 12288) {
             p.kernel = PrefillKernel::SgInKernel32x64;
-        } else if (s.area >= 128 && s.oc >= 512 && s.area * s.oc > 512 * 2048 &&
-                   c.maxThreadgroupMemoryBytes >= 8192) {
+        } else if (s.area >= 128 && s.oc >= 512 && (int64_t)s.area * s.oc > 512 * 2048 &&
+                   c.maxThreadgroupMemoryBytes >= 12288) {
             p.kernel = PrefillKernel::SgInKernel32x64;
-        } else if (s.area >= 32 && s.area * s.oc > 128 * 2048) {
+        } else if (s.area >= 32 && (int64_t)s.area * s.oc > 128 * 2048) {
             p.kernel = PrefillKernel::SgInKernel32x16;
-        } else if (s.oc > 512 && s.area * s.oc > 128 * 2048) {
+        } else if (s.oc > 512 && (int64_t)s.area * s.oc > 128 * 2048) {
             p.kernel = PrefillKernel::SgInKernel16x32;
         } else {
             p.kernel = PrefillKernel::SgInKernel16x16;
@@ -159,34 +170,70 @@ inline QuantPrefillPlan selectTensorPrefill(const PrefillCaps& c, const QuantPre
     const bool lowBits = s.dequantBits == 2 || s.dequantBits == 3;
     if (c.lowMemoryKernelsAvailable &&
         (!prefillBlockFitsQuads(s.ic, s.blockCount, 8) ||
-         (lowBits ? !c.hasSgMatrix : (s.area <= 5 && c.hasSgReduce)))) {
+         (s.area <= 4 && c.hasSgReduce) ||
+         (lowBits && !c.hasSgMatrix))) {
         return selectSimdInKernelPrefill(c, s);
     }
     QuantPrefillPlan p;
     if (c.gpuGen >= 13 && c.gpuGen < 16 && !lowBits && s.area >= 64 && s.ic % 16 == 0 &&
         prefillBlockFitsQuads(s.ic, s.blockCount, 4)) {
         p.kernel = PrefillKernel::TensorRowDeviceM64;
-    } else if (s.dequantBits == 3 && (int64_t)s.ic * s.oc < 4 * 1024 * 1024) {
-        p.kernel = PrefillKernel::TensorPackedM32;
-        p.loopK64 = s.ic > s.oc && s.ic > 2048 && (s.ic / s.blockCount) % 64 == 0;
     } else {
-        if (!lowBits && s.area <= 8) {
+        int tileM = 64;
+        if (s.area <= 8) {
             p.kernel = PrefillKernel::TensorInKernel8x64;
-        } else if (!lowBits && s.area >= 64) {
-            p.kernel = PrefillKernel::TensorInKernel64x64;
-            p.doubleBuf = s.fp16Storage;
-            // Block-level scale hoist raises live registers across the K loop; it pays on
-            // gen<17 but loses occupancy on newer dies, so keep them on the in-loop form.
-            p.hoistW4Scale = c.gpuGen < 17;
-            if (s.area >= s.gateUpDualMinArea) {
-                p.fusion = s.dualOffer ? PrefillFusion::GateUpDual :
-                           (s.siluOffer ? PrefillFusion::SiluMul : PrefillFusion::None);
-            }
-        } else {
+            tileM = 8;
+        } else if (s.area <= 16) {
+            p.kernel = PrefillKernel::TensorInKernel16x64;
+            tileM = 16;
+        } else if (s.area <= 32) {
             p.kernel = PrefillKernel::TensorInKernel32x64;
+            tileM = 32;
+        } else {
+            p.kernel = PrefillKernel::TensorInKernel64x64;
+            tileM = 64;
         }
-        if (s.dequantBits == 4 && s.area <= 32 && prefillUpDiv(s.oc, 64) <= 48 && s.blockCount >= 4) {
-            p.kPartitions = 4;
+        p.doubleBuf = s.fp16Storage;
+        // Block-level scale hoist raises live registers across the K loop; it pays on
+        // gen<17 but loses occupancy on newer dies, so keep them on the in-loop form.
+        p.hoistW4Scale = c.gpuGen < 17;
+        if (s.area >= s.gateUpDualMinArea) {
+            p.fusion = s.dualOffer ? PrefillFusion::GateUpDual :
+                       (s.siluOffer ? PrefillFusion::SiluMul : PrefillFusion::None);
+        }
+        if (p.fusion == PrefillFusion::None) {
+            if (s.oc <= 32) {
+                p.tileN = 32;
+            }
+            const int effTileN = p.tileN > 0 ? p.tileN : 64;
+            const int gridXY = prefillUpDiv(s.area, tileM) * prefillUpDiv(s.oc, effTileN);
+            const int64_t outElems = (int64_t)s.area * s.oc;
+            if ((gridXY <= 8 || (s.area <= 8 && gridXY <= 32 && s.ic >= 2048)) &&
+                s.blockCount >= 8 && outElems <= 64 * 1024) {
+                p.kPartitions = 8;
+            } else if (((s.area <= 32 && gridXY <= 48) ||
+                        (gridXY <= 12 && outElems <= 64 * 1024)) &&
+                       s.blockCount >= 4) {
+                p.kPartitions = 4;
+            } else if (gridXY <= 12 && outElems <= 64 * 1024 && s.blockCount >= 2) {
+                p.kPartitions = 2;
+            } else if (p.tileN == 0 && gridXY <= 8) {
+                // When K-split is unavailable (e.g. blockCount == 1), halving N doubles TGs.
+                p.tileN = 32;
+            }
+        }
+        // M=8: K=64 halves barriers and matmul2d calls while keeping all 128 threads busy on A.
+        // Works across W2/W3/W4/W8 and GateUpDual (NT=2, N=32 => same 10.3 KB smem as N=64).
+        const int finalTileN = p.fusion == PrefillFusion::GateUpDual ? 64 : (p.tileN > 0 ? p.tileN : 64);
+        const size_t k64Smem = (size_t)(8 + finalTileN) * 72 * (s.fp16Storage ? 2 : 4);
+        if (p.kernel == PrefillKernel::TensorInKernel8x64 &&
+            s.ic % ((int64_t)s.blockCount * 64) == 0 &&
+            (s.fp16Storage || (finalTileN == 32 && c.maxThreadgroupMemoryBytes >= k64Smem))) {
+            p.loopK64 = true;
+            p.doubleBuf = false;
+        } else if (!s.fp16Storage && p.fusion == PrefillFusion::None && finalTileN == 32 && tileM <= 16) {
+            // FP32 double-buf at N=32, M<=16 stays under 16 KB (2 TGs/core).
+            p.doubleBuf = true;
         }
     }
     return p;
@@ -199,7 +246,9 @@ inline QuantPrefillPlan selectSimdPrefill(const PrefillCaps& c, const QuantPrefi
             return selectSimdInKernelPrefill(c, s);
         }
         if (s.dequantBits == 2 || s.dequantBits == 3) {
-            if (!c.hasSgMatrix) {
+            const size_t sg8SplitKSmem = s.fp16Storage ? 9216 : 20480;
+            if (!c.hasSgMatrix ||
+                (s.area >= 6 && s.area <= 8 && s.oc >= 512 && c.maxThreadgroupMemoryBytes >= sg8SplitKSmem)) {
                 return selectSimdInKernelPrefill(c, s);
             }
         } else if (s.area < 64 || !c.hasSgMatrix ||
@@ -295,7 +344,7 @@ inline PrefillDescription describeQuantPrefill(const QuantPrefillPlan& p, const 
             d.pack.define("USE_METAL_TENSOR_OPS");
             // Mirrors the production launch UP_DIV(input->elementSize()/4, 128); prepare
             // recomputes it from the actual input and saves the dispatch for encode/Replay.
-            d.pack.grid = PrefillSize(prefillUpDiv(s.ic * s.area / 4, pack.threads), 1, 1);
+            d.pack.grid = PrefillSize(((size_t)icDiv4 * s.area + pack.threads - 1) / pack.threads, 1, 1);
             d.pack.threads = PrefillSize(pack.threads, 1, 1);
         }
         if (p.weightPreparation() != WeightPreparation::None) {
@@ -315,7 +364,8 @@ inline PrefillDescription describeQuantPrefill(const QuantPrefillPlan& p, const 
             if (row) {
                 d.dequant.define("USE_METAL_TENSOR_OPS");
             }
-            d.dequant.grid = PrefillSize(s.oc, prefillUpDiv(s.ic, 16), 1);
+            // Cover all padded C4 output rows so GEMM never reads uninitialized tail rows.
+            d.dequant.grid = PrefillSize(ocDiv4 * 4, prefillUpDiv(s.ic, 16), 1);
             d.dequant.finalization = PrefillFinalization::ComputeBestGroupAndLocal;
         }
     } else {
@@ -326,17 +376,13 @@ inline PrefillDescription describeQuantPrefill(const QuantPrefillPlan& p, const 
     Conv1x1Kernel mainKernel = Conv1x1Kernel::Count;
     switch (p.kernel) {
         case PrefillKernel::TensorInKernel8x64:
-            mainKernel = s.dequantBits == 8 ? Conv1x1Kernel::FusedQ8StageM8 :
-                (p.kPartitions > 1 ? Conv1x1Kernel::FusedQ4StageKSplitM8 : Conv1x1Kernel::FusedQ4StageM8);
-            break;
+        case PrefillKernel::TensorInKernel16x64:
         case PrefillKernel::TensorInKernel32x64:
-            mainKernel = p.kPartitions > 1 ? Conv1x1Kernel::FusedQ4StageKSplit : Conv1x1Kernel::FusedQ4Stage;
-            break;
         case PrefillKernel::TensorInKernel64x64:
-            mainKernel = Conv1x1Kernel::FusedQ4StageM64;
+            mainKernel = Conv1x1Kernel::FusedQuantStageGemm;
             break;
         case PrefillKernel::TensorRowDeviceM64:
-            mainKernel = Conv1x1Kernel::GemmDeviceTensor;
+            mainKernel = Conv1x1Kernel::DirectDeviceTensorGemm;
             break;
         case PrefillKernel::TensorPackedM32:
         case PrefillKernel::SgPreDequantM32:
@@ -366,6 +412,21 @@ inline PrefillDescription describeQuantPrefill(const QuantPrefillPlan& p, const 
             d.main.keys.emplace_back(d.main.entry);
             d.profileTag = d.main.entry;
             return d;
+        case PrefillKernel::SgInKernel8x16SplitK: {
+            d.main.keys.emplace_back("conv1x1_wquant_sg_matrix");
+            const auto& body = d.main.setKernel(s.fp16Storage ? Conv1x1Kernel::Gemm8x16WquantSplitKFp16
+                                                              : Conv1x1Kernel::Gemm8x16WquantSplitKFp32);
+            const int tileQuads = s.fp16Storage ? 8 : 4;
+            const int quadsPerBlock = prefillUpDiv(icDiv4, s.blockCount);
+            if (quadsPerBlock % tileQuads == 0 && (int64_t)quadsPerBlock * s.blockCount == icDiv4) {
+                d.main.specialize("SG8_SPLITK_FULL_K_TILE");
+            }
+            d.main.keys.emplace_back(d.main.entry);
+            d.main.grid = PrefillSize(prefillUpDiv(s.oc, body.tileN), 1, 1);
+            d.main.threads = PrefillSize(body.threads, 1, 1);
+            d.profileTag = d.main.entry;
+            return d;
+        }
         case PrefillKernel::SgInKernel8x16:
             mainKernel = Conv1x1Kernel::Gemm8x16Wquant;
             break;
@@ -404,13 +465,35 @@ inline PrefillDescription describeQuantPrefill(const QuantPrefillPlan& p, const 
         d.main.keys.emplace_back("conv1x1_wquant_sg_matrix");
     }
     d.main.keys.emplace_back(d.main.entry);
+    const bool unifiedTensor = mainKernel == Conv1x1Kernel::FusedQuantStageGemm;
+    const int tileM = p.kernel == PrefillKernel::TensorInKernel8x64  ? 8  :
+                      p.kernel == PrefillKernel::TensorInKernel16x64 ? 16 :
+                      p.kernel == PrefillKernel::TensorInKernel32x64 ? 32 : body.tileM;
+    const int tileN = unifiedTensor && p.fusion == PrefillFusion::GateUpDual ? body.tileN / 2 :
+                      (unifiedTensor && p.tileN > 0 ? p.tileN : body.tileN);
     if (p.usesGemmBindings()) {
+        if (unifiedTensor && tileM != body.tileM) {
+            d.main.keys.emplace_back("TM" + std::to_string(tileM));
+            d.main.define("FQ_TILE_M", std::to_string(tileM));
+        }
+        if (unifiedTensor && p.fusion != PrefillFusion::GateUpDual && p.tileN > 0 && p.tileN != body.tileN) {
+            d.main.keys.emplace_back("TN" + std::to_string(p.tileN));
+            d.main.define("FQ_TILE_N", std::to_string(p.tileN));
+        }
+        if (unifiedTensor && p.kPartitions > 1) {
+            d.main.keys.emplace_back("KS" + std::to_string(p.kPartitions));
+            d.main.define("FQ_SPLIT_K_COUNT", std::to_string(p.kPartitions));
+        }
+        if (unifiedTensor && p.loopK64) {
+            d.main.keys.emplace_back("TK64");
+            d.main.define("FQ_TILE_K", "64");
+        }
         if (p.doubleBuf) {
             d.main.keys.emplace_back("FQ_DOUBLE_BUF");
-            if (p.kernel == PrefillKernel::TensorInKernel64x64 && s.dequantBits == 4 &&
-                s.ic % (s.blockCount * 32) == 0) {
-                d.main.specialize("FQ_PREFETCH");
-            }
+        }
+        if (unifiedTensor && !p.loopK64 && (s.dequantBits == 4 || s.dequantBits == 8 || s.dequantBits == 2) &&
+            s.ic % ((int64_t)s.blockCount * 32) == 0) {
+            d.main.specialize("FQ_PREFETCH");
         }
         if (p.fusion == PrefillFusion::GateUpDual) {
             d.main.keys.emplace_back("FQ4_GATEUP_DUAL");
@@ -422,8 +505,8 @@ inline PrefillDescription describeQuantPrefill(const QuantPrefillPlan& p, const 
         }
         if (p.usesTensorApi()) {
             d.main.specialize("USE_METAL_TENSOR_OPS");
-            // RowDevice ignores LOOP_K64; retain its historical cache key and profile tag.
-            if (p.loopK64 || (row && s.ic > s.oc && s.ic > 2048 && (s.ic / s.blockCount) % 64 == 0)) {
+            if ((!unifiedTensor && p.loopK64) ||
+                (row && s.ic > s.oc && s.ic > 2048 && (s.ic / s.blockCount) % 64 == 0)) {
                 d.main.specialize("LOOP_K64");
             }
         }
@@ -431,7 +514,7 @@ inline PrefillDescription describeQuantPrefill(const QuantPrefillPlan& p, const 
             d.main.specialize(quant);
             if (s.dequantBits == 4) {
                 d.main.specialize("FUSED_Q4_REAL_UNPACK");
-                if (p.hoistW4Scale && p.kernel == PrefillKernel::TensorInKernel64x64) {
+                if (p.hoistW4Scale && unifiedTensor) {
                     d.main.specialize("FQ4_HOIST_BLOCK_SCALE");
                 }
             }
@@ -446,16 +529,16 @@ inline PrefillDescription describeQuantPrefill(const QuantPrefillPlan& p, const 
         }
     }
     d.profileTag = d.main.keys.back();
-    const int tileN = mainKernel == Conv1x1Kernel::FusedQ4StageM64 && p.fusion == PrefillFusion::GateUpDual
-        ? body.tileN / 2 : body.tileN;
-    d.main.grid = PrefillSize(prefillUpDiv(s.area, body.tileM), prefillUpDiv(s.oc, tileN), p.kPartitions);
+    d.main.grid = PrefillSize(prefillUpDiv(s.area, tileM), prefillUpDiv(s.oc, tileN), p.kPartitions);
     d.main.threads = PrefillSize(body.threads, 1, 1);
     if (p.kPartitions > 1) {
-        d.reducer = d.main;
+        d.reducer = base;
         const auto& reducer = d.reducer.setKernel(Conv1x1Kernel::KSplitReduce);
         d.reducer.keys.emplace_back(d.reducer.entry);
+        d.reducer.keys.emplace_back("KS" + std::to_string(p.kPartitions));
+        d.reducer.define("FUSED_KSPLIT_KS", std::to_string(p.kPartitions));
         d.reducer.optionalCompilation = true;
-        d.reducer.grid = PrefillSize(prefillUpDiv(ocDiv4 * s.area, reducer.threads), 1, 1);
+        d.reducer.grid = PrefillSize(((size_t)ocDiv4 * s.area + reducer.threads - 1) / reducer.threads, 1, 1);
         d.reducer.threads = PrefillSize(reducer.threads, 1, 1);
         d.partialBytes = (size_t)p.kPartitions * ocDiv4 * s.area * 4 * sizeof(float);
     }

@@ -46,12 +46,12 @@ kernel void row_scale(device T4* output [[buffer(0)]], const device T4* scale [[
 // kMetalSimdGroupWidth and the GEMV geometry rules come from MetalConv1x1Decode.hpp,
 // shared with the Conv1x1 decode path so the two cannot drift apart.
 
-// The decode split-K bodies (oc8Sg4K2, oc16Sg8K2 and the wide gate/up siluKSplit) are
+// The decode split-K bodies (oc8Nsg4SplitK2, oc16Nsg8SplitK2 and the wide gate/up siluSplitKCount) are
 // calibrated on FP16 storage, but nothing in them is FP16-specific: in
 // conv1x1_gemv_g4m1_2sg_wquant_sg the input/output/bias/dequant operands are ftype4, the
 // packed weights follow the stored bit width, and the split-K reduction and LN staging run
 // in FLOAT4 (MNN_METAL_FLOAT32_COMPUTER is always 1). FP32 storage already runs this source
-// through the plain and oc16Sg4K1 bodies, so the wider variants were never blocked by type -
+// through the plain and oc16Nsg4SplitK1 bodies, so the wider variants were never blocked by type -
 // only by a profile that had not been measured.
 // Selection is therefore the only thing this widens, and only where it was measured:
 // Conv1x1GpuTier::decodeFp32Validated. loadDecodePipeline still takes the real fp16 flag, so
@@ -62,7 +62,7 @@ static inline bool decodeSplitKPrecisionOk(const Conv1x1DeviceProfile& profile, 
     return fp16Storage || profile.tier.decodeFp32Validated;
 }
 
-// oc16Sg8K2 needs ~80% lane-group occupancy and a K sweep (or weight size) that
+// oc16Nsg8SplitK2 needs ~80% lane-group occupancy and a K sweep (or weight size) that
 // repays the reduction barrier.
 static bool qkvOc16Sg8K2Admissible(int blockCount, int inputDepthQuad, int totalOutputChannels) {
     if (blockCount % 2 != 0) {
@@ -86,7 +86,7 @@ static bool qkvOc16Sg8K2Admissible(int blockCount, int inputDepthQuad, int total
     return totalOutputChannels <= kShortKSplitMaxTotalOutputChannels;
 }
 
-// SwiGLU K-split factor on top of oc16Sg2K1: picks the widest factor within
+// SwiGLU K-split factor on top of oc16Nsg2SplitK1: picks the widest factor within
 // kMaxPairs whose lanes cover a pair's blocks in one pass, else the narrowest.
 static int gateUpSiluSplitK(int blockCount, int quadsPerBlock) {
     constexpr int kMaxThreadgroupThreads = 1024;
@@ -187,7 +187,7 @@ public:
         auto backend = static_cast<MetalBackend *>(this->backend());
 #ifdef MNN_LOW_MEMORY
         mDecode = DecodePlan();
-        mWide = WidePrefillPlan();
+        mMultiProjPrefill = MultiProjPrefillPlan();
         mGroupStamp = 0;
 #endif
         mPrefillDualFused = mPrefillSiluFused = false;
@@ -238,20 +238,17 @@ public:
             if (_ensureIntermediate(mUp, hidden, oc, fmt)) {
                 mResizeGeneration++;
             }
-            if (!backend->onAcquireBuffer(mGate.get(), Backend::DYNAMIC)) {
-                releaseNormalized();
-                return OUT_OF_MEMORY;
-            }
-            if (!backend->onAcquireBuffer(mUp.get(), Backend::DYNAMIC)) {
-                backend->onReleaseBuffer(mGate.get(), Backend::DYNAMIC);
-                releaseNormalized();
-                return OUT_OF_MEMORY;
-            }
         }
+        bool hasGateBuf = false;
+        bool hasUpBuf = false;
         auto releaseIntermediates = [&]() {
-            if (mIsGateUp) {
+            if (hasUpBuf) {
                 backend->onReleaseBuffer(mUp.get(), Backend::DYNAMIC);
+                hasUpBuf = false;
+            }
+            if (hasGateBuf) {
                 backend->onReleaseBuffer(mGate.get(), Backend::DYNAMIC);
+                hasGateBuf = false;
             }
             releaseNormalized();
         };
@@ -269,33 +266,64 @@ public:
         }
         if (err == NO_ERROR) {
             if (mIsGateUp) {
-                err = mConvs[0]->onResize({projInput}, {mGate.get()});
-                if (err == NO_ERROR) {
-                    // Offer the up projection the group's MUL_SILU; the child
-                    // accepts only on the M64 prefill tile. Acquiring mGate/mUp
-                    // while outputs[0] is live keeps the gate tile unaliased.
 #ifdef MNN_LOW_MEMORY
-                    auto *upWq   = _asWQuant(mConvs[1].get());
-                    auto *gateWq = _asWQuant(mConvs[0].get());
-                    if (upWq != nullptr) {
-                        upWq->requestPrefillSiluMul(mGate.get());
-                        // Better still: let the up projection carry the gate tile in
-                        // a second accumulator, so the gate tensor is never written.
-                        // Only one of the two offers can be taken; the child decides.
-                        // The dual fold needs both members on the quant residency.
-                        if (gateWq != nullptr) {
-                            upWq->requestPrefillGateUpDual(gateWq);
-                        }
-                    }
-                    err = mConvs[1]->onResize({projInput}, {mUp.get()});
-                    mPrefillDualFused = err == NO_ERROR && upWq != nullptr && upWq->prefillGateUpDualFused();
-                    mPrefillSiluFused = err == NO_ERROR && upWq != nullptr && upWq->prefillSiluMulFused();
-#else
-                    // No quant residency: the group always runs two projections + MUL_SILU.
-                    err = mConvs[1]->onResize({projInput}, {mUp.get()});
-#endif
+                auto *upWq   = _asWQuant(mConvs[1].get());
+                auto *gateWq = _asWQuant(mConvs[0].get());
+                // Probe GateUpDual before acquiring mGate/mUp so a dual-fused prefill
+                // does not inflate peak dynamic memory with unused intermediates.
+                if (upWq != nullptr && gateWq != nullptr && hidden->length(0) >= 2 &&
+                    upWq->quantLayoutCompatible(gateWq)) {
+                    upWq->requestPrefillSiluMul(nullptr);
+                    upWq->requestPrefillGateUpDual(gateWq);
+                    err = mConvs[1]->onResize({projInput}, {outputs[0]});
+                    mPrefillDualFused = err == NO_ERROR && upWq->prefillGateUpDualFused();
                 }
                 if (err == NO_ERROR && !mPrefillDualFused) {
+                    if (!backend->onAcquireBuffer(mGate.get(), Backend::DYNAMIC)) {
+                        releaseIntermediates();
+                        return OUT_OF_MEMORY;
+                    }
+                    hasGateBuf = true;
+                    err = mConvs[0]->onResize({projInput}, {mGate.get()});
+                    if (err == NO_ERROR && upWq != nullptr && hidden->length(0) >= 2) {
+                        // Offer the up projection the group's MUL_SILU directly into outputs[0];
+                        // mGate stays acquired while outputs[0] is live to prevent aliasing.
+                        upWq->requestPrefillSiluMul(mGate.get());
+                        upWq->requestPrefillGateUpDual(nullptr);
+                        err = mConvs[1]->onResize({projInput}, {outputs[0]});
+                        mPrefillSiluFused = err == NO_ERROR && upWq->prefillSiluMulFused();
+                    }
+                    if (err == NO_ERROR && !mPrefillSiluFused) {
+                        if (!backend->onAcquireBuffer(mUp.get(), Backend::DYNAMIC)) {
+                            releaseIntermediates();
+                            return OUT_OF_MEMORY;
+                        }
+                        hasUpBuf = true;
+                        if (upWq != nullptr) {
+                            upWq->requestPrefillSiluMul(nullptr);
+                            upWq->requestPrefillGateUpDual(nullptr);
+                        }
+                        err = mConvs[1]->onResize({projInput}, {mUp.get()});
+                    }
+                }
+#else
+                // No quant residency: the group always runs two projections + MUL_SILU.
+                if (!backend->onAcquireBuffer(mGate.get(), Backend::DYNAMIC)) {
+                    releaseIntermediates();
+                    return OUT_OF_MEMORY;
+                }
+                hasGateBuf = true;
+                if (!backend->onAcquireBuffer(mUp.get(), Backend::DYNAMIC)) {
+                    releaseIntermediates();
+                    return OUT_OF_MEMORY;
+                }
+                hasUpBuf = true;
+                err = mConvs[0]->onResize({projInput}, {mGate.get()});
+                if (err == NO_ERROR) {
+                    err = mConvs[1]->onResize({projInput}, {mUp.get()});
+                }
+#endif
+                if (err == NO_ERROR && !mPrefillDualFused && !mPrefillSiluFused) {
                     err = mMulSilu->onResize({mUp.get(), mGate.get()}, {outputs[0]});
                 }
             } else {
@@ -323,18 +351,23 @@ public:
     // Run after allocator compute(), when the planned buffer ranges are known.
     virtual void setupFusion() override {
 #ifdef MNN_LOW_MEMORY
+        if (mPrefillDualFused || mPrefillSiluFused) {
+            return;
+        }
         auto metal = static_cast<MetalBackend*>(backend());
         if (!mIsGateUp) {
-            WidePrefillPlan candidate;
-            if (prepareWidePrefill(metal, candidate)) {
-                mWide = std::move(candidate);
-                mGroupStamp = widePrefillStamp();
+            MultiProjPrefillPlan candidate;
+            if (prepareMultiProjPrefill(metal, candidate)) {
+                mMultiProjPrefill = std::move(candidate);
+                mGroupStamp = multiProjPrefillStamp();
                 return;
             }
             if (mNumConvs < 3) {
                 return;
             }
         }
+        int reduceRows = 1;
+        bool decodeOk = true;
         for (int i = 0; i < mNumConvs; ++i) {
             auto* conv = _asWQuant(mConvs[i].get());
             if (!conv) {
@@ -342,10 +375,23 @@ public:
             }
             mDecodeMembers[i] = conv->decodeMember();
             if (!mDecodeMembers[i]) {
-                return;
+                decodeOk = false;
+                break;
+            }
+        }
+        if (!decodeOk) {
+            for (int i = 0; i < mNumConvs; ++i) {
+                auto* conv = _asWQuant(mConvs[i].get());
+                int memberRows = 0;
+                mDecodeMembers[i] = conv->shortPrefillMember(&memberRows);
+                if (!mDecodeMembers[i] || (i > 0 && memberRows != reduceRows)) {
+                    return;
+                }
+                reduceRows = memberRows;
             }
         }
         DecodePlan candidate;
+        candidate.reduceRows = reduceRows;
         if (mIsGateUp) {
             if (!_asWQuant(mConvs[0].get())->quantLayoutCompatible(_asWQuant(mConvs[1].get())) ||
                 !prepareGateUp(metal, candidate)) {
@@ -355,7 +401,9 @@ public:
             return;
         }
         // A rejected LN fold does not invalidate the projection plan.
-        tryFoldLN(metal, candidate);
+        if (reduceRows == 1) {
+            tryFoldLN(metal, candidate);
+        }
         logDecodePlan(candidate);
         mDecode = std::move(candidate);
         mGroupStamp = decodeStamp();
@@ -387,14 +435,14 @@ public:
         }
         Tensor* projInput = (steps & RunLn) ? mNormalized.get() : inputs[mHasLn ? 1 : 0];
 #ifdef MNN_LOW_MEMORY
-        if (steps & RunWidePrefill) {
+        if (steps & RunMultiProjPrefill) {
 #if MNN_METAL_OP_PROFILE
             auto metal = static_cast<MetalBackend*>(backend());
             encoder = metal->encoder_for_net();
             metal->profileMarkOp(this);
-            metal->setProfileSubtag("wide_prefill");
+            metal->setProfileSubtag("multi_proj_prefill");
 #endif
-            encodeWidePrefill(projInput, outputs, encoder);
+            encodeMultiProjPrefill(projInput, outputs, encoder);
             return;
         }
         if (steps & RunDecodeGroup) {
@@ -527,7 +575,7 @@ private:
     enum DispatchStep {
         RunLn = 1 << 0, RunDecodeGroup = 1 << 1, RunGate = 1 << 2, RunUp = 1 << 3,
         RunProjections = 1 << 4, UpWritesResult = 1 << 5, RunMulSilu = 1 << 6,
-        RunRowScale = 1 << 7, RunWidePrefill = 1 << 8,
+        RunRowScale = 1 << 7, RunMultiProjPrefill = 1 << 8,
     };
     unsigned dispatchSteps() const {
         if (mRowMul) {
@@ -535,8 +583,8 @@ private:
         }
         const unsigned ln = mHasLn ? static_cast<unsigned>(RunLn) : 0u;
 #ifdef MNN_LOW_MEMORY
-        if (mWide.pipeline != nil) {
-            return ln | RunWidePrefill;
+        if (mMultiProjPrefill.pipeline != nil) {
+            return ln | RunMultiProjPrefill;
         }
         if (mDecode.kind != DecodeKind::None) {
             unsigned steps = RunDecodeGroup;
@@ -563,43 +611,49 @@ private:
         return exe ? exe->asWQuant() : nullptr;
     }
 
-    struct WidePrefillPlan {
+    struct MultiProjPrefillPlan {
         struct Segment {
             int firstTile;
             int outputQuads;
             float scaleCoef;
         };
-        static_assert(sizeof(Segment) == 12, "FqWideSegment ABI");
+        static_assert(sizeof(Segment) == 12, "FqMultiProjSegment ABI");
         std::array<Segment, 4> segments = {};
         std::array<MetalConv1x1WQuant::QuantMember, 4> members;
         id<MTLComputePipelineState> pipeline = nil;
         MTLSize grid = {}, threads = {};
     };
 
-    bool prepareWidePrefill(MetalBackend* metal, WidePrefillPlan& plan) {
-        if (mNumConvs < 2 || mProjInput->dimensions() != 4 ||
+    bool prepareMultiProjPrefill(MetalBackend* metal, MultiProjPrefillPlan& plan) {
+        if (mNumConvs < 2 || mNumConvs > 4 || mProjInput->dimensions() != 4 ||
             mProjInput->length(2) != 1 || mProjInput->length(3) != 1) {
             return false;
         }
         const int area = mProjInput->length(0);
-        if (area < 64) {
+        if (area < 2) {
             return false;
         }
-        const auto& kernel = conv1x1Kernel(Conv1x1Kernel::FusedQ4StageM64);
+        const auto& kernel = conv1x1Kernel(Conv1x1Kernel::FusedQuantStageGemm);
         const auto& first = plan.members[0];
+        int tileM = 0;
         int tiles = 0;
         for (int i = 0; i < mNumConvs; ++i) {
             auto* conv = _asWQuant(mConvs[i].get());
             if (conv == nullptr) {
                 return false;
             }
+            const int memberTileM = conv->multiProjPrefillTileM();
+            if (memberTileM <= 0 || (i > 0 && memberTileM != tileM)) {
+                return false;
+            }
+            tileM = memberTileM;
             auto& member = plan.members[i];
-            member = conv->widePrefillMember();
+            member = conv->multiProjPrefillMember();
             auto* out = mProjOutputs[i];
             if (!member || member.outputChannels <= 0 || member.outputChannels % 4 != 0 ||
-                member.blocks != first.blocks || member.activation != first.activation ||
-                member.inputChannels != first.inputChannels || member.inputQuads != first.inputQuads ||
-                projectionRangesOverlap(metal, out, mProjInput)) {
+                member.bits != first.bits || member.blocks != first.blocks ||
+                member.activation != first.activation || member.inputChannels != first.inputChannels ||
+                member.inputQuads != first.inputQuads || projectionRangesOverlap(metal, out, mProjInput)) {
                 return false;
             }
             for (int j = 0; j < i; ++j) {
@@ -610,50 +664,55 @@ private:
             plan.segments[i] = {tiles, member.outputQuads, member.scaleCoef};
             tiles += UP_DIV(member.outputChannels, kernel.tileN);
         }
+        const int gridX = UP_DIV(area, tileM);
+        if (area <= 32 && gridX * tiles < 16) {
+            // Very narrow short-sequence groups benefit more from per-member split-K.
+            return false;
+        }
         // Empty slots are outside the grid; the encoder still binds valid buffers.
         for (int i = mNumConvs; i < 4; ++i) {
             plan.segments[i].firstTile = tiles;
         }
-        auto pipeline = _asWQuant(mConvs[0].get())->widePrefillPipeline();
+        auto pipeline = _asWQuant(mConvs[0].get())->multiProjPrefillPipeline();
         auto ctx = (__bridge MNNMetalContext*)metal->context();
         if (pipeline == nil || pipeline.maxTotalThreadsPerThreadgroup < kernel.threads ||
             pipeline.staticThreadgroupMemoryLength > ctx.device.maxThreadgroupMemoryLength) {
             return false;
         }
         plan.pipeline = pipeline;
-        plan.grid = MTLSizeMake(UP_DIV(area, kernel.tileM), tiles, 1);
+        plan.grid = MTLSizeMake(gridX, tiles, 1);
         plan.threads = MTLSizeMake(kernel.threads, 1, 1);
         return true;
     }
 
-    void encodeWidePrefill(const Tensor* input, const std::vector<Tensor*>& outputs,
-                           id<MTLComputeCommandEncoder> encoder) const {
-        [encoder setComputePipelineState:mWide.pipeline];
+    void encodeMultiProjPrefill(const Tensor* input, const std::vector<Tensor*>& outputs,
+                                id<MTLComputeCommandEncoder> encoder) const {
+        [encoder setComputePipelineState:mMultiProjPrefill.pipeline];
         MetalBackend::setTensor(input, encoder, 0);
-        const auto& first = mWide.members[0];
+        const auto& first = mMultiProjPrefill.members[0];
         [encoder setBuffer:first.params offset:0 atIndex:2];
         MetalBackend::setTensor(first.weight, encoder, 6);
         for (int i = 0; i < 4; ++i) {
             const int p = i < mNumConvs ? i : 0;
-            const auto& member = mWide.members[p];
+            const auto& member = mMultiProjPrefill.members[p];
             const int binding = 7 + (i - 1) * 4;
             MetalBackend::setTensor(outputs[p], encoder, i == 0 ? 1 : binding);
             MetalBackend::setTensor(member.weight, encoder, i == 0 ? 3 : binding + 1);
             MetalBackend::setTensor(member.bias, encoder, i == 0 ? 4 : binding + 2);
             MetalBackend::setTensor(member.dequant, encoder, i == 0 ? 5 : binding + 3);
         }
-        [encoder setBytes:mWide.segments.data() length:sizeof(mWide.segments) atIndex:19];
-        [encoder dispatchThreadgroups:mWide.grid threadsPerThreadgroup:mWide.threads];
+        [encoder setBytes:mMultiProjPrefill.segments.data() length:sizeof(mMultiProjPrefill.segments) atIndex:19];
+        [encoder dispatchThreadgroups:mMultiProjPrefill.grid threadsPerThreadgroup:mMultiProjPrefill.threads];
     }
 
-    uint64_t widePrefillStamp() const {
+    uint64_t multiProjPrefillStamp() const {
         uint64_t h = 1469598103934665603ull;
         auto mix = [&](uint64_t v) { h = (h ^ v) * 1099511628211ull; };
-        mix(mWide.grid.width);
-        mix(mWide.grid.height);
-        mix(reinterpret_cast<uintptr_t>((__bridge void*)mWide.pipeline));
-        mix(reinterpret_cast<uintptr_t>((__bridge void*)mWide.members[0].params));
-        for (const auto& segment : mWide.segments) {
+        mix(mMultiProjPrefill.grid.width);
+        mix(mMultiProjPrefill.grid.height);
+        mix(reinterpret_cast<uintptr_t>((__bridge void*)mMultiProjPrefill.pipeline));
+        mix(reinterpret_cast<uintptr_t>((__bridge void*)mMultiProjPrefill.members[0].params));
+        for (const auto& segment : mMultiProjPrefill.segments) {
             uint32_t scaleBits;
             memcpy(&scaleBits, &segment.scaleCoef, sizeof(scaleBits));
             mix(segment.firstTile);
@@ -664,11 +723,12 @@ private:
     }
 
     enum class DecodeKind { None, GateUp, GateUpSilu, QKV };
-    enum class DecodeBody { Plain, Oc16Sg2K1, Oc16Sg4K1, Oc8Sg4K2, Oc16Sg8K2 };
+    enum class DecodeBody { Plain, Oc16Nsg2SplitK1, Oc16Nsg4SplitK1, Oc8Nsg4SplitK2, Oc16Nsg8SplitK2 };
     struct DecodePlan {
         DecodeKind kind = DecodeKind::None;
         DecodeBody body = DecodeBody::Plain;
-        int siluKSplit = 0;
+        int reduceRows = 1;
+        int siluSplitKCount = 0;
         int lanesPerBlock = 0;
         bool packedGrid = false;
         MTLSize grid = {};
@@ -676,8 +736,8 @@ private:
         id<MTLComputePipelineState> pipeline = nil;
         const Tensor* gamma = nullptr;
         id<MTLBuffer> mergedWeights = nil;
-        // Three weights followed by their dequant tables; only used for W4 QKV.
-        std::array<size_t, 6> mergedOffsets = {};
+        // Up to four weights followed by their dequant tables; only used for QKV.
+        std::array<size_t, 8> mergedOffsets = {};
     };
 
     // Select once; pipeline macros, cache keys and dispatch all consume the
@@ -686,8 +746,11 @@ private:
                                                    int lnQuads = 0) const {
         const bool fp16 = metal->useFp16InsteadFp32();
         const auto bits = std::to_string(mDecodeMembers[0].bits);
+        const bool shortPrefill = plan.reduceRows > 1;
         const auto& body = conv1x1Kernel(Conv1x1Kernel::GemvG4m1_2sg);
-        const char* entry = body.entry;
+        const std::string entryStr = shortPrefill ? conv1x1GemvG4mName(plan.reduceRows) : std::string(body.entry);
+        const char* entry = entryStr.c_str();
+        const PrefillSource sourceKind = shortPrefill ? kConv1x1GemvG4mSource : body.source;
         std::vector<std::string> keys = {fp16 ? "half4" : "float4", "MNN_METAL_FLOAT32_COMPUTER"};
         if (fp16) {
             keys.emplace_back("MNN_METAL_FLOAT16_STORAGE");
@@ -702,8 +765,8 @@ private:
         keys.emplace_back(qkv ? "QKV_FUSED" : "GATE_UP_FUSED");
         [macros setValue:@"1" forKey:(qkv ? @"QKV_FUSED" : @"GATE_UP_FUSED")];
         if (qkv && mNumConvs == 4) {
-            keys.emplace_back("QKV_FUSED_P4");
-            [macros setValue:@"1" forKey:@"QKV_FUSED_P4"];
+            keys.emplace_back("QKV_FUSED_4PROJ");
+            [macros setValue:@"1" forKey:@"QKV_FUSED_4PROJ"];
         }
         if (plan.packedGrid) {
             [macros setValue:@"1" forKey:@"QKV_PACKED_GRID"];
@@ -720,7 +783,7 @@ private:
         if (lnQuads) {
             keys.emplace_back("LN_FUSED");
             [macros setValue:@"1" forKey:@"LN_FUSED"];
-            if (plan.body == DecodeBody::Oc16Sg8K2 && lnQuads <= 256) {
+            if (plan.body == DecodeBody::Oc16Nsg8SplitK2 && lnQuads <= 256) {
                 keys.emplace_back("LN_STAGE_" + std::to_string(lnQuads));
                 [macros setValue:@"1" forKey:@"LN_STAGE"];
                 [macros setValue:@(lnQuads).stringValue forKey:@"LN_STAGE_QUADS"];
@@ -729,30 +792,30 @@ private:
         switch (plan.body) {
             case DecodeBody::Plain:
                 break;
-            case DecodeBody::Oc16Sg2K1:
-                keys.emplace_back("oc16Sg2K1");
+            case DecodeBody::Oc16Nsg2SplitK1:
+                keys.emplace_back("oc16Nsg2SplitK1");
                 [macros setValue:@"1" forKey:@"GEMV_SG_OC_QUADS_2"];
                 break;
-            case DecodeBody::Oc16Sg4K1:
-                keys.emplace_back("oc16Sg4K1");
+            case DecodeBody::Oc16Nsg4SplitK1:
+                keys.emplace_back("oc16Nsg4SplitK1");
                 [macros setValue:@"4" forKey:@"GEMV_QUADS_PER_TG"];
                 break;
-            case DecodeBody::Oc8Sg4K2:
-            case DecodeBody::Oc16Sg8K2: {
-                const bool oc16 = plan.body == DecodeBody::Oc16Sg8K2;
-                keys.emplace_back(oc16 ? "oc16Sg8K2" : "oc8Sg4K2");
+            case DecodeBody::Oc8Nsg4SplitK2:
+            case DecodeBody::Oc16Nsg8SplitK2: {
+                const bool oc16 = plan.body == DecodeBody::Oc16Nsg8SplitK2;
+                keys.emplace_back(oc16 ? "oc16Nsg8SplitK2" : "oc8Nsg4SplitK2");
                 [macros setValue:(oc16 ? @"4" : @"2") forKey:@"GEMV_QUADS_PER_TG"];
                 [macros setValue:@"2" forKey:@"GEMV_SPLIT_K"];
                 if (plan.lanesPerBlock > 0) {
-                    keys.emplace_back("lpb" + std::to_string(plan.lanesPerBlock));
+                    keys.emplace_back("lanes" + std::to_string(plan.lanesPerBlock));
                     [macros setValue:@(plan.lanesPerBlock).stringValue forKey:@"GEMV_LANES_PER_BLOCK"];
                 }
                 break;
             }
         }
-        if (plan.siluKSplit) {
-            keys.emplace_back("oc16Sg2K1_siluK" + std::to_string(plan.siluKSplit));
-            [macros setValue:@(plan.siluKSplit).stringValue forKey:@"GEMV_SG_OC_QUADS_2_KSPLIT"];
+        if (plan.siluSplitKCount) {
+            keys.emplace_back("oc16Nsg2SplitK1_siluSplitK" + std::to_string(plan.siluSplitKCount));
+            [macros setValue:@(plan.siluSplitKCount).stringValue forKey:@"GEMV_SG_OC_QUADS_2_KSPLIT"];
         }
         if (!lnQuads && silu) {
             keys.emplace_back("GATE_UP_SILU");
@@ -765,7 +828,7 @@ private:
         if (nil == pipeline && !rt->pipelineCompileFailed(keys)) {
             MTLCompileOptions* options = [[MTLCompileOptions alloc] init];
             options.preprocessorMacros = macros;
-            const std::string source = conv1x1ShaderSource(body.source);
+            const std::string source = conv1x1ShaderSource(sourceKind);
             // All group variants have a prepared unfused path to fall back to.
             pipeline = metal->makeComputePipelineWithSourceOption(source.c_str(), entry, options, /*optional=*/true);
             rt->insertPipeline(keys, pipeline);
@@ -790,32 +853,48 @@ private:
 
     bool prepareGateUp(MetalBackend* metal, DecodePlan& plan) {
         const auto& gate = mDecodeMembers[0];
+        const bool shortPrefill = plan.reduceRows > 1;
         const bool legacy = metal->runtime()->gpuInfo().gen < 17;
         const int quadsPerBlock = UP_DIV(gate.inputQuads, gate.blocks);
         const auto profile = conv1x1DeviceProfile(metal->runtime()->gpuInfo());
         auto build = [&](bool silu) {
             plan.kind = silu ? DecodeKind::GateUpSilu : DecodeKind::GateUp;
-            plan.body = legacy || silu ? DecodeBody::Oc16Sg2K1 : DecodeBody::Plain;
+            if (shortPrefill) {
+                plan.body = DecodeBody::Plain;
+                plan.siluSplitKCount = 0;
+                plan.grid = MTLSizeMake(UP_DIV(gate.outputQuads, 2), 1, silu ? 1 : 2);
+                plan.threads = MTLSizeMake(kConv1x1GemvG4mThreads, 1, 1);
+                plan.pipeline = loadDecodePipeline(metal, plan);
+                return plan.pipeline != nil;
+            }
+            plan.body = legacy || silu ? DecodeBody::Oc16Nsg2SplitK1 : DecodeBody::Plain;
             if (!legacy && !silu && quadsPerBlock >= 32 && gate.outputQuads % 4 == 0) {
-                plan.body = DecodeBody::Oc16Sg4K1;
+                plan.body = DecodeBody::Oc16Nsg4SplitK1;
             }
-            plan.siluKSplit = 0;
-            if (silu && profile.gateUpSkDeviceClass &&
+            plan.siluSplitKCount = 0;
+            if (silu && profile.supportsGateUpSplitK &&
                 decodeSplitKPrecisionOk(profile, metal->useFp16InsteadFp32()) &&
-                gate.outputChannels % 8 == 0 && (gate.bits == 4 || gate.bits == 8) &&
+                gate.outputChannels % 8 == 0 &&
+                (gate.bits == 2 || gate.bits == 3 || gate.bits == 4 || gate.bits == 8) &&
                 gate.inputChannels % gate.blocks == 0) {
-                plan.siluKSplit = gateUpSiluSplitK(gate.blocks, quadsPerBlock);
+                plan.siluSplitKCount = gateUpSiluSplitK(gate.blocks, quadsPerBlock);
             }
-            if (!plan.siluKSplit && silu && gate.outputQuads % 2 == 0 && gate.blocks >= 2 &&
-                quadsPerBlock >= profile.gateUpSkQuadsFloor && (gate.blocks & (gate.blocks - 1)) == 0) {
-                plan.siluKSplit = 2;
+            if (!plan.siluSplitKCount && silu && gate.outputQuads % 2 == 0 && gate.blocks >= 2 &&
+                quadsPerBlock >= profile.gateUpSplitKQuadsFloor && (gate.blocks & (gate.blocks - 1)) == 0) {
+                plan.siluSplitKCount = 2;
             }
             const int quadsPerTG = silu || plan.body == DecodeBody::Plain ? 2 : 4;
-            const int threads = plan.siluKSplit ? 64 * plan.siluKSplit
-                : (plan.body == DecodeBody::Oc16Sg4K1 ? 128 : 64);
+            const int threads = plan.siluSplitKCount ? 64 * plan.siluSplitKCount
+                : (plan.body == DecodeBody::Oc16Nsg4SplitK1 ? 128 : 64);
             plan.grid = MTLSizeMake(UP_DIV(gate.outputQuads, quadsPerTG), 1, silu ? 1 : 2);
             plan.threads = MTLSizeMake(threads, 1, 1);
             plan.pipeline = loadDecodePipeline(metal, plan);
+            while (plan.pipeline == nil && silu && plan.siluSplitKCount > 0) {
+                // Degrade split-K factor before dropping in-kernel SiLU altogether.
+                plan.siluSplitKCount = (plan.siluSplitKCount > 2 && gate.blocks % 2 == 0) ? 2 : 0;
+                plan.threads = MTLSizeMake(plan.siluSplitKCount ? 64 * plan.siluSplitKCount : 64, 1, 1);
+                plan.pipeline = loadDecodePipeline(metal, plan);
+            }
             return plan.pipeline != nil;
         };
         // The in-kernel SiLU writes while other threadgroups still read the
@@ -830,6 +909,7 @@ private:
 
     bool prepareQKV(MetalBackend* metal, DecodePlan& plan) {
         const auto& q = mDecodeMembers[0];
+        const bool shortPrefill = plan.reduceRows > 1;
         const int count = mNumConvs;
         int outputChannels = 0;
         bool aligned2 = true, aligned4 = true;
@@ -852,32 +932,36 @@ private:
             aligned2 = aligned2 && m.outputQuads % 2 == 0;
             aligned4 = aligned4 && m.outputQuads % 4 == 0;
         }
-        const auto& gpu = metal->runtime()->gpuInfo();
-        const auto profile = conv1x1DeviceProfile(gpu);
-        const bool evenBlocks = q.blocks % 2 == 0;
-        // One admission boolean for both split-K bodies: bit width plus precision.
-        const bool splitKW48 = decodeSplitKPrecisionOk(profile, metal->useFp16InsteadFp32()) &&
-            (q.bits == 4 || q.bits == 8);
-        const bool wholeBlocks = q.inputChannels % q.blocks == 0;
-        const bool allowOc8 = profile.tier.hasOc8Sg4K2Budget && !profile.tier.prefersOc16Sg8K2 &&
-            splitKW48 && evenBlocks && wholeBlocks;
-        const bool allowOc16 = profile.tier.prefersOc16Sg8K2 && splitKW48 && wholeBlocks;
-        const bool highBwOc16 = profile.tier.highBandwidth && splitKW48 &&
-            qkvOc16Sg8K2Admissible(q.blocks, q.inputQuads, outputChannels);
         plan.kind = DecodeKind::QKV;
-        if (evenBlocks && aligned4 && ((allowOc16 && !allowOc8) || highBwOc16)) {
-            plan.body = DecodeBody::Oc16Sg8K2;
-        } else if (gpu.gen < 17) {
-            plan.body = DecodeBody::Oc16Sg2K1;
-        } else if (!allowOc8 && aligned4 && UP_DIV(q.inputQuads, q.blocks) >= 32) {
-            plan.body = DecodeBody::Oc16Sg4K1;
-        } else if (evenBlocks && aligned2 && (allowOc8 || q.blocks <= MetalEnv::get().qkvSplitKMaxBlocks)) {
-            plan.body = DecodeBody::Oc8Sg4K2;
+        int quadsPerTG = 2;
+        int simds = 2;
+        if (!shortPrefill) {
+            const auto& gpu = metal->runtime()->gpuInfo();
+            const auto profile = conv1x1DeviceProfile(gpu);
+            const bool evenBlocks = q.blocks % 2 == 0;
+            // One admission boolean for both split-K bodies: bit width plus precision.
+            const bool splitKWq = decodeSplitKPrecisionOk(profile, metal->useFp16InsteadFp32()) &&
+                (q.bits == 2 || q.bits == 3 || q.bits == 4 || q.bits == 8);
+            const bool wholeBlocks = q.inputChannels % q.blocks == 0;
+            const bool allowOc8 = profile.tier.hasOc8Nsg4SplitK2Budget && !profile.tier.prefersOc16Nsg8SplitK2 &&
+                splitKWq && evenBlocks && wholeBlocks;
+            const bool allowOc16 = profile.tier.prefersOc16Nsg8SplitK2 && splitKWq && wholeBlocks;
+            const bool highBwOc16 = profile.tier.highBandwidth && splitKWq && wholeBlocks &&
+                qkvOc16Sg8K2Admissible(q.blocks, q.inputQuads, outputChannels);
+            if (evenBlocks && aligned4 && ((allowOc16 && !allowOc8) || highBwOc16)) {
+                plan.body = DecodeBody::Oc16Nsg8SplitK2;
+            } else if (gpu.gen < 17) {
+                plan.body = DecodeBody::Oc16Nsg2SplitK1;
+            } else if (!allowOc8 && aligned4 && UP_DIV(q.inputQuads, q.blocks) >= 32) {
+                plan.body = DecodeBody::Oc16Nsg4SplitK1;
+            } else if (evenBlocks && aligned2 && (allowOc8 || q.blocks <= MetalEnv::get().qkvSplitKMaxBlocks)) {
+                plan.body = DecodeBody::Oc8Nsg4SplitK2;
+            }
+            const bool splitK = plan.body == DecodeBody::Oc16Nsg8SplitK2 || plan.body == DecodeBody::Oc8Nsg4SplitK2;
+            plan.lanesPerBlock = splitK ? gemvLanesPerBlock(q.inputQuads, q.blocks, true) : 0;
+            quadsPerTG = plan.body == DecodeBody::Plain || plan.body == DecodeBody::Oc8Nsg4SplitK2 ? 2 : 4;
+            simds = plan.body == DecodeBody::Oc16Nsg2SplitK1 ? 2 : quadsPerTG * (splitK ? 2 : 1);
         }
-        const bool splitK = plan.body == DecodeBody::Oc16Sg8K2 || plan.body == DecodeBody::Oc8Sg4K2;
-        plan.lanesPerBlock = splitK ? gemvLanesPerBlock(q.inputQuads, q.blocks, true) : 0;
-        const int quadsPerTG = plan.body == DecodeBody::Plain || plan.body == DecodeBody::Oc8Sg4K2 ? 2 : 4;
-        const int simds = plan.body == DecodeBody::Oc16Sg2K1 ? 2 : quadsPerTG * (splitK ? 2 : 1);
         int packedGridX = 0, maxGridX = 0;
         std::array<int, 4> gridX = {};
         for (int i = 0; i < count; ++i) {
@@ -892,7 +976,7 @@ private:
         if (nil == plan.pipeline || !ensureDecodeSegments(metal)) {
             return false;
         }
-        if (q.bits == 4 && count == 3) {
+        if ((q.bits == 2 || q.bits == 3 || q.bits == 4 || q.bits == 8) && (count == 3 || count == 4)) {
             prepareQKVWeights(metal, plan); // optional: the pipeline also accepts separate buffers
         }
         const bool p4 = count == 4;
@@ -908,15 +992,29 @@ private:
     }
 
     void prepareQKVWeights(MetalBackend* metal, DecodePlan& plan) {
-        const Tensor* parts[] = {mDecodeMembers[0].weight, mDecodeMembers[1].weight, mDecodeMembers[2].weight,
-                                 mDecodeMembers[0].dequant, mDecodeMembers[1].dequant, mDecodeMembers[2].dequant};
+        const int count = mNumConvs;
+        const int numParts = count * 2;
+        std::array<const Tensor*, 8> parts = {};
+        for (int i = 0; i < count; ++i) {
+            parts[i] = mDecodeMembers[i].weight;
+            parts[count + i] = mDecodeMembers[i].dequant;
+        }
         size_t total = 0;
-        std::array<size_t, 6> bytes;
-        for (int i = 0; i < 6; ++i) {
+        std::array<size_t, 8> bytes = {};
+        plan.mergedOffsets.fill(0);
+        for (int i = 0; i < numParts; ++i) {
             bytes[i] = TensorUtils::getRawSize(parts[i]) * parts[i]->getType().bytes();
             total = (total + 15) & ~size_t(15);
             plan.mergedOffsets[i] = total;
             total += bytes[i];
+        }
+        std::array<std::pair<id<MTLBuffer>, size_t>, 8> srcs;
+        for (int i = 0; i < numParts; ++i) {
+            srcs[i] = MetalBackend::getBuffer(parts[i]);
+            if (nil == srcs[i].first || nullptr == srcs[i].first.contents ||
+                srcs[i].second > srcs[i].first.length || bytes[i] > srcs[i].first.length - srcs[i].second) {
+                return;
+            }
         }
         if (nil == mQKVMergeStorage || mQKVMergeStorage.length < total) {
             auto ctx = (__bridge MNNMetalContext*)metal->context();
@@ -926,16 +1024,16 @@ private:
             }
             mQKVMergeStorage = buffer;
         }
-        for (int i = 0; i < 6; ++i) {
-            auto src = MetalBackend::getBuffer(parts[i]);
+        for (int i = 0; i < numParts; ++i) {
             memcpy(static_cast<uint8_t*>(mQKVMergeStorage.contents) + plan.mergedOffsets[i],
-                   static_cast<const uint8_t*>(src.first.contents) + src.second, bytes[i]);
+                   static_cast<const uint8_t*>(srcs[i].first.contents) + srcs[i].second, bytes[i]);
         }
         plan.mergedWeights = mQKVMergeStorage;
     }
 
     void tryFoldLN(MetalBackend* metal, DecodePlan& plan) {
-        if (!mHasLn || !mLn->isNC4HW4() || !mLn->isRMSNormWithGammaBeta()) {
+        if (!mHasLn || !mLn->isNC4HW4() || !mLn->isRMSNormWithGammaBeta() ||
+            mLnHiddenIn->channel() % 4 != 0) {
             return;
         }
         // Other threadgroups can still be reading either LN input. Keep LN
@@ -999,7 +1097,7 @@ private:
             MetalBackend::setTensor(m.bias, encoder, biasSlot[i]);
             if (plan.mergedWeights != nil) {
                 [encoder setBuffer:plan.mergedWeights offset:plan.mergedOffsets[i] atIndex:weightSlot[i]];
-                [encoder setBuffer:plan.mergedWeights offset:plan.mergedOffsets[3 + i] atIndex:dequantSlot[i]];
+                [encoder setBuffer:plan.mergedWeights offset:plan.mergedOffsets[mNumConvs + i] atIndex:dequantSlot[i]];
             } else {
                 MetalBackend::setTensor(m.weight, encoder, weightSlot[i]);
                 MetalBackend::setTensor(m.dequant, encoder, dequantSlot[i]);
@@ -1050,13 +1148,13 @@ private:
             return;
         }
         static const char* const kKindNames[] = {"none", "gateUp", "gateUpSilu", "qkv"};
-        static const char* const kBodyNames[] = {"plain", "oc16Sg2K1", "oc16Sg4K1", "oc8Sg4K2", "oc16Sg8K2"};
+        static const char* const kBodyNames[] = {"plain", "oc16Nsg2SplitK1", "oc16Nsg4SplitK1", "oc8Nsg4SplitK2", "oc16Nsg8SplitK2"};
         static_assert(sizeof(kKindNames) / sizeof(kKindNames[0]) == 4, "DecodeKind names");
         static_assert(sizeof(kBodyNames) / sizeof(kBodyNames[0]) == 5, "DecodeBody names");
         const auto& head = mDecodeMembers[0];
-        MNN_PRINT("[DecodePlan] kind=%s body=%s siluK=%d lpb=%d ln=%d packed=%d grid=%zux%zux%zu threads=%zu bits=%d oc=%d ic=%d blocks=%d\n",
+        MNN_PRINT("[DecodePlan] kind=%s body=%s rows=%d siluSplitK=%d lanes=%d ln=%d packed=%d grid=%zux%zux%zu threads=%zu bits=%d oc=%d ic=%d blocks=%d\n",
                   kKindNames[static_cast<int>(plan.kind)], kBodyNames[static_cast<int>(plan.body)],
-                  plan.siluKSplit, plan.lanesPerBlock, plan.gamma ? 1 : 0, plan.packedGrid ? 1 : 0,
+                  plan.reduceRows, plan.siluSplitKCount, plan.lanesPerBlock, plan.gamma ? 1 : 0, plan.packedGrid ? 1 : 0,
                   plan.grid.width, plan.grid.height, plan.grid.depth, plan.threads.width,
                   head.bits, head.outputChannels, head.inputChannels, head.blocks);
     }
@@ -1181,7 +1279,7 @@ private:
     unsigned mRecordedSteps = 0;
 #ifdef MNN_LOW_MEMORY
     DecodePlan mDecode;
-    WidePrefillPlan mWide;
+    MultiProjPrefillPlan mMultiProjPrefill;
     std::array<MetalConv1x1WQuant::QuantMember, 4> mDecodeMembers;
     // Reuse backing storage across resizes. The installed plan decides which
     // optional resources (LN epsilon or merged weights) the dispatch binds.

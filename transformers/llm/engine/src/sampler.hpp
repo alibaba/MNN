@@ -9,6 +9,8 @@
 #include <random>
 
 #include <MNN/expr/Expr.hpp>
+#include <MNN/expr/Executor.hpp>
+#include <MNN/expr/Module.hpp>
 
 #include "llmconfig.hpp"
 #include "llm/llm.hpp"
@@ -75,6 +77,9 @@ public:
     static Sampler* createSampler(std::shared_ptr<LlmContext> context, std::shared_ptr<LlmConfig> config);
     Sampler(std::shared_ptr<LlmContext> context, std::shared_ptr<LlmConfig> config);
     void setConfig(std::shared_ptr<LlmConfig> config);
+    void setRuntimeManager(std::shared_ptr<MNN::Express::Executor::RuntimeManager> runtimeManager);
+    bool prepareDeviceSample(MNN::Express::VARP logits);
+    void clearDeviceSampleCache() { mDeviceSampleCache.clear(); }
     int sample(MNN::Express::VARP logits);
     int sample(MNN::Express::VARP logits, const std::vector<int>& indices);
 
@@ -85,6 +90,29 @@ private:
     // Fast top-k prefilter: fetch only top-k values/indices instead of the
     // full vocab pipeline when topK is the first effective filter step.
     bool mTopKPrefilter = false;
+    std::shared_ptr<MNN::Express::Executor::RuntimeManager> mRuntimeManager;
+    std::shared_ptr<MNN::Express::Module> mDeviceArgMaxModule;
+    std::shared_ptr<MNN::Express::Module> mDeviceTopKModule;
+    int mDeviceTopKValue = 0;
+    struct DeviceSampleCache {
+        const MNN::Express::Variable* logitsPtr = nullptr;
+        bool isGreedy = false;
+        int token = -1;
+        int vocabSize = 0;
+        std::vector<float> topValues;
+        std::vector<int> topIndices;
+        void clear() {
+            logitsPtr = nullptr;
+            isGreedy = false;
+            token = -1;
+            vocabSize = 0;
+            topValues.clear();
+            topIndices.clear();
+        }
+    } mDeviceSampleCache;
+    bool canUseDeviceSampling(MNN::Express::VARP logits) const;
+    bool runDeviceSampling(MNN::Express::VARP logits);
+    int sampleFromTopK(const float* values, const int* indices, int k, int vocabSize);
     // Pipeline
     using SamplerStep = std::function<void(SamplerState&)>;
     std::vector<SamplerStep> mPipeline;

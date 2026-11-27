@@ -157,4 +157,145 @@ public:
 
 MNNTestSuiteRegister(SharedGatherTest, "op/shared_gather");
 
+static VARP makeSharedGroupedConv(VARP input, const std::vector<float>& weight, const std::vector<float>& scale,
+                                  int ic, int oc, int blockSize, int bits) {
+    std::unique_ptr<OpT> conv(new OpT);
+    conv->type = OpType_Convolution;
+    conv->name = "shared_weight_edge";
+    conv->main.type = OpParameter_Convolution2D;
+    conv->main.value = new Convolution2DT;
+    auto conv2D = conv->main.AsConvolution2D();
+    conv2D->common.reset(new Convolution2DCommonT);
+    conv2D->common->kernelX = 1;
+    conv2D->common->kernelY = 1;
+    conv2D->common->strideX = 1;
+    conv2D->common->strideY = 1;
+    conv2D->common->dilateX = 1;
+    conv2D->common->dilateY = 1;
+    conv2D->common->group = 1;
+    conv2D->common->inputCount = ic;
+    conv2D->common->outputCount = oc;
+    conv2D->bias.resize(oc, 0.0f);
+
+    const int blockNum = ic / blockSize;
+    const int clampMin = -(1 << (bits - 1));
+    IDSTEncoder::EncodeOptions options;
+    options.bits = bits;
+    conv2D->quanParameter =
+        IDSTEncoder::encode(weight.data(), scale, blockSize, oc * blockNum, true, nullptr, clampMin, options);
+
+    auto expr = Expr::create(std::move(conv), {input});
+    expr->setName("shared_weight_edge");
+    auto output = Variable::create(expr);
+    output->setName("shared_weight_edge");
+    return output;
+}
+
+static VARP makeSharedGatherNamed(VARP indices, int ic, int oc, const char* name) {
+    std::unique_ptr<OpT> gather(new OpT);
+    gather->type = OpType_GatherV2;
+    gather->name = name;
+    gather->main.type = OpParameter_Input;
+    gather->main.value = new InputT;
+    gather->main.AsInput()->dims = {oc, ic};
+    gather->main.AsInput()->dtype = DataType_DT_FLOAT;
+    gather->main.AsInput()->dformat = MNN_DATA_FORMAT_NCHW;
+    auto expr = Expr::create(std::move(gather), {indices});
+    expr->setName(name);
+    auto output = Variable::create(expr);
+    output->setName(name);
+    return output;
+}
+
+class SharedGatherEdgeMetalTest : public MNNTestCase {
+    bool runCase(int bits, int ic, int oc, int blockSize) {
+        const int blockNum = ic / blockSize;
+        const int levels = 1 << bits;
+        std::vector<float> scale(oc * blockNum * 2);
+        std::vector<float> weight(oc * ic);
+        for (int o = 0; o < oc; ++o) {
+            for (int b = 0; b < blockNum; ++b) {
+                // Distinct per-block min/scale so any quant-block boundary bug fails loudly.
+                const float mn = -1.5f + 0.35f * (b % 5) + 0.07f * o;
+                const float step = 0.08f + 0.03f * ((b + o) % 4);
+                scale[2 * (o * blockNum + b) + 0] = mn;
+                scale[2 * (o * blockNum + b) + 1] = step;
+                for (int u = 0; u < blockSize; ++u) {
+                    const int q = (o * 3 + b * 5 + u) % levels;
+                    weight[o * ic + b * blockSize + u] = mn + step * (float)q;
+                }
+            }
+        }
+
+        auto baseInput = _Input({1, ic, 1, 1}, NCHW);
+        ::memset(baseInput->writeMap<float>(), 0, ic * sizeof(float));
+        baseInput->unMap();
+        auto convOutput = makeSharedGroupedConv(baseInput, weight, scale, ic, oc, blockSize, bits);
+        auto baseBuffer = Variable::save({convOutput});
+
+        const std::vector<int> indicesData = {3, -1, 0, oc, oc - 1, oc + 17, 2};
+        const int selectSize = (int)indicesData.size();
+        auto indicesInput = _Input({selectSize}, NCHW, halide_type_of<int>());
+        indicesInput->setName("x");
+        auto gatherOutput = makeSharedGatherNamed(indicesInput, ic, oc, "shared_weight_edge");
+        auto gatherBuffer = Variable::save({gatherOutput});
+
+        auto runtime = makeSharedGatherRuntime();
+        Module::Config baseConfig;
+        baseConfig.rearrange = true;
+        std::shared_ptr<Module> base(
+            Module::load({}, {}, (const uint8_t*)baseBuffer.data(), baseBuffer.size(), runtime, &baseConfig));
+        if (!base) {
+            MNN_ERROR("SharedGatherEdgeMetalTest: load base failed (bits=%d ic=%d bs=%d)\n", bits, ic, blockSize);
+            return false;
+        }
+        Module::Config gatherConfig;
+        gatherConfig.rearrange = true;
+        gatherConfig.base = base.get();
+        std::shared_ptr<Module> gather(
+            Module::load({}, {}, (const uint8_t*)gatherBuffer.data(), gatherBuffer.size(), runtime, &gatherConfig));
+        if (!gather) {
+            MNN_ERROR("SharedGatherEdgeMetalTest: load gather failed (bits=%d ic=%d bs=%d)\n", bits, ic, blockSize);
+            return false;
+        }
+        auto runtimeIndices = _Input({selectSize}, NCHW, halide_type_of<int>());
+        ::memcpy(runtimeIndices->writeMap<int>(), indicesData.data(), selectSize * sizeof(int));
+        runtimeIndices->unMap();
+        auto outputs = gather->onForward({runtimeIndices});
+        if (outputs.empty() || outputs[0] == nullptr) {
+            MNN_ERROR("SharedGatherEdgeMetalTest: forward failed (bits=%d ic=%d bs=%d)\n", bits, ic, blockSize);
+            return false;
+        }
+        std::vector<float> expected(selectSize * ic, 0.0f);
+        for (int i = 0; i < selectSize; ++i) {
+            if (indicesData[i] >= 0 && indicesData[i] < oc) {
+                ::memcpy(expected.data() + i * ic, weight.data() + indicesData[i] * ic, ic * sizeof(float));
+            }
+        }
+        if (!checkVector<float>(outputs[0]->readMap<float>(), expected.data(), expected.size(), 0.03f)) {
+            MNN_ERROR("SharedGatherEdgeMetalTest failed (bits=%d ic=%d oc=%d bs=%d)\n", bits, ic, oc, blockSize);
+            return false;
+        }
+        return true;
+    }
+
+public:
+    virtual ~SharedGatherEdgeMetalTest() = default;
+    virtual bool run(int precision) {
+        if ((MNNForwardType)MNNTestSuite::get()->pStaus.forwardType != MNN_FORWARD_METAL) {
+            MNNTestSuite::get()->skipped++;
+            return true;
+        }
+        bool ok = true;
+        for (int bits : {2, 3, 4, 8}) {
+            // quadsPerBlock=2 (bs=8) and quadsPerBlock=3 (bs=12): both cross quant-block
+            // boundaries inside the 4-quad (16-channel) loop, plus OOB indices.
+            ok = runCase(bits, 64, 9, 8) && ok;
+            ok = runCase(bits, 48, 7, 12) && ok;
+        }
+        return ok;
+    }
+};
+MNNTestSuiteRegister(SharedGatherEdgeMetalTest, "op/shared_gather_edge_metal");
+
 #endif // MNN_LOW_MEMORY
