@@ -48,7 +48,7 @@ static int _MNNApplyCpuTarget(int cpuFlags) {
         target = 4;
     }
     if (target < 4) {
-        cpuFlags &= ~libyuv::kCpuHasAVX512VNNI;
+        cpuFlags &= ~(libyuv::kCpuHasAVX512VNNI | libyuv::kCpuHasAVXVNNI);
     }
     if (target < 3) {
         cpuFlags &= ~(libyuv::kCpuHasAVX512BW | libyuv::kCpuHasAVX512VL | libyuv::kCpuHasAVX512VBMI |
