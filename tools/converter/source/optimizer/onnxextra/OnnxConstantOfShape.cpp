@@ -41,7 +41,8 @@ public:
         std::vector<int> tensor_shape;
         halide_type_t data_type = halide_type_of<float>();
         auto extraParam         = expr->get()->main_as_Extra();
-        VARP const_shape;
+        // https://github.com/onnx/onnx/blob/master/docs/Operators.md#attributes-12
+        VARP const_shape = _Scalar<float>(0.0f);
         if (extraParam->attr() != nullptr) {
             for (int i = 0; i < extraParam->attr()->size(); ++i) {
                 auto attr       = extraParam->attr()->GetAs<Attribute>(i);
@@ -63,13 +64,10 @@ public:
                     } else {
                         MNN_ERROR("Not support data type.");
                     }
+                    const_shape = _Const(static_cast<const void *>(tensor_data.data()), tensor_shape, NCHW, data_type);
                     break; // Break out of the loop if value has been processed.
                 }
             }
-            const_shape = _Const(static_cast<const void *>(tensor_data.data()), tensor_shape, NCHW, data_type);
-        } else {
-            // https://github.com/onnx/onnx/blob/master/docs/Operators.md#attributes-12
-            const_shape = _Scalar<float>(0.0f);
         }
         return Expr::create(mnnFill.get(), {inputs[0], const_shape});
     }
