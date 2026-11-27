@@ -645,7 +645,8 @@ public:
 class ConvInt8WinogradTest : public ConvInt8WinogradTestCommon {
     virtual bool run(int precision) {
         INTS pad = {1, 1}, inputShape = {47, 39}; // {w, h}
-        INTS channel = {32, 32}; // {ci, co}
+        // co = 20: ROUND_UP(co, int8 UNIT) > ROUND_UP(co, float pack) when the int8 kernels use UNIT 8 or 32
+        std::vector<INTS> channels = {{32, 32}, {32, 20}}; // {ci, co}
 
         std::vector<std::vector<int>> kernels = {
             {3, 3}//, {3, 2}, {2, 3}, {2, 2}//, {4, 4}, {7, 1}, {1, 7} // {w, h}
@@ -657,10 +658,11 @@ class ConvInt8WinogradTest : public ConvInt8WinogradTestCommon {
         if (precision == 2) { // fp16
             threshold = 9;
         }
+        for (auto& channel : channels) {
         for (int i = 0; i < kernels.size(); ++i) {
             auto res = testKernel(inputShape, kernels[i], channel, pad, {4, 4}, false, titles[i] + ",alpha=4", true, threshold);
             if (!res) {
-                MNN_ERROR("Error for test kernel %s for convint8 (winograd)\n", titles[i].c_str());
+                MNN_ERROR("Error for test kernel %s for convint8 (winograd), oc=%d\n", titles[i].c_str(), channel[1]);
                 return false;
             }
             /*res = testKernel(inputShape, kernels[i], channel, pad, {6, 6}, false, titles[i] + ",alpha=6");
@@ -668,6 +670,7 @@ class ConvInt8WinogradTest : public ConvInt8WinogradTestCommon {
                 MNN_ERROR("Error for test kernel %s for convint8 (winograd)\n", titles[i].c_str());
                 return false;
             }*/
+        }
         }
         return true;
     }
