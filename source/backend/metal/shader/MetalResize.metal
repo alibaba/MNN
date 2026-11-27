@@ -78,10 +78,11 @@ kernel void resize_cubic(const device ftype4 *in        [[buffer(0)]],
     float x_factor = x - floor(x);
     float y_factor = y - floor(y);
     
-    int4 xp = int4(int(x) - 1, int(x) + 0, int(x) + 1, int(x) + 2);
+    int x0 = int(floor(x)), y0 = int(floor(y));
+    int4 xp = int4(x0 - 1, x0 + 0, x0 + 1, x0 + 2);
     xp = clamp(xp, 0, c.input_width - 1);
     
-    int4 yp = int4(int(y) - 1, int(y) + 0, int(y) + 1, int(y) + 2);
+    int4 yp = int4(y0 - 1, y0 + 0, y0 + 1, y0 + 2);
     yp = clamp(yp, 0, c.input_height - 1);
     
     auto in_z = in + gid.z * c.input_size;
