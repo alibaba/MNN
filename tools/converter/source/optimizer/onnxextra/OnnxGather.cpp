@@ -74,6 +74,14 @@ public:
                 }
             }
         }
+        auto config = Global<modelConfig>::Get();
+        if (config->optimizeLevel < 2) {
+            auto indiceShape = _Shape(indice, true);
+            auto indexDepth = _Slice(indiceShape, _Unsqueeze(_Rank(indice) - _Scalar<int>(1), {0}),
+                                     _Unsqueeze(_Scalar<int>(1), {0}));
+            auto indexedShape = _Slice(_Shape(param, true), _Unsqueeze(_Scalar<int>(batch_dims), {0}), indexDepth);
+            indice = _Select(_Less(indice, _Scalar<int>(0)), indice + indexedShape, indice);
+        }
         if (batch_dims != 0) {
             op->main.value = new AxisT;
             op->main.type = OpParameter_Axis;
