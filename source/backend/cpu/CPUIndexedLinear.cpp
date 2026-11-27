@@ -555,8 +555,11 @@ CPUIndexedLinear::CPUIndexedLinear(Backend* backend, std::shared_ptr<Resource> r
       mRouteWeight(routeWeight), mRouteEps(routeEps), mRouteScale(routeScale) {}
 
 bool CPUIndexedLinear::onClone(Backend* backend, const Op* op, Execution** dst) {
-    if (!dst && !mDenseGateUp) {
-        return mValid;
+    if (!mValid) {
+        return false;
+    }
+    if (!dst && !backend) {
+        return true;
     }
     if (!backend || (backend->type() != MNN_FORWARD_CPU && backend->type() != MNN_FORWARD_CPU_EXTENSION)) {
         return false;
