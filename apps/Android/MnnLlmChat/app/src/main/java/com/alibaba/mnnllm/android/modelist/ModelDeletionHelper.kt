@@ -197,9 +197,11 @@ object ModelDeletionHelper {
         }
 
         // 3. Delete the model files. The downloader only knows the `.mnnmodels` tree, so a local
-        // model has to be removed from disk directly.
+        // model has to be removed from disk directly. Local ids embed the folder path
+        // ("local/<absolute path>", see LocalModelsProvider), so callers that lost the ModelItem
+        // can still delete by id alone.
         val modelDeleted = if (modelId.startsWith(LOCAL_MODEL_PREFIX)) {
-            deleteLocalModelFiles(context, localPath, errors)
+            deleteLocalModelFiles(context, localPath ?: modelId.removePrefix(LOCAL_MODEL_PREFIX), errors)
         } else {
             try {
                 ModelDownloadManager.getInstance(context).deleteModel(modelId)
@@ -218,23 +220,34 @@ object ModelDeletionHelper {
         )
     }
 
+    private fun localRoots(context: Context): List<File> = listOfNotNull(
+        LocalModelsProvider.importedModelsDir(context),
+        LocalModelsProvider.dropInModelsDir(context),
+        File(LocalModelsProvider.ADB_MODELS_DIR)
+    )
+
     /**
      * True when [localPath] sits under one of [LocalModelsProvider]'s roots. Guards against acting
      * on a stale or hand-built path: the deletion below is recursive, so an unexpected path must be
      * refused rather than trusted.
      */
     private fun isDeletableLocalRoot(context: Context, localPath: File): Boolean {
-        val roots = listOfNotNull(
-            LocalModelsProvider.importedModelsDir(context),
-            LocalModelsProvider.dropInModelsDir(context),
-            File(LocalModelsProvider.ADB_MODELS_DIR)
-        )
         val target = localPath.canonicalFile
-        return roots.any { root ->
+        return localRoots(context).any { root ->
             val canonicalRoot = root.canonicalFile
             // Refuse the root itself: a picker aimed at the shared directory is not a model folder.
             target != canonicalRoot && target.path.startsWith(canonicalRoot.path + File.separator)
         }
+    }
+
+    /**
+     * The drop-in root scanned as a model itself (files dropped straight into it). Its contents
+     * are deletable, but the shared directory must survive for future drop-ins. The imported
+     * root stays off-limits: it is managed by the importer, not a user-facing model folder.
+     */
+    private fun isModelAtRoot(context: Context, dir: File): Boolean {
+        val dropIn = LocalModelsProvider.dropInModelsDir(context) ?: return false
+        return dir.canonicalFile == dropIn.canonicalFile && File(dir, "config.json").isFile
     }
 
     /**
@@ -246,12 +259,15 @@ object ModelDeletionHelper {
         if (localPath.isNullOrEmpty()) return false
         val dir = File(localPath)
         if (!dir.exists()) return true
+        if (isModelAtRoot(context, dir)) return dir.canWrite()
         if (!isDeletableLocalRoot(context, dir)) return false
         return dir.canWrite() && dir.parentFile?.canWrite() == true
     }
 
     private fun deleteLocalModelFiles(context: Context, localPath: String?, errors: MutableList<String>): Boolean {
-        if (localPath.isNullOrEmpty()) {
+        // Only an absolute path can name a model folder; anything else ("local/nopath") is a
+        // malformed id and must not be resolved against the working directory.
+        if (localPath.isNullOrEmpty() || !localPath.startsWith(File.separator)) {
             errors.add("Local model has no path")
             return false
         }
@@ -259,6 +275,19 @@ object ModelDeletionHelper {
         if (!dir.exists()) {
             // Already gone; the list entry is what needs to disappear.
             return true
+        }
+        if (isModelAtRoot(context, dir)) {
+            return try {
+                var deleted = true
+                dir.listFiles()?.forEach { child ->
+                    if (!child.deleteRecursively()) deleted = false
+                }
+                if (!deleted) errors.add("Failed to remove some files under $localPath")
+                deleted
+            } catch (e: Exception) {
+                errors.add("Failed to delete local model: ${e.message}")
+                false
+            }
         }
         if (!isDeletableLocalRoot(context, dir)) {
             errors.add("Refusing to delete outside the local model directories: $localPath")

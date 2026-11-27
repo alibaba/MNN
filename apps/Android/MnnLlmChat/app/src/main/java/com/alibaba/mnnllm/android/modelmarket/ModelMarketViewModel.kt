@@ -17,6 +17,7 @@ import com.alibaba.mnnllm.android.model.ModelTypeUtils
 import com.alibaba.mnnllm.android.chat.model.ChatDataManager
 import com.alibaba.mnnllm.android.download.DownloadForegroundServiceManager
 import com.alibaba.mnnllm.android.modelmarket.ModelMarketCache
+import com.alibaba.mnnllm.android.modelist.ModelDeletionHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -220,8 +221,17 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun deleteModel(item: ModelMarketItem) {
-        viewModelScope.launch {
-            downloadManager.deleteModel(item.modelId)
+        viewModelScope.launch(Dispatchers.IO) {
+            // Local models live outside the downloader's tree; route them through the same
+            // cleanup path as the model list so cache and chat sessions go with them.
+            if (item.modelId?.startsWith("local/") == true) {
+                val result = ModelDeletionHelper.deleteModelWithCleanup(getApplication(), item.modelId)
+                if (!result.modelDeleted) {
+                    Log.w(TAG, "Local model deletion failed: ${result.errors.joinToString()}")
+                }
+            } else {
+                downloadManager.deleteModel(item.modelId)
+            }
         }
     }
 
