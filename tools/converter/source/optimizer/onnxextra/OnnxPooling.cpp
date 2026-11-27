@@ -31,6 +31,8 @@ public:
             return false;
         }
         pool->padType = MNN::PoolPadType_CAFFE;
+        pool->strides = {1, 1, 1};
+        pool->pads = {0, 0, 0};
         if (!pool->isGlobal) {
             for (int i = 0; i < info->attr()->size(); ++i) {
                 const auto attr          = info->attr()->GetAs<Attribute>(i);
