@@ -27,12 +27,15 @@ import kotlinx.coroutines.CancellationException
 import org.json.JSONObject
 class LlmSession (
     private val modelId: String,
-    override var sessionId: String,
+    sessionId: String,
     private val configPath: String,
     var savedHistory: List<ChatDataItem>?,
     var backendType: String? = null,
     private val useCustomConfig: Boolean = true
 ): ChatSession, ContextAwareSession {
+    @Volatile
+    private var currentSessionId: String = sessionId
+    override val sessionId: String get() = currentSessionId
     override var supportOmni: Boolean = false
     @Volatile
     private var nativePtr: Long = 0
@@ -115,6 +118,35 @@ class LlmSession (
     override fun setHistory(history: List<ChatDataItem>?) {
     }
 
+    // Turns savedHistory into the flat native format. A restored summary only covers history
+    // up to its anchor row, so anything before the anchor is dropped; a missing anchor means
+    // the summary no longer matches and is discarded.
+    private fun historyForNative(): List<String>? {
+        var currentHistory = savedHistory
+        if (!contextSummary.isNullOrEmpty() && !currentHistory.isNullOrEmpty()) {
+            val anchorIndex = currentHistory.indexOfFirst { it.dbId == contextAnchorId }
+            if (anchorIndex >= 0) {
+                currentHistory = currentHistory.subList(anchorIndex, currentHistory.size)
+            } else {
+                contextSummary = null
+            }
+        }
+        return currentHistory?.takeIf { it.isNotEmpty() }?.let { NativeHistory.alternate(it) }
+    }
+
+    /**
+     * Rebinds this loaded session to another chat conversation without reloading the model:
+     * engine KV is reset and the native history rebuilt from [history]. Worker thread only.
+     */
+    fun rebind(newSessionId: String, history: List<ChatDataItem>?) {
+        withSessionOperation { ptr ->
+            currentSessionId = newSessionId
+            savedHistory = history
+            replaceHistoryNative(ptr, historyForNative(), contextSummary ?: "")
+        }
+        provide().updateSessionId(this)
+    }
+
     override fun load() {
         Log.d(TAG, "MNN_DEBUG load begin modelId: $modelId backend: $backendType")
         synchronized(this) {
@@ -128,17 +160,7 @@ class LlmSession (
             check(!releaseRequested) { "Session has been released" }
             isQnn = ModelTypeUtils.isQnnModel(modelId)
             checkAndMergeSplitFiles()
-            var historyStringList: List<String>? = null
-            var currentHistory = savedHistory
-            if (!contextSummary.isNullOrEmpty() && !currentHistory.isNullOrEmpty()) {
-                val anchorIndex = currentHistory.indexOfFirst { it.dbId == contextAnchorId }
-                if (anchorIndex >= 0) {
-                    currentHistory = currentHistory.subList(anchorIndex, currentHistory.size)
-                } else {
-                    contextSummary = null
-                }
-            }
-            if (!currentHistory.isNullOrEmpty()) historyStringList = NativeHistory.alternate(currentHistory)
+            val historyStringList = historyForNative()
             val llmConfig = if (useCustomConfig) {
                 ModelConfig.loadMergedConfig(configPath, getExtraConfigFile(modelId))!!
             } else {
@@ -218,8 +240,8 @@ class LlmSession (
     }
 
     private fun generateNewSessionId(): String {
-        this.sessionId = System.currentTimeMillis().toString()
-        return this.sessionId
+        currentSessionId = System.currentTimeMillis().toString()
+        return currentSessionId
     }
 
     override fun generate(prompt: String,
@@ -276,6 +298,8 @@ class LlmSession (
     ): HashMap<String, Any>
 
     private external fun resetNative(instanceId: Long)
+
+    private external fun replaceHistoryNative(instanceId: Long, history: List<String>?, contextSummary: String)
 
     private external fun getDebugInfoNative(instanceId: Long): String
 

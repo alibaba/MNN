@@ -103,7 +103,17 @@ class ChatPresenter(
     private var ownedAgentSession: ChatSession? = null
     @Volatile
     private var agentGeneration: Job? = null
+    // Bumped whenever the conversation is replaced, reset, or torn down. Async work captures it
+    // and drops its result once it changes, so a late generation/load callback can't write into a
+    // conversation that has moved on. Unlike a `chatSession === session` reference check, this also
+    // catches a same-instance rebind to a different session id.
+    @Volatile
+    private var incarnation = 0
     val isAgentMode: Boolean get() = agentChat.mode.value.agent
+
+    private fun bumpIncarnation() { incarnation++ }
+
+    private fun isCurrent(captured: Int): Boolean = !destroyed && incarnation == captured
 
     suspend fun restoreAgentMode() {
         val id = chatActivity.intent.getStringExtra("chatSessionId")
@@ -125,6 +135,7 @@ class ChatPresenter(
             agentChat.restore(id, history)
             if (isAgentMode && session !== ownedAgentSession) {
                 sessionUnavailable = true
+                bumpIncarnation()
                 releaseOwnedSession(session)
                 chatSession = createAgentSession(id, history)
                 chatSession.setKeepHistory(true)
@@ -163,6 +174,7 @@ class ChatPresenter(
             sessionId = id
             agentChat.changeMode(id, enabled)
             sessionUnavailable = true
+            bumpIncarnation()
             releaseOwnedSession(chatSession)
             chatSession = if (enabled) createAgentSession(id, history) else ensureOrdinarySession(id, history,
                 chatActivity.intent.getStringExtra("configFilePath"), forceReload = true)
@@ -208,6 +220,7 @@ class ChatPresenter(
     suspend fun retryAgentSession(): ChatSession = withContext(Dispatchers.IO) {
         generationMutex.withLock {
             check(isAgentMode && !destroyed && loadJob?.isActive != true)
+            bumpIncarnation()
             if (::chatSession.isInitialized) releaseOwnedSession(chatSession)
             sessionUnavailable = true
             val history = mergeHistory(restoredHistory.orEmpty(), chatDataManager!!.getChatDataBySession(sessionId!!))
@@ -339,6 +352,7 @@ class ChatPresenter(
     fun load() {
         if (destroyed || loadJob?.isActive == true) return
         val session = chatSession
+        val captured = incarnation
         loadJob = presenterScope.launch {
             try {
                 withContext(Dispatchers.Main) { chatActivity.onLoadingChanged(true) }
@@ -352,7 +366,7 @@ class ChatPresenter(
                 check(session !is com.alibaba.mnnllm.android.llm.LlmSession || session.isModelLoaded()) { "Session was released during loading" }
                 if (!isAgentMode) (session as? ContextAwareSession)?.let { contextManager.refresh(it) }
                 withContext(Dispatchers.Main) {
-                    if (!destroyed && chatSession === session) {
+                    if (isCurrent(captured) && chatSession === session) {
                         sessionUnavailable = false
                         chatActivity.onLoadingChanged(false)
                     }
@@ -405,6 +419,7 @@ class ChatPresenter(
         presenterScope.launch {
             if (!generationMutex.tryLock()) return@launch
             try {
+                bumpIncarnation()
                 sessionId = chatSession.reset()
                 (chatSession as? LlmSession)?.savedHistory = emptyList()
                 restoredHistory = emptyList()
@@ -617,6 +632,7 @@ class ChatPresenter(
         val turnMessageTime = userData.time ?: turnTime
         val turnConsentRevision = agentChat.consent.state.value.revision
         val turnSessionId = sessionId
+        val turnIncarnation = incarnation
         try {
             if (destroyed) throw CancellationException("ChatPresenter destroyed")
             if (sessionUnavailable || (::chatSession.isInitialized && chatSession is LlmSession &&
@@ -685,7 +701,9 @@ class ChatPresenter(
                 if (persisted.failed) result["agent_persistence_failed"] = true
             }
             withContext(Dispatchers.Main) {
-                if (destroyed) return@withContext
+                // The conversation may have been switched/reset while this turn ran; its result
+                // must not land in the conversation now on screen.
+                if (!isCurrent(turnIncarnation)) return@withContext
                 if (!started) {
                     generateListener.onGenerateStart()
                     additionalListeners.forEach { it.onGenerateStart() }
@@ -765,6 +783,7 @@ class ChatPresenter(
 
     fun destroy() {
         destroyed = true
+        bumpIncarnation()
         stopGenerate()
         val generation = activeGeneration
         val loading = loadJob
@@ -781,8 +800,13 @@ class ChatPresenter(
             generationMutex.withLock {
                 if (::chatSession.isInitialized) {
                     val session = chatSession
-                    if (session === ownedAgentSession || session !is LlmSession ||
-                        !ServerEventManager.getInstance().isServerRunning()) {
+                    // Keep the shared session for the API server only while it is still the one
+                    // this presenter used: a newer chat may already have replaced or rebound the
+                    // runtime session, and releasing here would kill that chat's model.
+                    val takenOver = session !== ownedAgentSession && session is LlmSession &&
+                        ServiceLocator.getLlmRuntimeController().getActiveSession() !== session
+                    if (!takenOver && (session === ownedAgentSession || session !is LlmSession ||
+                        !ServerEventManager.getInstance().isServerRunning())) {
                         releaseOwnedSession(session)
                     }
                 }
@@ -858,6 +882,7 @@ class ChatPresenter(
     }
     
     private fun createNewModelSession(newModelItem: ModelItem, currentChatHistory: List<ChatDataItem>): ChatSession {
+        bumpIncarnation()
         val newModelId = newModelItem.modelId!!
         val newModelName = newModelItem.modelName!!
         if (ModelTypeUtils.isDiffusionModel(newModelName) || ModelTypeUtils.isSanaModel(newModelName)) {
@@ -875,12 +900,14 @@ class ChatPresenter(
             return newSession
         }
         val newConfigPath = ModelUtils.getConfigPathForModel(newModelItem)
+        // Keep the conversation's id: minting a fresh one orphans the DB rows written so far
+        // and drops the per-session agent state on the next restore.
         val result = ServiceLocator.getLlmRuntimeController().ensureSession(
             modelId = newModelId,
             forceReload = true,
             useAppConfig = true,
             configPath = newConfigPath,
-            sessionId = null,
+            sessionId = sessionId,
             historyList = currentChatHistory,
             deferLoad = true,
             owner = sessionOwner

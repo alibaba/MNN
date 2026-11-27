@@ -291,6 +291,35 @@ JNIEXPORT void JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_resetNativ
     });
 }
 
+JNIEXPORT void JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_replaceHistoryNative(
+        JNIEnv* env, jobject thiz, jlong ptr, jobject historyList, jstring contextSummary) {
+    guarded(env, [&] {
+        auto* session = reinterpret_cast<mls::LlmSession*>(ptr);
+        if (!session) return;
+        std::vector<std::string> history;
+        if (historyList) {
+            LocalRef<jclass> cls(env, env->GetObjectClass(historyList));
+            if (!cls.get() || env->ExceptionCheck()) return;
+            jmethodID sizeMethod = env->GetMethodID(cls.get(), "size", "()I");
+            if (!sizeMethod || env->ExceptionCheck()) return;
+            jmethodID getMethod = env->GetMethodID(cls.get(), "get", "(I)Ljava/lang/Object;");
+            if (!getMethod || env->ExceptionCheck()) return;
+            const jint size = env->CallIntMethod(historyList, sizeMethod);
+            if (env->ExceptionCheck()) return;
+            for (jint i = 0; i < size; ++i) {
+                LocalRef<jstring> item(env, static_cast<jstring>(env->CallObjectMethod(historyList, getMethod, i)));
+                if (env->ExceptionCheck()) return;
+                auto text = toStdString(env, item.get());
+                if (env->ExceptionCheck()) return;
+                history.emplace_back(std::move(text));
+            }
+        }
+        const std::string summary = contextSummary ? toStdString(env, contextSummary) : std::string();
+        if (env->ExceptionCheck()) return;
+        session->ReplaceHistory(history, summary);
+    });
+}
+
 JNIEXPORT jboolean JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_setWavformCallbackNative(
         JNIEnv* env, jobject thiz, jlong ptr, jobject listener) {
     return guarded(env, [&]() -> jboolean {

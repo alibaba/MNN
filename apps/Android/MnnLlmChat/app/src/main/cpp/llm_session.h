@@ -109,6 +109,10 @@ public:
 
     void clearHistory(int numToKeep = 1);
 
+    // Rebinds a loaded session to another chat conversation: resets engine KV, then
+    // rebuilds history_ with the same formatting the constructor uses. Runs on a worker.
+    void ReplaceHistory(const std::vector<std::string>& history, const std::string& context_summary);
+
     std::string dumpConfig() const;
 
     // Add getter method for underlying Llm object for benchmarking purposes

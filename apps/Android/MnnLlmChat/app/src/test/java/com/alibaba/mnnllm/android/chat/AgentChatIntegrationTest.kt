@@ -238,6 +238,36 @@ class AgentChatIntegrationTest {
         owner.getDeclaredField(name).apply { isAccessible = true }.set(target, value)
     }
 
+    private fun readIncarnation(p: ChatPresenter): Int =
+        ChatPresenter::class.java.getDeclaredField("incarnation").apply { isAccessible = true }.getInt(p)
+
+    private fun bumpIncarnation(p: ChatPresenter) {
+        ChatPresenter::class.java.getDeclaredMethod("bumpIncarnation").apply { isAccessible = true }.invoke(p)
+    }
+
+    private fun isCurrent(p: ChatPresenter, captured: Int): Boolean =
+        ChatPresenter::class.java.getDeclaredMethod("isCurrent", Int::class.javaPrimitiveType)
+            .apply { isAccessible = true }.invoke(p, captured) as Boolean
+
+    @Test
+    fun capturedIncarnationGoesStaleAfterConversationReplaced() {
+        val presenter = ChatPresenter(presenterActivity(), "Qwen3.5-0.8B", "test")
+        val captured = readIncarnation(presenter)
+        assertTrue("a fresh turn matches the current conversation", isCurrent(presenter, captured))
+        bumpIncarnation(presenter)
+        assertFalse("replacing the conversation must invalidate the captured turn", isCurrent(presenter, captured))
+        assertTrue("a turn captured after the bump is current again", isCurrent(presenter, readIncarnation(presenter)))
+    }
+
+    @Test
+    fun destroyBumpsIncarnationSoAnInFlightTurnIsDropped() {
+        val presenter = ChatPresenter(presenterActivity(), "Qwen3.5-0.8B", "test")
+        val captured = readIncarnation(presenter)
+        presenter.destroy()
+        assertTrue("teardown must advance the incarnation", readIncarnation(presenter) > captured)
+        assertFalse("a turn captured before teardown is no longer current", isCurrent(presenter, captured))
+    }
+
     @Test
     fun realRunnerFeedsToolStatesAndThinkingUi_activityDoesNotWriteAgain() = runTest {
         Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))

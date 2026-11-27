@@ -203,6 +203,23 @@ std::string getR1AssistantString(std::string assistant_content) {
     return trimLeadingWhitespace(assistant_content) + "<|end_of_sentence|>";
 }
 
+// Flat user/assistant strings -> prompt items, shared by the constructor and ReplaceHistory
+// so a rebound conversation is formatted exactly like a freshly loaded one.
+void appendHistoryItems(std::vector<mls::PromptItem>& history, const std::vector<std::string>& items, bool is_r1) {
+    for (size_t i = 0; i < items.size(); i++) {
+        if (is_r1) {
+            if (i % 2 == 0) {
+                history.emplace_back("user", getUserString(items[i].c_str(), true, true));
+            } else {
+                history.emplace_back("assistant", getR1AssistantString(items[i]));
+            }
+        } else {
+            history.emplace_back(i % 2 == 0 ? "user" : "assistant",
+                                 i % 2 == 0 ? items[i] : deleteThinkPart(items[i]));
+        }
+    }
+}
+
 // Process multimodal prompt and convert to MultimodalPrompt structure
 mls::PromptProcessingResult processMultimodalPrompt(const std::string& prompt_text) {
     mls::PromptProcessor processor;
@@ -227,6 +244,26 @@ void LlmSession::Reset() {
     history_.resize(1);
     context_summary_.clear();
     rebuildSystemMessageLocked();
+    prepared_valid_ = false;
+    {
+        std::lock_guard<std::mutex> stats_lock(stats_mutex_);
+        last_stats_ = ResponseStats();
+        last_stats_.context_limit = context_limit_.load();
+    }
+    if (llm_) {
+        llm_->reset();
+    }
+}
+
+void LlmSession::ReplaceHistory(const std::vector<std::string>& history, const std::string& context_summary) {
+    std::lock_guard<std::mutex> lock(session_mutex_);
+    if (!checkEngineStatusLocked()) return;
+    applyPendingConfigLocked();
+    if (!checkEngineStatusLocked()) return;
+    context_summary_ = context::sanitizeUtf8(context_summary);
+    history_.resize(1);
+    rebuildSystemMessageLocked();
+    appendHistoryItems(history_, history, is_r1_);
     prepared_valid_ = false;
     {
         std::lock_guard<std::mutex> stats_lock(stats_mutex_);
@@ -337,21 +374,7 @@ LlmSession::LlmSession(std::string model_path, json config, json extra_config, s
     }
     history_.emplace_back("system",
                           context::systemWithSummary(GetSystemPromptString(system_prompt_, is_r1_), context_summary_));
-    if (!history.empty()) {
-        for (int i = 0; i < history.size(); i++) {
-            if (is_r1_) {
-                if (i % 2 == 0) {
-                    history_.emplace_back("user", getUserString(history[i].c_str(), true, is_r1_));
-                } else {
-                    history_.emplace_back("assistant", getR1AssistantString(history[i]));
-                }
-            } else {
-                history_.emplace_back(i % 2 == 0 ? "user" : "assistant",
-                                      i % 2 == 0 ? history[i] :
-                                      deleteThinkPart(history[i]));
-            }
-        }
-    }
+    appendHistoryItems(history_, history, is_r1_);
 }
 
 bool LlmSession::Load() {

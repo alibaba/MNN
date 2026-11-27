@@ -28,6 +28,7 @@ object DefaultLlmRuntimeController : LlmRuntimeController {
     ): EnsureSessionResult {
         var createdSession: LlmSession? = null
         var previousSession: LlmSession? = null
+        var rebindTarget: LlmSession? = null
         try {
             val session = synchronized(lock) {
                 val current = activeSession
@@ -36,43 +37,55 @@ object DefaultLlmRuntimeController : LlmRuntimeController {
                         activeUseAppConfig, useAppConfig
                     )) {
                     if (owner != null) activeOwner = owner
-                    return EnsureSessionResult(true, current, modelId)
-                }
-                check(current == null || Looper.myLooper() != Looper.getMainLooper()) {
-                    "Model replacement must run off the main thread"
-                }
-                val resolvedConfigPath = configPath ?: if (useAppConfig) {
-                    ModelUtils.getConfigPathForModel(modelId)
+                    if (RuntimeSessionReusePolicy.needsRebind(sessionId, current.sessionId)) {
+                        rebindTarget = current
+                    } else {
+                        return EnsureSessionResult(true, current, modelId)
+                    }
                 } else {
-                    ModelConfig.getDefaultConfigFile(modelId)
-                } ?: return EnsureSessionResult(false, modelId = modelId, reason = "MODEL_CONFIG_NOT_FOUND")
-                val chatSession = ChatService.provide().createSession(
-                    modelId = modelId,
-                    modelName = ModelUtils.getModelName(modelId) ?: modelId,
-                    sessionIdParam = sessionId ?: "service_runtime_${System.currentTimeMillis()}",
-                    historyList = historyList,
-                    configPath = resolvedConfigPath,
-                    useNewConfig = !useAppConfig,
-                    useCustomConfig = useAppConfig
-                )
-                val llmSession = chatSession as? LlmSession
-                if (llmSession == null) {
-                    chatSession.release()
-                    return EnsureSessionResult(false, modelId = modelId, reason = "SESSION_NOT_LLM")
+                    check(current == null || Looper.myLooper() != Looper.getMainLooper()) {
+                        "Model replacement must run off the main thread"
+                    }
                 }
-                createdSession = llmSession
-                llmSession.setKeepHistory(true)
-                previousSession = activeSession
-                activeSession = llmSession
-                activeModelId = modelId
-                activeUseAppConfig = useAppConfig
-                activeOwner = owner
-                llmSession
+                val rebound = rebindTarget
+                if (rebound != null) {
+                    rebound
+                } else {
+                    val resolvedConfigPath = configPath ?: if (useAppConfig) {
+                        ModelUtils.getConfigPathForModel(modelId)
+                    } else {
+                        ModelConfig.getDefaultConfigFile(modelId)
+                    } ?: return EnsureSessionResult(false, modelId = modelId, reason = "MODEL_CONFIG_NOT_FOUND")
+                    val chatSession = ChatService.provide().createSession(
+                        modelId = modelId,
+                        modelName = ModelUtils.getModelName(modelId) ?: modelId,
+                        sessionIdParam = sessionId ?: "service_runtime_${System.currentTimeMillis()}",
+                        historyList = historyList,
+                        configPath = resolvedConfigPath,
+                        useNewConfig = !useAppConfig,
+                        useCustomConfig = useAppConfig
+                    )
+                    val llmSession = chatSession as? LlmSession
+                    if (llmSession == null) {
+                        chatSession.release()
+                        return EnsureSessionResult(false, modelId = modelId, reason = "SESSION_NOT_LLM")
+                    }
+                    createdSession = llmSession
+                    llmSession.setKeepHistory(true)
+                    previousSession = activeSession
+                    activeSession = llmSession
+                    activeModelId = modelId
+                    activeUseAppConfig = useAppConfig
+                    activeOwner = owner
+                    llmSession
+                }
             }
             previousSession?.release()
-            if (!deferLoad) session.load()
+            val rebound = rebindTarget
+            rebound?.rebind(checkNotNull(sessionId), historyList)
+            if (!deferLoad && rebound == null) session.load()
             return synchronized(lock) {
-                if (activeSession !== session || (!deferLoad && !session.isModelLoaded())) {
+                if (activeSession !== session || (!deferLoad && rebound == null && !session.isModelLoaded())) {
                     EnsureSessionResult(false, modelId = modelId, reason = "SESSION_REPLACED")
                 } else {
                     EnsureSessionResult(true, session, modelId)
