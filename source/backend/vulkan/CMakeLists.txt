@@ -12,6 +12,10 @@ if(MNN_GPU_TIME_PROFILE)
     ENDIF()
 ENDIF()
 
+if(MNN_VULKAN_NX_DEBUG)
+    add_definitions(-DMNN_VULKAN_NX_DEBUG)
+endif()
+
 
 include_directories("./")
 if(MNN_USE_SYSTEM_LIB)

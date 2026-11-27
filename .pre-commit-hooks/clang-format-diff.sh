@@ -32,6 +32,10 @@ GENERATED_EXCLUDES=(
     # OpenCL
     ':(exclude)*_mnn_cl.cpp'
     ':(exclude)*/opencl_source_map.hpp'
+    # Vendored Khronos headers and flatbuffers-generated schema headers: both are
+    # maintained outside clang-format (regeneration/updates overwrite any reformat).
+    ':(exclude)*/vulkan/vulkan_core.h'
+    ':(exclude)*/schema/current/*_generated.h'
 )
 
 output=$(git clang-format --diff --staged --extensions cpp,c,h,hpp,cc,m,mm -- "${GENERATED_EXCLUDES[@]}" 2>&1)

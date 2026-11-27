@@ -97,10 +97,12 @@ public:
     const void destroySampler(const VkSampler& sampler, const VkAllocationCallbacks* allocator = nullptr) const;
 
     //  VkPipeline
-    const VkResult createPipelineCache(VkPipelineCache& pipelineCache,
-                                       const VkAllocationCallbacks* allocator = nullptr) const;
+    const VkResult createPipelineCache(VkPipelineCache& pipelineCache, const VkAllocationCallbacks* allocator = nullptr,
+                                       const void* initialData = nullptr, size_t initialDataSize = 0) const;
     const void destroyPipelineCache(const VkPipelineCache& pipelineCache,
                                     const VkAllocationCallbacks* allocator = nullptr) const;
+    const VkResult getPipelineCacheData(const VkPipelineCache& pipelineCache, size_t& dataSize, void* data) const;
+    const VkResult mergePipelineCaches(const VkPipelineCache& dstCache, const VkPipelineCache& srcCache) const;
 
     const VkResult createShaderModule(VkShaderModule& shaderModule, const size_t codeSize, const uint32_t* pCode,
                                       const VkAllocationCallbacks* allocator = nullptr) const;
@@ -197,6 +199,36 @@ public:
         return mInt8Info.supportInt8;
     }
 
+    struct DataGraphInfo {
+        bool supported = false;
+        bool neuralStatistics = false;
+        bool nxInt8Candidate = false;
+        VkPhysicalDeviceTensorPropertiesARM tensorProperties{};
+        PFN_vkGetPhysicalDeviceQueueFamilyDataGraphPropertiesARM getQueueFamilyProperties = nullptr;
+        PFN_vkGetPhysicalDeviceQueueFamilyDataGraphEngineOperationPropertiesARM getEngineOperationProperties = nullptr;
+        PFN_vkGetPhysicalDeviceFormatProperties2 getFormatProperties2 = nullptr;
+        PFN_vkCreateTensorARM createTensor = nullptr;
+        PFN_vkDestroyTensorARM destroyTensor = nullptr;
+        PFN_vkGetTensorMemoryRequirementsARM getTensorMemoryRequirements = nullptr;
+        PFN_vkBindTensorMemoryARM bindTensorMemory = nullptr;
+        PFN_vkCreateTensorViewARM createTensorView = nullptr;
+        PFN_vkDestroyTensorViewARM destroyTensorView = nullptr;
+        PFN_vkCreateDataGraphPipelinesARM createPipelines = nullptr;
+        PFN_vkCreateDataGraphPipelineSessionARM createSession = nullptr;
+        PFN_vkDestroyDataGraphPipelineSessionARM destroySession = nullptr;
+        PFN_vkGetDataGraphPipelineSessionBindPointRequirementsARM getSessionBindPointRequirements = nullptr;
+        PFN_vkGetDataGraphPipelineSessionMemoryRequirementsARM getSessionMemoryRequirements = nullptr;
+        PFN_vkBindDataGraphPipelineSessionMemoryARM bindSessionMemory = nullptr;
+        PFN_vkCmdDispatchDataGraphARM cmdDispatch = nullptr;
+        PFN_vkCmdPipelineBarrier2 cmdPipelineBarrier2 = nullptr;
+    };
+
+    const DataGraphInfo& getDataGraphInfo() const { return mDataGraphInfo; }
+
+    VkPhysicalDevice physicalDevice() const { return mPhysicalDevice; }
+
+    uint32_t queueFamilyIndex() const { return mQueueFamilyIndex; }
+
 private:
     // Set mFP16Info
     void checkFP16(const std::vector<VkExtensionProperties>& availableExts);
@@ -216,6 +248,7 @@ private:
     VkQueue mQueue;
     VkPhysicalDeviceMemoryProperties mMemoryProty;
     SubgroupInfo mSubgroupInfo{};
+    DataGraphInfo mDataGraphInfo{};
     uint32_t mLocalMemorySize = 0;
 
 // FP16 related

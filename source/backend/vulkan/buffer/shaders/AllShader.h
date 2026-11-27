@@ -1,5 +1,13 @@
 #ifndef VK_GLSL_SHADER_AUTO_GENERATE_H
 #define VK_GLSL_SHADER_AUTO_GENERATE_H
+extern const unsigned char glsl_nx_conv1x1_quant_comp[];
+extern unsigned int glsl_nx_conv1x1_quant_comp_len;
+extern const unsigned char glsl_nx_conv1x1_quant_FP16_comp[];
+extern unsigned int glsl_nx_conv1x1_quant_FP16_comp_len;
+extern const unsigned char glsl_nx_conv1x1_epilogue_comp[];
+extern unsigned int glsl_nx_conv1x1_epilogue_comp_len;
+extern const unsigned char glsl_nx_conv1x1_epilogue_FP16_comp[];
+extern unsigned int glsl_nx_conv1x1_epilogue_FP16_comp_len;
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 extern const unsigned char glsl_indexed_linear_route_comp[];
 extern unsigned int glsl_indexed_linear_route_comp_len;

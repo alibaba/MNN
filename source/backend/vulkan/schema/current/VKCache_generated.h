@@ -189,6 +189,7 @@ flatbuffers::Offset<TuneInfo> CreateTuneInfo(flatbuffers::FlatBufferBuilder &_fb
 struct TuneInfoCacheT : public flatbuffers::NativeTable {
   typedef TuneInfoCache TableType;
   std::vector<std::unique_ptr<TuneInfoT>> TuneInfos;
+  std::vector<uint8_t> PipelineCache;
   TuneInfoCacheT() {
   }
 };
@@ -201,11 +202,16 @@ struct TuneInfoCache FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const flatbuffers::Vector<flatbuffers::Offset<TuneInfo>> *TuneInfos() const {
     return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<TuneInfo>> *>(4);
   }
+  const flatbuffers::Vector<uint8_t> *PipelineCache() const {
+    return GetPointer<const flatbuffers::Vector<uint8_t> *>(6);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffset(verifier, 4) &&
            verifier.VerifyVector(TuneInfos()) &&
            verifier.VerifyVectorOfTables(TuneInfos()) &&
+           VerifyOffset(verifier, 6) &&
+           verifier.VerifyVector(PipelineCache()) &&
            verifier.EndTable();
   }
   TuneInfoCacheT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -218,6 +224,9 @@ struct TuneInfoCacheBuilder {
   flatbuffers::uoffset_t start_;
   void add_TuneInfos(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<TuneInfo>>> TuneInfos) {
     fbb_.AddOffset(4, TuneInfos);
+  }
+  void add_PipelineCache(flatbuffers::Offset<flatbuffers::Vector<uint8_t>> PipelineCache) {
+    fbb_.AddOffset(6, PipelineCache);
   }
   explicit TuneInfoCacheBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -233,8 +242,10 @@ struct TuneInfoCacheBuilder {
 
 inline flatbuffers::Offset<TuneInfoCache> CreateTuneInfoCache(
     flatbuffers::FlatBufferBuilder &_fbb,
-    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<TuneInfo>>> TuneInfos = 0) {
+    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<TuneInfo>>> TuneInfos = 0,
+    flatbuffers::Offset<flatbuffers::Vector<uint8_t>> PipelineCache = 0) {
   TuneInfoCacheBuilder builder_(_fbb);
+  builder_.add_PipelineCache(PipelineCache);
   builder_.add_TuneInfos(TuneInfos);
   return builder_.Finish();
 }
@@ -318,6 +329,7 @@ inline void TuneInfoCache::UnPackTo(TuneInfoCacheT *_o, const flatbuffers::resol
   (void)_o;
   (void)_resolver;
   { auto _e = TuneInfos(); if (_e) { _o->TuneInfos.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->TuneInfos[_i] = std::unique_ptr<TuneInfoT>(_e->Get(_i)->UnPack(_resolver)); } } };
+  { auto _e = PipelineCache(); if (_e) { _o->PipelineCache.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->PipelineCache[_i] = _e->Get(_i); } } };
 }
 
 inline flatbuffers::Offset<TuneInfoCache> TuneInfoCache::Pack(flatbuffers::FlatBufferBuilder &_fbb, const TuneInfoCacheT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -329,9 +341,11 @@ inline flatbuffers::Offset<TuneInfoCache> CreateTuneInfoCache(flatbuffers::FlatB
   (void)_o;
   struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const TuneInfoCacheT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
   auto _TuneInfos = _o->TuneInfos.size() ? _fbb.CreateVector<flatbuffers::Offset<TuneInfo>> (_o->TuneInfos.size(), [](size_t i, _VectorArgs *__va) { return CreateTuneInfo(*__va->__fbb, __va->__o->TuneInfos[i].get(), __va->__rehasher); }, &_va ) : 0;
+  auto _PipelineCache = _o->PipelineCache.size() ? _fbb.CreateVector(_o->PipelineCache) : 0;
   return VKCache::CreateTuneInfoCache(
       _fbb,
-      _TuneInfos);
+      _TuneInfos,
+      _PipelineCache);
 }
 
 inline const flatbuffers::TypeTable *WorkSizeTypeTable() {
@@ -375,16 +389,18 @@ inline const flatbuffers::TypeTable *TuneInfoTypeTable() {
 
 inline const flatbuffers::TypeTable *TuneInfoCacheTypeTable() {
   static const flatbuffers::TypeCode type_codes[] = {
-    { flatbuffers::ET_SEQUENCE, 1, 0 }
+    { flatbuffers::ET_SEQUENCE, 1, 0 },
+    { flatbuffers::ET_UCHAR, 1, -1 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     TuneInfoTypeTable
   };
   static const char * const names[] = {
-    "TuneInfos"
+    "TuneInfos",
+    "PipelineCache"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 1, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 2, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

@@ -85,7 +85,7 @@ private:
 };
 
 inline VulkanTimeProfiler::VulkanTimeProfiler(const VulkanDevice& device) : mDevice(device) {
-    uint32_t tryCapacity = 4096;
+    uint32_t tryCapacity = 16384;
     while (tryCapacity >= 2) {
         VkQueryPoolCreateInfo queryPoolCreateInfo = {};
         queryPoolCreateInfo.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;

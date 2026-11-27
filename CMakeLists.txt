@@ -269,6 +269,7 @@ option(MNN_METAL_OP_PROFILE "Enable per-op GPU time profiling for the Metal back
 option(MNN_OPENCL "Enable OpenCL" OFF)
 option(MNN_OPENGL "Enable OpenGL" OFF)
 option(MNN_VULKAN "Enable Vulkan" OFF)
+option(MNN_VULKAN_NX_DEBUG "Print the Vulkan Arm NX matmul routing and setup traces" OFF)
 option(MNN_ARM82 "Enable ARMv8.2's FP16 Compute" ON)
 option(MNN_SUPPORT_FP16_ARMV7 "Enable ARMv8.2's FP16 Compute for armv7 arch, may cause library not valid for 32 bit cpu" OFF)
 option(MNN_KLEIDIAI "Enable KLEIDIAI" OFF)

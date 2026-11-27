@@ -1580,6 +1580,10 @@ typedef enum VkStructureType {
     VK_STRUCTURE_TYPE_PUSH_CONSTANTS_INFO_KHR = VK_STRUCTURE_TYPE_PUSH_CONSTANTS_INFO,
     VK_STRUCTURE_TYPE_PUSH_DESCRIPTOR_SET_INFO_KHR = VK_STRUCTURE_TYPE_PUSH_DESCRIPTOR_SET_INFO,
     VK_STRUCTURE_TYPE_PUSH_DESCRIPTOR_SET_WITH_TEMPLATE_INFO_KHR = VK_STRUCTURE_TYPE_PUSH_DESCRIPTOR_SET_WITH_TEMPLATE_INFO,
+    VK_STRUCTURE_TYPE_QUEUE_FAMILY_DATA_GRAPH_TOSA_PROPERTIES_ARM = 1000508000,
+    VK_STRUCTURE_TYPE_DATA_GRAPH_PIPELINE_NEURAL_STATISTICS_CREATE_INFO_ARM = 1000676000,
+    VK_STRUCTURE_TYPE_DATA_GRAPH_PIPELINE_SESSION_NEURAL_STATISTICS_CREATE_INFO_ARM = 1000676001,
+    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DATA_GRAPH_NEURAL_ACCELERATOR_STATISTICS_FEATURES_ARM = 1000676002,
     VK_STRUCTURE_TYPE_MAX_ENUM = 0x7FFFFFFF
 } VkStructureType;
 
@@ -1632,6 +1636,7 @@ typedef enum VkImageLayout {
     VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL_KHR = VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL,
     VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL_KHR = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
     VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL_KHR = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
+    VK_IMAGE_LAYOUT_TENSOR_ALIASING_ARM = 1000460000,
     VK_IMAGE_LAYOUT_MAX_ENUM = 0x7FFFFFFF
 } VkImageLayout;
 
@@ -1689,6 +1694,9 @@ typedef enum VkObjectType {
     VK_OBJECT_TYPE_DESCRIPTOR_UPDATE_TEMPLATE_KHR = VK_OBJECT_TYPE_DESCRIPTOR_UPDATE_TEMPLATE,
     VK_OBJECT_TYPE_SAMPLER_YCBCR_CONVERSION_KHR = VK_OBJECT_TYPE_SAMPLER_YCBCR_CONVERSION,
     VK_OBJECT_TYPE_PRIVATE_DATA_SLOT_EXT = VK_OBJECT_TYPE_PRIVATE_DATA_SLOT,
+    VK_OBJECT_TYPE_TENSOR_ARM = 1000460000,
+    VK_OBJECT_TYPE_TENSOR_VIEW_ARM = 1000460001,
+    VK_OBJECT_TYPE_DATA_GRAPH_PIPELINE_SESSION_ARM = 1000507000,
     VK_OBJECT_TYPE_MAX_ENUM = 0x7FFFFFFF
 } VkObjectType;
 
@@ -2023,6 +2031,7 @@ typedef enum VkFormat {
     VK_FORMAT_G16_B16R16_2PLANE_444_UNORM_EXT = VK_FORMAT_G16_B16R16_2PLANE_444_UNORM,
     VK_FORMAT_A4R4G4B4_UNORM_PACK16_EXT = VK_FORMAT_A4R4G4B4_UNORM_PACK16,
     VK_FORMAT_A4B4G4R4_UNORM_PACK16_EXT = VK_FORMAT_A4B4G4R4_UNORM_PACK16,
+    VK_FORMAT_R8_BOOL_ARM = 1000460000,
     VK_FORMAT_MAX_ENUM = 0x7FFFFFFF
 } VkFormat;
 
@@ -2362,6 +2371,7 @@ typedef enum VkDescriptorType {
     VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_NV = 1000165000,
     VK_DESCRIPTOR_TYPE_MUTABLE_VALVE = 1000351000,
     VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT = VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK,
+    VK_DESCRIPTOR_TYPE_TENSOR_ARM = 1000460000,
     VK_DESCRIPTOR_TYPE_MAX_ENUM = 0x7FFFFFFF
 } VkDescriptorType;
 
@@ -2389,6 +2399,7 @@ typedef enum VkPipelineBindPoint {
     VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR = 1000165000,
     VK_PIPELINE_BIND_POINT_SUBPASS_SHADING_HUAWEI = 1000369003,
     VK_PIPELINE_BIND_POINT_RAY_TRACING_NV = VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
+    VK_PIPELINE_BIND_POINT_DATA_GRAPH_ARM = 1000507000,
     VK_PIPELINE_BIND_POINT_MAX_ENUM = 0x7FFFFFFF
 } VkPipelineBindPoint;
 
@@ -2602,6 +2613,7 @@ typedef enum VkImageUsageFlagBits {
 #endif
     VK_IMAGE_USAGE_INVOCATION_MASK_BIT_HUAWEI = 0x00040000,
     VK_IMAGE_USAGE_SHADING_RATE_IMAGE_BIT_NV = VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR,
+    VK_IMAGE_USAGE_TENSOR_ALIASING_BIT_ARM = 0x00800000,
     VK_IMAGE_USAGE_FLAG_BITS_MAX_ENUM = 0x7FFFFFFF
 } VkImageUsageFlagBits;
 typedef VkFlags VkImageUsageFlags;
@@ -2641,6 +2653,7 @@ typedef enum VkQueueFlagBits {
 #ifdef VK_ENABLE_BETA_EXTENSIONS
     VK_QUEUE_VIDEO_ENCODE_BIT_KHR = 0x00000040,
 #endif
+    VK_QUEUE_DATA_GRAPH_BIT_ARM = 0x00000400,
     VK_QUEUE_FLAG_BITS_MAX_ENUM = 0x7FFFFFFF
 } VkQueueFlagBits;
 typedef VkFlags VkQueueFlags;
@@ -14862,6 +14875,465 @@ typedef struct VkPhysicalDeviceRayQueryFeaturesKHR {
     VkBool32           rayQuery;
 } VkPhysicalDeviceRayQueryFeaturesKHR;
 
+
+#define VK_KHR_maintenance5 1
+#define VK_KHR_MAINTENANCE_5_SPEC_VERSION 1
+#define VK_KHR_MAINTENANCE_5_EXTENSION_NAME "VK_KHR_maintenance5"
+typedef VkFlags64 VkPipelineCreateFlags2;
+typedef VkPipelineCreateFlags2 VkPipelineCreateFlags2KHR;
+typedef VkFlags64 VkPipelineCreateFlagBits2;
+typedef VkPipelineCreateFlagBits2 VkPipelineCreateFlagBits2KHR;
+
+typedef struct VkPhysicalDeviceMaintenance5Features {
+    VkStructureType sType;
+    void* pNext;
+    VkBool32 maintenance5;
+} VkPhysicalDeviceMaintenance5Features;
+typedef VkPhysicalDeviceMaintenance5Features VkPhysicalDeviceMaintenance5FeaturesKHR;
+
+typedef struct VkPipelineCreateFlags2CreateInfo {
+    VkStructureType sType;
+    const void* pNext;
+    VkPipelineCreateFlags2 flags;
+} VkPipelineCreateFlags2CreateInfo;
+typedef VkPipelineCreateFlags2CreateInfo VkPipelineCreateFlags2CreateInfoKHR;
+
+#define VK_ARM_tensors 1
+#define VK_ARM_TENSORS_SPEC_VERSION 2
+#define VK_ARM_TENSORS_EXTENSION_NAME "VK_ARM_tensors"
+VK_DEFINE_NON_DISPATCHABLE_HANDLE(VkTensorARM)
+VK_DEFINE_NON_DISPATCHABLE_HANDLE(VkTensorViewARM)
+
+typedef enum VkTensorTilingARM {
+    VK_TENSOR_TILING_OPTIMAL_ARM = 0,
+    VK_TENSOR_TILING_LINEAR_ARM = 1,
+    VK_TENSOR_TILING_MAX_ENUM_ARM = 0x7FFFFFFF
+} VkTensorTilingARM;
+
+typedef VkFlags64 VkTensorCreateFlagsARM;
+typedef VkFlags64 VkTensorCreateFlagBitsARM;
+static const VkTensorCreateFlagBitsARM VK_TENSOR_CREATE_MUTABLE_FORMAT_BIT_ARM = 0x00000001ULL;
+static const VkTensorCreateFlagBitsARM VK_TENSOR_CREATE_PROTECTED_BIT_ARM = 0x00000002ULL;
+typedef VkFlags64 VkTensorViewCreateFlagsARM;
+typedef VkFlags64 VkTensorViewCreateFlagBitsARM;
+typedef VkFlags64 VkTensorUsageFlagsARM;
+typedef VkFlags64 VkTensorUsageFlagBitsARM;
+static const VkTensorUsageFlagBitsARM VK_TENSOR_USAGE_SHADER_BIT_ARM = 0x00000002ULL;
+static const VkTensorUsageFlagBitsARM VK_TENSOR_USAGE_TRANSFER_SRC_BIT_ARM = 0x00000004ULL;
+static const VkTensorUsageFlagBitsARM VK_TENSOR_USAGE_TRANSFER_DST_BIT_ARM = 0x00000008ULL;
+static const VkTensorUsageFlagBitsARM VK_TENSOR_USAGE_IMAGE_ALIASING_BIT_ARM = 0x00000010ULL;
+static const VkTensorUsageFlagBitsARM VK_TENSOR_USAGE_DATA_GRAPH_BIT_ARM = 0x00000020ULL;
+static const VkFormatFeatureFlagBits2 VK_FORMAT_FEATURE_2_TENSOR_SHADER_BIT_ARM = 0x8000000000ULL;
+static const VkFormatFeatureFlagBits2 VK_FORMAT_FEATURE_2_TENSOR_IMAGE_ALIASING_BIT_ARM = 0x80000000000ULL;
+static const VkFormatFeatureFlagBits2 VK_FORMAT_FEATURE_2_TENSOR_DATA_GRAPH_BIT_ARM = 0x1000000000000ULL;
+
+typedef struct VkTensorDescriptionARM {
+    VkStructureType sType;
+    const void* pNext;
+    VkTensorTilingARM tiling;
+    VkFormat format;
+    uint32_t dimensionCount;
+    const int64_t* pDimensions;
+    const int64_t* pStrides;
+    VkTensorUsageFlagsARM usage;
+} VkTensorDescriptionARM;
+
+typedef struct VkTensorCreateInfoARM {
+    VkStructureType sType;
+    const void* pNext;
+    VkTensorCreateFlagsARM flags;
+    const VkTensorDescriptionARM* pDescription;
+    VkSharingMode sharingMode;
+    uint32_t queueFamilyIndexCount;
+    const uint32_t* pQueueFamilyIndices;
+} VkTensorCreateInfoARM;
+
+typedef struct VkTensorViewCreateInfoARM {
+    VkStructureType sType;
+    const void* pNext;
+    VkTensorViewCreateFlagsARM flags;
+    VkTensorARM tensor;
+    VkFormat format;
+} VkTensorViewCreateInfoARM;
+
+typedef struct VkTensorMemoryRequirementsInfoARM {
+    VkStructureType sType;
+    const void* pNext;
+    VkTensorARM tensor;
+} VkTensorMemoryRequirementsInfoARM;
+
+typedef struct VkBindTensorMemoryInfoARM {
+    VkStructureType sType;
+    const void* pNext;
+    VkTensorARM tensor;
+    VkDeviceMemory memory;
+    VkDeviceSize memoryOffset;
+} VkBindTensorMemoryInfoARM;
+
+typedef struct VkWriteDescriptorSetTensorARM {
+    VkStructureType sType;
+    const void* pNext;
+    uint32_t tensorViewCount;
+    const VkTensorViewARM* pTensorViews;
+} VkWriteDescriptorSetTensorARM;
+
+typedef struct VkTensorFormatPropertiesARM {
+    VkStructureType sType;
+    void* pNext;
+    VkFormatFeatureFlags2 optimalTilingTensorFeatures;
+    VkFormatFeatureFlags2 linearTilingTensorFeatures;
+} VkTensorFormatPropertiesARM;
+
+typedef struct VkPhysicalDeviceTensorPropertiesARM {
+    VkStructureType sType;
+    void* pNext;
+    uint32_t maxTensorDimensionCount;
+    uint64_t maxTensorElements;
+    uint64_t maxPerDimensionTensorElements;
+    int64_t maxTensorStride;
+    uint64_t maxTensorSize;
+    uint32_t maxTensorShaderAccessArrayLength;
+    uint32_t maxTensorShaderAccessSize;
+    uint32_t maxDescriptorSetStorageTensors;
+    uint32_t maxPerStageDescriptorSetStorageTensors;
+    uint32_t maxDescriptorSetUpdateAfterBindStorageTensors;
+    uint32_t maxPerStageDescriptorUpdateAfterBindStorageTensors;
+    VkBool32 shaderStorageTensorArrayNonUniformIndexingNative;
+    VkShaderStageFlags shaderTensorSupportedStages;
+} VkPhysicalDeviceTensorPropertiesARM;
+
+typedef struct VkTensorMemoryBarrierARM {
+    VkStructureType sType;
+    const void* pNext;
+    VkPipelineStageFlags2 srcStageMask;
+    VkAccessFlags2 srcAccessMask;
+    VkPipelineStageFlags2 dstStageMask;
+    VkAccessFlags2 dstAccessMask;
+    uint32_t srcQueueFamilyIndex;
+    uint32_t dstQueueFamilyIndex;
+    VkTensorARM tensor;
+} VkTensorMemoryBarrierARM;
+
+typedef struct VkTensorDependencyInfoARM {
+    VkStructureType sType;
+    const void* pNext;
+    uint32_t tensorMemoryBarrierCount;
+    const VkTensorMemoryBarrierARM* pTensorMemoryBarriers;
+} VkTensorDependencyInfoARM;
+
+typedef struct VkPhysicalDeviceTensorFeaturesARM {
+    VkStructureType sType;
+    void* pNext;
+    VkBool32 tensorNonPacked;
+    VkBool32 shaderTensorAccess;
+    VkBool32 shaderStorageTensorArrayDynamicIndexing;
+    VkBool32 shaderStorageTensorArrayNonUniformIndexing;
+    VkBool32 descriptorBindingStorageTensorUpdateAfterBind;
+    VkBool32 tensors;
+} VkPhysicalDeviceTensorFeaturesARM;
+
+typedef struct VkDeviceTensorMemoryRequirementsARM {
+    VkStructureType sType;
+    const void* pNext;
+    const VkTensorCreateInfoARM* pCreateInfo;
+} VkDeviceTensorMemoryRequirementsARM;
+
+typedef struct VkTensorCopyARM {
+    VkStructureType sType;
+    const void* pNext;
+    uint32_t dimensionCount;
+    const uint64_t* pSrcOffset;
+    const uint64_t* pDstOffset;
+    const uint64_t* pExtent;
+} VkTensorCopyARM;
+
+typedef struct VkCopyTensorInfoARM {
+    VkStructureType sType;
+    const void* pNext;
+    VkTensorARM srcTensor;
+    VkTensorARM dstTensor;
+    uint32_t regionCount;
+    const VkTensorCopyARM* pRegions;
+} VkCopyTensorInfoARM;
+
+typedef struct VkMemoryDedicatedAllocateInfoTensorARM {
+    VkStructureType sType;
+    const void* pNext;
+    VkTensorARM tensor;
+} VkMemoryDedicatedAllocateInfoTensorARM;
+
+typedef VkResult (VKAPI_PTR *PFN_vkCreateTensorARM)(VkDevice device, const VkTensorCreateInfoARM* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkTensorARM* pTensor);
+typedef void (VKAPI_PTR *PFN_vkDestroyTensorARM)(VkDevice device, VkTensorARM tensor, const VkAllocationCallbacks* pAllocator);
+typedef VkResult (VKAPI_PTR *PFN_vkCreateTensorViewARM)(VkDevice device, const VkTensorViewCreateInfoARM* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkTensorViewARM* pView);
+typedef void (VKAPI_PTR *PFN_vkDestroyTensorViewARM)(VkDevice device, VkTensorViewARM tensorView, const VkAllocationCallbacks* pAllocator);
+typedef void (VKAPI_PTR *PFN_vkGetTensorMemoryRequirementsARM)(VkDevice device, const VkTensorMemoryRequirementsInfoARM* pInfo, VkMemoryRequirements2* pMemoryRequirements);
+typedef VkResult (VKAPI_PTR *PFN_vkBindTensorMemoryARM)(VkDevice device, uint32_t bindInfoCount, const VkBindTensorMemoryInfoARM* pBindInfos);
+typedef void (VKAPI_PTR *PFN_vkGetDeviceTensorMemoryRequirementsARM)(VkDevice device, const VkDeviceTensorMemoryRequirementsARM* pInfo, VkMemoryRequirements2* pMemoryRequirements);
+typedef void (VKAPI_PTR *PFN_vkCmdCopyTensorARM)(VkCommandBuffer commandBuffer, const VkCopyTensorInfoARM* pCopyTensorInfo);
+
+#define VK_ARM_data_graph 1
+#define VK_ARM_DATA_GRAPH_SPEC_VERSION 1
+#define VK_ARM_DATA_GRAPH_EXTENSION_NAME "VK_ARM_data_graph"
+#define VK_MAX_PHYSICAL_DEVICE_DATA_GRAPH_OPERATION_SET_NAME_SIZE_ARM 128U
+VK_DEFINE_NON_DISPATCHABLE_HANDLE(VkDataGraphPipelineSessionARM)
+
+static const VkPipelineStageFlagBits2 VK_PIPELINE_STAGE_2_DATA_GRAPH_BIT_ARM = 0x40000000000ULL;
+static const VkAccessFlagBits2 VK_ACCESS_2_DATA_GRAPH_READ_BIT_ARM = 0x800000000000ULL;
+static const VkAccessFlagBits2 VK_ACCESS_2_DATA_GRAPH_WRITE_BIT_ARM = 0x1000000000000ULL;
+
+typedef enum VkDataGraphPipelineSessionBindPointARM {
+    VK_DATA_GRAPH_PIPELINE_SESSION_BIND_POINT_TRANSIENT_ARM = 0,
+    VK_DATA_GRAPH_PIPELINE_SESSION_BIND_POINT_NEURAL_ACCELERATOR_STATISTICS_ARM = 1000676000,
+    VK_DATA_GRAPH_PIPELINE_SESSION_BIND_POINT_MAX_ENUM_ARM = 0x7FFFFFFF
+} VkDataGraphPipelineSessionBindPointARM;
+
+typedef enum VkDataGraphPipelineSessionBindPointTypeARM {
+    VK_DATA_GRAPH_PIPELINE_SESSION_BIND_POINT_TYPE_MEMORY_ARM = 0,
+    VK_DATA_GRAPH_PIPELINE_SESSION_BIND_POINT_TYPE_MAX_ENUM_ARM = 0x7FFFFFFF
+} VkDataGraphPipelineSessionBindPointTypeARM;
+
+typedef enum VkDataGraphPipelinePropertyARM {
+    VK_DATA_GRAPH_PIPELINE_PROPERTY_CREATION_LOG_ARM = 0,
+    VK_DATA_GRAPH_PIPELINE_PROPERTY_IDENTIFIER_ARM = 1,
+    VK_DATA_GRAPH_PIPELINE_PROPERTY_NEURAL_ACCELERATOR_DEBUG_DATABASE_ARM = 1000676000,
+    VK_DATA_GRAPH_PIPELINE_PROPERTY_NEURAL_ACCELERATOR_STATISTICS_INFO_ARM = 1000676001,
+    VK_DATA_GRAPH_PIPELINE_PROPERTY_MAX_ENUM_ARM = 0x7FFFFFFF
+} VkDataGraphPipelinePropertyARM;
+
+typedef enum VkPhysicalDeviceDataGraphProcessingEngineTypeARM {
+    VK_PHYSICAL_DEVICE_DATA_GRAPH_PROCESSING_ENGINE_TYPE_DEFAULT_ARM = 0,
+    VK_PHYSICAL_DEVICE_DATA_GRAPH_PROCESSING_ENGINE_TYPE_MAX_ENUM_ARM = 0x7FFFFFFF
+} VkPhysicalDeviceDataGraphProcessingEngineTypeARM;
+
+typedef enum VkPhysicalDeviceDataGraphOperationTypeARM {
+    VK_PHYSICAL_DEVICE_DATA_GRAPH_OPERATION_TYPE_SPIRV_EXTENDED_INSTRUCTION_SET_ARM = 0,
+    VK_PHYSICAL_DEVICE_DATA_GRAPH_OPERATION_TYPE_MAX_ENUM_ARM = 0x7FFFFFFF
+} VkPhysicalDeviceDataGraphOperationTypeARM;
+
+typedef VkFlags64 VkDataGraphPipelineSessionCreateFlagsARM;
+typedef VkFlags64 VkDataGraphPipelineSessionCreateFlagBitsARM;
+static const VkDataGraphPipelineSessionCreateFlagBitsARM VK_DATA_GRAPH_PIPELINE_SESSION_CREATE_PROTECTED_BIT_ARM = 0x00000001ULL;
+typedef VkFlags64 VkDataGraphPipelineDispatchFlagsARM;
+typedef VkFlags64 VkDataGraphPipelineDispatchFlagBitsARM;
+
+typedef struct VkPhysicalDeviceDataGraphFeaturesARM {
+    VkStructureType sType;
+    void* pNext;
+    VkBool32 dataGraph;
+    VkBool32 dataGraphUpdateAfterBind;
+    VkBool32 dataGraphSpecializationConstants;
+    VkBool32 dataGraphDescriptorBuffer;
+    VkBool32 dataGraphShaderModule;
+} VkPhysicalDeviceDataGraphFeaturesARM;
+
+typedef struct VkDataGraphPipelineConstantARM {
+    VkStructureType sType;
+    const void* pNext;
+    uint32_t id;
+    const void* pConstantData;
+} VkDataGraphPipelineConstantARM;
+
+typedef struct VkDataGraphPipelineResourceInfoARM {
+    VkStructureType sType;
+    const void* pNext;
+    uint32_t descriptorSet;
+    uint32_t binding;
+    uint32_t arrayElement;
+} VkDataGraphPipelineResourceInfoARM;
+
+typedef struct VkDataGraphPipelineCompilerControlCreateInfoARM {
+    VkStructureType sType;
+    const void* pNext;
+    const char* pVendorOptions;
+} VkDataGraphPipelineCompilerControlCreateInfoARM;
+
+typedef struct VkDataGraphPipelineCreateInfoARM {
+    VkStructureType sType;
+    const void* pNext;
+    VkPipelineCreateFlags2 flags;
+    VkPipelineLayout layout;
+    uint32_t resourceInfoCount;
+    const VkDataGraphPipelineResourceInfoARM* pResourceInfos;
+} VkDataGraphPipelineCreateInfoARM;
+
+typedef struct VkDataGraphPipelineShaderModuleCreateInfoARM {
+    VkStructureType sType;
+    const void* pNext;
+    VkShaderModule module;
+    const char* pName;
+    const VkSpecializationInfo* pSpecializationInfo;
+    uint32_t constantCount;
+    const VkDataGraphPipelineConstantARM* pConstants;
+} VkDataGraphPipelineShaderModuleCreateInfoARM;
+
+typedef struct VkDataGraphPipelineSessionCreateInfoARM {
+    VkStructureType sType;
+    const void* pNext;
+    VkDataGraphPipelineSessionCreateFlagsARM flags;
+    VkPipeline dataGraphPipeline;
+} VkDataGraphPipelineSessionCreateInfoARM;
+
+typedef struct VkDataGraphPipelineSessionBindPointRequirementsInfoARM {
+    VkStructureType sType;
+    const void* pNext;
+    VkDataGraphPipelineSessionARM session;
+} VkDataGraphPipelineSessionBindPointRequirementsInfoARM;
+
+typedef struct VkDataGraphPipelineSessionBindPointRequirementARM {
+    VkStructureType sType;
+    void* pNext;
+    VkDataGraphPipelineSessionBindPointARM bindPoint;
+    VkDataGraphPipelineSessionBindPointTypeARM bindPointType;
+    uint32_t numObjects;
+} VkDataGraphPipelineSessionBindPointRequirementARM;
+
+typedef struct VkDataGraphPipelineSessionMemoryRequirementsInfoARM {
+    VkStructureType sType;
+    const void* pNext;
+    VkDataGraphPipelineSessionARM session;
+    VkDataGraphPipelineSessionBindPointARM bindPoint;
+    uint32_t objectIndex;
+} VkDataGraphPipelineSessionMemoryRequirementsInfoARM;
+
+typedef struct VkBindDataGraphPipelineSessionMemoryInfoARM {
+    VkStructureType sType;
+    const void* pNext;
+    VkDataGraphPipelineSessionARM session;
+    VkDataGraphPipelineSessionBindPointARM bindPoint;
+    uint32_t objectIndex;
+    VkDeviceMemory memory;
+    VkDeviceSize memoryOffset;
+} VkBindDataGraphPipelineSessionMemoryInfoARM;
+
+typedef struct VkDataGraphPipelineInfoARM {
+    VkStructureType sType;
+    const void* pNext;
+    VkPipeline dataGraphPipeline;
+} VkDataGraphPipelineInfoARM;
+
+typedef struct VkDataGraphPipelinePropertyQueryResultARM {
+    VkStructureType sType;
+    void* pNext;
+    VkDataGraphPipelinePropertyARM property;
+    VkBool32 isText;
+    size_t dataSize;
+    void* pData;
+} VkDataGraphPipelinePropertyQueryResultARM;
+
+typedef struct VkDataGraphPipelineIdentifierCreateInfoARM {
+    VkStructureType sType;
+    const void* pNext;
+    uint32_t identifierSize;
+    const uint8_t* pIdentifier;
+} VkDataGraphPipelineIdentifierCreateInfoARM;
+
+typedef struct VkDataGraphPipelineDispatchInfoARM {
+    VkStructureType sType;
+    void* pNext;
+    VkDataGraphPipelineDispatchFlagsARM flags;
+} VkDataGraphPipelineDispatchInfoARM;
+
+typedef struct VkPhysicalDeviceDataGraphProcessingEngineARM {
+    VkPhysicalDeviceDataGraphProcessingEngineTypeARM type;
+    VkBool32 isForeign;
+} VkPhysicalDeviceDataGraphProcessingEngineARM;
+
+typedef struct VkPhysicalDeviceDataGraphOperationSupportARM {
+    VkPhysicalDeviceDataGraphOperationTypeARM operationType;
+    char name[VK_MAX_PHYSICAL_DEVICE_DATA_GRAPH_OPERATION_SET_NAME_SIZE_ARM];
+    uint32_t version;
+} VkPhysicalDeviceDataGraphOperationSupportARM;
+
+typedef struct VkQueueFamilyDataGraphPropertiesARM {
+    VkStructureType sType;
+    void* pNext;
+    VkPhysicalDeviceDataGraphProcessingEngineARM engine;
+    VkPhysicalDeviceDataGraphOperationSupportARM operation;
+} VkQueueFamilyDataGraphPropertiesARM;
+
+typedef struct VkDataGraphProcessingEngineCreateInfoARM {
+    VkStructureType sType;
+    const void* pNext;
+    uint32_t processingEngineCount;
+    VkPhysicalDeviceDataGraphProcessingEngineARM* pProcessingEngines;
+} VkDataGraphProcessingEngineCreateInfoARM;
+
+typedef VkResult (VKAPI_PTR *PFN_vkCreateDataGraphPipelinesARM)(VkDevice device, VkDeferredOperationKHR deferredOperation, VkPipelineCache pipelineCache, uint32_t createInfoCount, const VkDataGraphPipelineCreateInfoARM* pCreateInfos, const VkAllocationCallbacks* pAllocator, VkPipeline* pPipelines);
+typedef VkResult (VKAPI_PTR *PFN_vkCreateDataGraphPipelineSessionARM)(VkDevice device, const VkDataGraphPipelineSessionCreateInfoARM* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDataGraphPipelineSessionARM* pSession);
+typedef VkResult (VKAPI_PTR *PFN_vkGetDataGraphPipelineSessionBindPointRequirementsARM)(VkDevice device, const VkDataGraphPipelineSessionBindPointRequirementsInfoARM* pInfo, uint32_t* pBindPointRequirementCount, VkDataGraphPipelineSessionBindPointRequirementARM* pBindPointRequirements);
+typedef void (VKAPI_PTR *PFN_vkGetDataGraphPipelineSessionMemoryRequirementsARM)(VkDevice device, const VkDataGraphPipelineSessionMemoryRequirementsInfoARM* pInfo, VkMemoryRequirements2* pMemoryRequirements);
+typedef VkResult (VKAPI_PTR *PFN_vkBindDataGraphPipelineSessionMemoryARM)(VkDevice device, uint32_t bindInfoCount, const VkBindDataGraphPipelineSessionMemoryInfoARM* pBindInfos);
+typedef void (VKAPI_PTR *PFN_vkDestroyDataGraphPipelineSessionARM)(VkDevice device, VkDataGraphPipelineSessionARM session, const VkAllocationCallbacks* pAllocator);
+typedef void (VKAPI_PTR *PFN_vkCmdDispatchDataGraphARM)(VkCommandBuffer commandBuffer, VkDataGraphPipelineSessionARM session, const VkDataGraphPipelineDispatchInfoARM* pInfo);
+typedef VkResult (VKAPI_PTR *PFN_vkGetDataGraphPipelineAvailablePropertiesARM)(VkDevice device, const VkDataGraphPipelineInfoARM* pPipelineInfo, uint32_t* pPropertiesCount, VkDataGraphPipelinePropertyARM* pProperties);
+typedef VkResult (VKAPI_PTR *PFN_vkGetDataGraphPipelinePropertiesARM)(VkDevice device, const VkDataGraphPipelineInfoARM* pPipelineInfo, uint32_t propertiesCount, VkDataGraphPipelinePropertyQueryResultARM* pProperties);
+typedef VkResult (VKAPI_PTR *PFN_vkGetPhysicalDeviceQueueFamilyDataGraphPropertiesARM)(VkPhysicalDevice physicalDevice, uint32_t queueFamilyIndex, uint32_t* pQueueFamilyDataGraphPropertyCount, VkQueueFamilyDataGraphPropertiesARM* pQueueFamilyDataGraphProperties);
+
+#define VK_ARM_data_graph_instruction_set_tosa 1
+#define VK_ARM_DATA_GRAPH_INSTRUCTION_SET_TOSA_SPEC_VERSION 1
+#define VK_ARM_DATA_GRAPH_INSTRUCTION_SET_TOSA_EXTENSION_NAME "VK_ARM_data_graph_instruction_set_tosa"
+#define VK_MAX_DATA_GRAPH_TOSA_NAME_SIZE_ARM 128U
+
+typedef enum VkDataGraphTOSALevelARM {
+    VK_DATA_GRAPH_TOSA_LEVEL_NONE_ARM = 0,
+    VK_DATA_GRAPH_TOSA_LEVEL_8K_ARM = 1,
+    VK_DATA_GRAPH_TOSALEVEL_MAX_ENUM_ARM = 0x7FFFFFFF
+} VkDataGraphTOSALevelARM;
+
+typedef enum VkDataGraphTOSAQualityFlagBitsARM {
+    VK_DATA_GRAPH_TOSA_QUALITY_ACCELERATED_ARM = 0x00000001,
+    VK_DATA_GRAPH_TOSA_QUALITY_CONFORMANT_ARM = 0x00000002,
+    VK_DATA_GRAPH_TOSA_QUALITY_EXPERIMENTAL_ARM = 0x00000004,
+    VK_DATA_GRAPH_TOSA_QUALITY_DEPRECATED_ARM = 0x00000008,
+    VK_DATA_GRAPH_TOSAQUALITY_FLAG_BITS_MAX_ENUM_ARM = 0x7FFFFFFF
+} VkDataGraphTOSAQualityFlagBitsARM;
+typedef VkFlags VkDataGraphTOSAQualityFlagsARM;
+
+typedef struct VkDataGraphTOSANameQualityARM {
+    char name[VK_MAX_DATA_GRAPH_TOSA_NAME_SIZE_ARM];
+    VkDataGraphTOSAQualityFlagsARM qualityFlags;
+} VkDataGraphTOSANameQualityARM;
+
+typedef struct VkQueueFamilyDataGraphTOSAPropertiesARM {
+    VkStructureType sType;
+    void* pNext;
+    uint32_t profileCount;
+    const VkDataGraphTOSANameQualityARM* pProfiles;
+    uint32_t extensionCount;
+    const VkDataGraphTOSANameQualityARM* pExtensions;
+    VkDataGraphTOSALevelARM level;
+} VkQueueFamilyDataGraphTOSAPropertiesARM;
+
+typedef VkResult (VKAPI_PTR *PFN_vkGetPhysicalDeviceQueueFamilyDataGraphEngineOperationPropertiesARM)(VkPhysicalDevice physicalDevice, uint32_t queueFamilyIndex, const VkQueueFamilyDataGraphPropertiesARM* pQueueFamilyDataGraphProperties, VkBaseOutStructure* pProperties);
+
+#define VK_ARM_data_graph_neural_accelerator_statistics 1
+#define VK_ARM_DATA_GRAPH_NEURAL_ACCELERATOR_STATISTICS_SPEC_VERSION 1
+#define VK_ARM_DATA_GRAPH_NEURAL_ACCELERATOR_STATISTICS_EXTENSION_NAME "VK_ARM_data_graph_neural_accelerator_statistics"
+
+typedef enum VkNeuralAcceleratorStatisticsModeARM {
+    VK_NEURAL_ACCELERATOR_STATISTICS_MODE_DISABLED_ARM = 0,
+    VK_NEURAL_ACCELERATOR_STATISTICS_MODE_STATISTICS0_ARM = 1,
+    VK_NEURAL_ACCELERATOR_STATISTICS_MODE_STATISTICS1_ARM = 2,
+    VK_NEURAL_ACCELERATOR_STATISTICS_MODE_MAX_ENUM_ARM = 0x7FFFFFFF
+} VkNeuralAcceleratorStatisticsModeARM;
+
+typedef struct VkPhysicalDeviceDataGraphNeuralAcceleratorStatisticsFeaturesARM {
+    VkStructureType sType;
+    void* pNext;
+    VkBool32 dataGraphNeuralAcceleratorStatistics;
+} VkPhysicalDeviceDataGraphNeuralAcceleratorStatisticsFeaturesARM;
+
+typedef struct VkDataGraphPipelineNeuralStatisticsCreateInfoARM {
+    VkStructureType sType;
+    const void* pNext;
+    VkBool32 allowNeuralStatistics;
+} VkDataGraphPipelineNeuralStatisticsCreateInfoARM;
+
+typedef struct VkDataGraphPipelineSessionNeuralStatisticsCreateInfoARM {
+    VkStructureType sType;
+    const void* pNext;
+    VkNeuralAcceleratorStatisticsModeARM mode;
+} VkDataGraphPipelineSessionNeuralStatisticsCreateInfoARM;
 
 #ifdef __cplusplus
 }

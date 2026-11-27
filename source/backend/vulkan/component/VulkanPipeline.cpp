@@ -18,8 +18,25 @@ VulkanPipelineFactory::~VulkanPipelineFactory() {
 }
 
 void VulkanPipelineFactory::reset() {
-    mCache = nullptr;
-    mCache = new VulkanPipelineCache(mDevice);
+    // Carry compiled pipeline data across the reset, otherwise every garbage collection would
+    // throw away driver-side compilations (including restored ARM data-graph pipelines).
+    std::vector<char> blob;
+    if (mCache.get()) {
+        mCache->serialize(blob);
+    }
+    mCache = new VulkanPipelineCache(mDevice, blob.empty() ? nullptr : blob.data(), blob.size());
+}
+
+void VulkanPipelineFactory::restoreCache(const void* data, size_t size) {
+    if (nullptr == data || 0 == size) {
+        return;
+    }
+    auto restored = new VulkanPipelineCache(mDevice, data, size);
+    if (VK_NULL_HANDLE != restored->get()) {
+        mCache = restored;
+    } else {
+        delete restored;
+    }
 }
 
 SharedPtr<VulkanShaderModule> VulkanPipelineFactory::createShader(const std::string& key) const {
@@ -274,8 +291,46 @@ void VulkanLayout::DescriptorSet::writeImage(VkImageView view, VkSampler sampler
 VulkanPipelineCache::VulkanPipelineCache(const VulkanDevice& dev) : mDevice(dev) {
     CALL_VK(mDevice.createPipelineCache(mCache));
 }
+VulkanPipelineCache::VulkanPipelineCache(const VulkanDevice& dev, const void* initialData, size_t initialSize)
+    : mDevice(dev) {
+    if (VK_SUCCESS != mDevice.createPipelineCache(mCache, nullptr, initialData, initialSize)) {
+        mCache = VK_NULL_HANDLE;
+        CALL_VK(mDevice.createPipelineCache(mCache));
+    }
+}
 VulkanPipelineCache::~VulkanPipelineCache() {
     mDevice.destroyPipelineCache(mCache);
+}
+
+bool VulkanPipelineCache::mergeData(const void* data, size_t size) {
+    if (nullptr == data || 0 == size || VK_NULL_HANDLE == mCache) {
+        return false;
+    }
+    VkPipelineCache source = VK_NULL_HANDLE;
+    if (VK_SUCCESS != mDevice.createPipelineCache(source, nullptr, data, size)) {
+        return false;
+    }
+    const auto result = mDevice.mergePipelineCaches(mCache, source);
+    mDevice.destroyPipelineCache(source);
+    return VK_SUCCESS == result;
+}
+
+bool VulkanPipelineCache::serialize(std::vector<char>& output) const {
+    output.clear();
+    if (VK_NULL_HANDLE == mCache) {
+        return false;
+    }
+    size_t size = 0;
+    if (VK_SUCCESS != mDevice.getPipelineCacheData(mCache, size, nullptr) || 0 == size) {
+        return false;
+    }
+    output.resize(size);
+    if (VK_SUCCESS != mDevice.getPipelineCacheData(mCache, size, output.data())) {
+        output.clear();
+        return false;
+    }
+    output.resize(size);
+    return true;
 }
 
 VulkanLayout::~VulkanLayout() {

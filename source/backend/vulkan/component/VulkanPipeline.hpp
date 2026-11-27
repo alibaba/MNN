@@ -21,10 +21,15 @@ namespace MNN {
 class VulkanPipelineCache : public RefCount {
 public:
     VulkanPipelineCache(const VulkanDevice& dev);
+    VulkanPipelineCache(const VulkanDevice& dev, const void* initialData, size_t initialSize);
     virtual ~VulkanPipelineCache();
     inline VkPipelineCache get() const {
         return mCache;
     }
+    // Merge a previously serialized blob in; the driver ignores data from another version/UUID.
+    bool mergeData(const void* data, size_t size);
+    bool serialize(std::vector<char>& output) const;
+
 private:
     VkPipelineCache mCache;
     const VulkanDevice& mDevice;
@@ -197,6 +202,10 @@ public:
                                           const std::vector<uint32_t>& specConstants = std::vector<uint32_t>()) const;
     SharedPtr<VulkanShaderModule> createShader(const std::string& key) const;
     void reset();
+    // Replace the cache with one created from serialized data; call before any pipeline is created.
+    void restoreCache(const void* data, size_t size);
+    VulkanPipelineCache* pipelineCache() const { return mCache.get(); }
+
 private:
     const VulkanDevice& mDevice;
     mutable std::map<std::string, SharedPtr<VulkanPipeline>> mPipelines;
