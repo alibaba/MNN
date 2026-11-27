@@ -705,4 +705,11 @@
     <string name="benchmark_energy_whole_device_energy">Whole-device energy</string>
     <string name="benchmark_energy_whole_device_power">Whole-device power</string>
     <string name="benchmark_energy_detail_input_tokens">Configured input tokens</string>
+    <string name="delete_model_history_message">Delete the model files? Uncheck the option below to also permanently delete its chat history and attachments.</string>
+    <string name="keep_chat_history">Keep chat history and attachments</string>
+    <string name="history_read_only">Read-only history. Continue chatting only when the original model is available.</string>
+    <string name="history_continue_chat">Continue chat</string>
+    <string name="history_model_unavailable">The original model is unavailable. You can still read this history; restore the model before continuing.</string>
+    <string name="history_attachment_unavailable">[Attachment unavailable]</string>
+    <string name="history_session_unavailable">This conversation is no longer available.</string>
 </resources>
