@@ -45,13 +45,78 @@ static void _run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode, OnnxScope* sc
             keepdims = attributeProto.i();
         }
         if (attributeName == "select_last_index") {
-            // Ignored for now. MNN argmax implementation does not support this yet.
             selectLastIndex = attributeProto.i();
         }
     }
     axisT->axis = axis;
     axisT->topK = 1;
     axisT->outMaxVal = 0;
+    if (selectLastIndex == 1) {
+        // The first extremum in the reversed axis is the last one in the original input.
+        auto addOp = [&](MNN::OpType type, const std::string& suffix, const std::vector<int>& inputs) {
+            std::unique_ptr<MNN::OpT> op(new MNN::OpT);
+            op->name = dstOp->name + suffix;
+            op->type = type;
+            op->inputIndexes = inputs;
+            op->outputIndexes = {scope->declareTensor(op->name)};
+            auto result = op.get();
+            scope->oplists().emplace_back(std::move(op));
+            return result;
+        };
+        auto scalar = [&](int value, const std::string& suffix) {
+            auto op = addOp(MNN::OpType_Const, suffix, {});
+            op->main.type = MNN::OpParameter_Blob;
+            auto blob = new MNN::BlobT;
+            blob->dataType = MNN::DataType_DT_INT32;
+            blob->dataFormat = MNN::MNN_DATA_FORMAT_NCHW;
+            blob->int32s = {value};
+            op->main.value = blob;
+            return op->outputIndexes[0];
+        };
+        auto binary = [&](MNN::BinaryOpOperation operation, int x, int y, const std::string& suffix) {
+            auto op = addOp(MNN::OpType_BinaryOp, suffix, {x, y});
+            op->main.type = MNN::OpParameter_BinaryOp;
+            auto param = new MNN::BinaryOpT;
+            param->opType = operation;
+            param->T = MNN::DataType_DT_INT32;
+            op->main.value = param;
+            return op->outputIndexes[0];
+        };
+        const int input = dstOp->inputIndexes[0];
+        int axisIndex = scalar(axis, "/axis");
+        if (axis < 0) {
+            auto rank = addOp(MNN::OpType_Rank, "/rank", {input});
+            axisIndex = binary(MNN::BinaryOpOperation_ADD, rank->outputIndexes[0], axisIndex, "/positive_axis");
+        }
+        auto reverse = addOp(MNN::OpType_Reverse, "/reverse", {input, axisIndex});
+        auto arg = addOp(dstOp->type, "/reversed_index", reverse->outputIndexes);
+        arg->main.type = MNN::OpParameter_ArgMax;
+        arg->main.value = axisT;
+        auto shape = addOp(MNN::OpType_Shape, "/shape", {input});
+        shape->defaultDimentionFormat = MNN::MNN_DATA_FORMAT_NCHW;
+        auto size = addOp(MNN::OpType_Gather, "/axis_size", {shape->outputIndexes[0], axisIndex});
+        const int one = scalar(1, "/one");
+        const int last = binary(MNN::BinaryOpOperation_SUB, size->outputIndexes[0], one, "/axis_last_index");
+        auto param = new MNN::BinaryOpT;
+        param->opType = MNN::BinaryOpOperation_SUB;
+        param->T = MNN::DataType_DT_INT32;
+        dstOp->type = MNN::OpType_BinaryOp;
+        dstOp->main.type = MNN::OpParameter_BinaryOp;
+        dstOp->main.value = param;
+        dstOp->inputIndexes = {last, arg->outputIndexes[0]};
+        if (keepdims == 1) {
+            auto remap = addOp(dstOp->type, "/last_index", dstOp->inputIndexes);
+            remap->main.type = dstOp->main.type;
+            remap->main.value = param;
+            dstOp->inputIndexes = remap->outputIndexes;
+            dstOp->type = MNN::OpType_Unsqueeze;
+            auto squeeze = new MNN::SqueezeParamT;
+            squeeze->squeezeDims = {axis};
+            dstOp->main.type = MNN::OpParameter_SqueezeParam;
+            dstOp->main.value = squeeze;
+        }
+        return;
+    }
     if (keepdims == 1) {
         std::unique_ptr<MNN::OpT> op(new MNN::OpT);
         op->name = dstOp->name + "/not_keepdim";
