@@ -3321,11 +3321,15 @@ struct RoPEParamT : public flatbuffers::NativeTable {
   int32_t head_dim;
   std::unique_ptr<LayerNormT> q_norm;
   std::unique_ptr<LayerNormT> k_norm;
+  bool interleaved;
+  bool norm_after;
   RoPEParamT()
       : rope_cut_head_dim(0),
         num_head(0),
         kv_num_head(0),
-        head_dim(0) {
+        head_dim(0),
+        interleaved(false),
+        norm_after(false) {
   }
 };
 
@@ -3352,6 +3356,12 @@ struct RoPEParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const LayerNorm *k_norm() const {
     return GetPointer<const LayerNorm *>(14);
   }
+  bool interleaved() const {
+    return GetField<uint8_t>(16, 0) != 0;
+  }
+  bool norm_after() const {
+    return GetField<uint8_t>(18, 0) != 0;
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<int32_t>(verifier, 4) &&
@@ -3362,6 +3372,8 @@ struct RoPEParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            verifier.VerifyTable(q_norm()) &&
            VerifyOffset(verifier, 14) &&
            verifier.VerifyTable(k_norm()) &&
+           VerifyField<uint8_t>(verifier, 16) &&
+           VerifyField<uint8_t>(verifier, 18) &&
            verifier.EndTable();
   }
   RoPEParamT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -3390,6 +3402,12 @@ struct RoPEParamBuilder {
   void add_k_norm(flatbuffers::Offset<LayerNorm> k_norm) {
     fbb_.AddOffset(14, k_norm);
   }
+  void add_interleaved(bool interleaved) {
+    fbb_.AddElement<uint8_t>(16, static_cast<uint8_t>(interleaved), 0);
+  }
+  void add_norm_after(bool norm_after) {
+    fbb_.AddElement<uint8_t>(18, static_cast<uint8_t>(norm_after), 0);
+  }
   explicit RoPEParamBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -3409,7 +3427,9 @@ inline flatbuffers::Offset<RoPEParam> CreateRoPEParam(
     int32_t kv_num_head = 0,
     int32_t head_dim = 0,
     flatbuffers::Offset<LayerNorm> q_norm = 0,
-    flatbuffers::Offset<LayerNorm> k_norm = 0) {
+    flatbuffers::Offset<LayerNorm> k_norm = 0,
+    bool interleaved = false,
+    bool norm_after = false) {
   RoPEParamBuilder builder_(_fbb);
   builder_.add_k_norm(k_norm);
   builder_.add_q_norm(q_norm);
@@ -3417,6 +3437,8 @@ inline flatbuffers::Offset<RoPEParam> CreateRoPEParam(
   builder_.add_kv_num_head(kv_num_head);
   builder_.add_num_head(num_head);
   builder_.add_rope_cut_head_dim(rope_cut_head_dim);
+  builder_.add_norm_after(norm_after);
+  builder_.add_interleaved(interleaved);
   return builder_.Finish();
 }
 
@@ -3427,9 +3449,15 @@ struct IndexedLinearParamT : public flatbuffers::NativeTable {
   std::vector<std::unique_ptr<Convolution2DT>> linears;
   int32_t inputMode;
   int32_t fusedActivation;
+  int32_t routeWeight;
+  float routeEps;
+  float routeScale;
   IndexedLinearParamT()
       : inputMode(0),
-        fusedActivation(-1) {
+        fusedActivation(-1),
+        routeWeight(0),
+        routeEps(0.0f),
+        routeScale(1.0f) {
   }
 };
 
@@ -3447,6 +3475,15 @@ struct IndexedLinearParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   int32_t fusedActivation() const {
     return GetField<int32_t>(8, -1);
   }
+  int32_t routeWeight() const {
+    return GetField<int32_t>(10, 0);
+  }
+  float routeEps() const {
+    return GetField<float>(12, 0.0f);
+  }
+  float routeScale() const {
+    return GetField<float>(14, 1.0f);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffset(verifier, 4) &&
@@ -3454,6 +3491,9 @@ struct IndexedLinearParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            verifier.VerifyVectorOfTables(linears()) &&
            VerifyField<int32_t>(verifier, 6) &&
            VerifyField<int32_t>(verifier, 8) &&
+           VerifyField<int32_t>(verifier, 10) &&
+           VerifyField<float>(verifier, 12) &&
+           VerifyField<float>(verifier, 14) &&
            verifier.EndTable();
   }
   IndexedLinearParamT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -3473,6 +3513,15 @@ struct IndexedLinearParamBuilder {
   void add_fusedActivation(int32_t fusedActivation) {
     fbb_.AddElement<int32_t>(8, fusedActivation, -1);
   }
+  void add_routeWeight(int32_t routeWeight) {
+    fbb_.AddElement<int32_t>(10, routeWeight, 0);
+  }
+  void add_routeEps(float routeEps) {
+    fbb_.AddElement<float>(12, routeEps, 0.0f);
+  }
+  void add_routeScale(float routeScale) {
+    fbb_.AddElement<float>(14, routeScale, 1.0f);
+  }
   explicit IndexedLinearParamBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -3489,8 +3538,14 @@ inline flatbuffers::Offset<IndexedLinearParam> CreateIndexedLinearParam(
     flatbuffers::FlatBufferBuilder &_fbb,
     flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<Convolution2D>>> linears = 0,
     int32_t inputMode = 0,
-    int32_t fusedActivation = -1) {
+    int32_t fusedActivation = -1,
+    int32_t routeWeight = 0,
+    float routeEps = 0.0f,
+    float routeScale = 1.0f) {
   IndexedLinearParamBuilder builder_(_fbb);
+  builder_.add_routeScale(routeScale);
+  builder_.add_routeEps(routeEps);
+  builder_.add_routeWeight(routeWeight);
   builder_.add_fusedActivation(fusedActivation);
   builder_.add_inputMode(inputMode);
   builder_.add_linears(linears);
@@ -3506,10 +3561,12 @@ struct FusedLinearParamT : public flatbuffers::NativeTable {
   bool has_ln;
   std::unique_ptr<LayerNormT> ln;
   bool ln_fold;
+  bool row_mul;
   FusedLinearParamT()
       : act_silu_mul(false),
         has_ln(false),
-        ln_fold(false) {
+        ln_fold(false),
+        row_mul(false) {
   }
 };
 
@@ -3533,6 +3590,9 @@ struct FusedLinearParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   bool ln_fold() const {
     return GetField<uint8_t>(12, 0) != 0;
   }
+  bool row_mul() const {
+    return GetField<uint8_t>(14, 0) != 0;
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffset(verifier, 4) &&
@@ -3543,6 +3603,7 @@ struct FusedLinearParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            VerifyOffset(verifier, 10) &&
            verifier.VerifyTable(ln()) &&
            VerifyField<uint8_t>(verifier, 12) &&
+           VerifyField<uint8_t>(verifier, 14) &&
            verifier.EndTable();
   }
   FusedLinearParamT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -3568,6 +3629,9 @@ struct FusedLinearParamBuilder {
   void add_ln_fold(bool ln_fold) {
     fbb_.AddElement<uint8_t>(12, static_cast<uint8_t>(ln_fold), 0);
   }
+  void add_row_mul(bool row_mul) {
+    fbb_.AddElement<uint8_t>(14, static_cast<uint8_t>(row_mul), 0);
+  }
   explicit FusedLinearParamBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -3586,10 +3650,12 @@ inline flatbuffers::Offset<FusedLinearParam> CreateFusedLinearParam(
     bool act_silu_mul = false,
     bool has_ln = false,
     flatbuffers::Offset<LayerNorm> ln = 0,
-    bool ln_fold = false) {
+    bool ln_fold = false,
+    bool row_mul = false) {
   FusedLinearParamBuilder builder_(_fbb);
   builder_.add_ln(ln);
   builder_.add_convs(convs);
+  builder_.add_row_mul(row_mul);
   builder_.add_ln_fold(ln_fold);
   builder_.add_has_ln(has_ln);
   builder_.add_act_silu_mul(act_silu_mul);
@@ -6022,6 +6088,8 @@ inline void RoPEParam::UnPackTo(RoPEParamT *_o, const flatbuffers::resolver_func
   { auto _e = head_dim(); _o->head_dim = _e; };
   { auto _e = q_norm(); if (_e) _o->q_norm = std::unique_ptr<LayerNormT>(_e->UnPack(_resolver)); };
   { auto _e = k_norm(); if (_e) _o->k_norm = std::unique_ptr<LayerNormT>(_e->UnPack(_resolver)); };
+  { auto _e = interleaved(); _o->interleaved = _e; };
+  { auto _e = norm_after(); _o->norm_after = _e; };
 }
 
 inline flatbuffers::Offset<RoPEParam> RoPEParam::Pack(flatbuffers::FlatBufferBuilder &_fbb, const RoPEParamT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -6038,6 +6106,8 @@ inline flatbuffers::Offset<RoPEParam> CreateRoPEParam(flatbuffers::FlatBufferBui
   auto _head_dim = _o->head_dim;
   auto _q_norm = _o->q_norm ? CreateLayerNorm(_fbb, _o->q_norm.get(), _rehasher) : 0;
   auto _k_norm = _o->k_norm ? CreateLayerNorm(_fbb, _o->k_norm.get(), _rehasher) : 0;
+  auto _interleaved = _o->interleaved;
+  auto _norm_after = _o->norm_after;
   return MNN::CreateRoPEParam(
       _fbb,
       _rope_cut_head_dim,
@@ -6045,7 +6115,9 @@ inline flatbuffers::Offset<RoPEParam> CreateRoPEParam(flatbuffers::FlatBufferBui
       _kv_num_head,
       _head_dim,
       _q_norm,
-      _k_norm);
+      _k_norm,
+      _interleaved,
+      _norm_after);
 }
 
 inline IndexedLinearParamT *IndexedLinearParam::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -6060,6 +6132,9 @@ inline void IndexedLinearParam::UnPackTo(IndexedLinearParamT *_o, const flatbuff
   { auto _e = linears(); if (_e) { _o->linears.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->linears[_i] = std::unique_ptr<Convolution2DT>(_e->Get(_i)->UnPack(_resolver)); } } };
   { auto _e = inputMode(); _o->inputMode = _e; };
   { auto _e = fusedActivation(); _o->fusedActivation = _e; };
+  { auto _e = routeWeight(); _o->routeWeight = _e; };
+  { auto _e = routeEps(); _o->routeEps = _e; };
+  { auto _e = routeScale(); _o->routeScale = _e; };
 }
 
 inline flatbuffers::Offset<IndexedLinearParam> IndexedLinearParam::Pack(flatbuffers::FlatBufferBuilder &_fbb, const IndexedLinearParamT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -6073,11 +6148,17 @@ inline flatbuffers::Offset<IndexedLinearParam> CreateIndexedLinearParam(flatbuff
   auto _linears = _o->linears.size() ? _fbb.CreateVector<flatbuffers::Offset<Convolution2D>> (_o->linears.size(), [](size_t i, _VectorArgs *__va) { return CreateConvolution2D(*__va->__fbb, __va->__o->linears[i].get(), __va->__rehasher); }, &_va ) : 0;
   auto _inputMode = _o->inputMode;
   auto _fusedActivation = _o->fusedActivation;
+  auto _routeWeight = _o->routeWeight;
+  auto _routeEps = _o->routeEps;
+  auto _routeScale = _o->routeScale;
   return MNN::CreateIndexedLinearParam(
       _fbb,
       _linears,
       _inputMode,
-      _fusedActivation);
+      _fusedActivation,
+      _routeWeight,
+      _routeEps,
+      _routeScale);
 }
 
 inline FusedLinearParamT *FusedLinearParam::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -6094,6 +6175,7 @@ inline void FusedLinearParam::UnPackTo(FusedLinearParamT *_o, const flatbuffers:
   { auto _e = has_ln(); _o->has_ln = _e; };
   { auto _e = ln(); if (_e) _o->ln = std::unique_ptr<LayerNormT>(_e->UnPack(_resolver)); };
   { auto _e = ln_fold(); _o->ln_fold = _e; };
+  { auto _e = row_mul(); _o->row_mul = _e; };
 }
 
 inline flatbuffers::Offset<FusedLinearParam> FusedLinearParam::Pack(flatbuffers::FlatBufferBuilder &_fbb, const FusedLinearParamT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -6109,13 +6191,15 @@ inline flatbuffers::Offset<FusedLinearParam> CreateFusedLinearParam(flatbuffers:
   auto _has_ln = _o->has_ln;
   auto _ln = _o->ln ? CreateLayerNorm(_fbb, _o->ln.get(), _rehasher) : 0;
   auto _ln_fold = _o->ln_fold;
+  auto _row_mul = _o->row_mul;
   return MNN::CreateFusedLinearParam(
       _fbb,
       _convs,
       _act_silu_mul,
       _has_ln,
       _ln,
-      _ln_fold);
+      _ln_fold,
+      _row_mul);
 }
 
 inline FmhaV2ParamT *FmhaV2Param::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -9803,7 +9887,9 @@ inline const flatbuffers::TypeTable *RoPEParamTypeTable() {
     { flatbuffers::ET_INT, 0, -1 },
     { flatbuffers::ET_INT, 0, -1 },
     { flatbuffers::ET_SEQUENCE, 0, 0 },
-    { flatbuffers::ET_SEQUENCE, 0, 0 }
+    { flatbuffers::ET_SEQUENCE, 0, 0 },
+    { flatbuffers::ET_BOOL, 0, -1 },
+    { flatbuffers::ET_BOOL, 0, -1 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     LayerNormTypeTable
@@ -9814,10 +9900,12 @@ inline const flatbuffers::TypeTable *RoPEParamTypeTable() {
     "kv_num_head",
     "head_dim",
     "q_norm",
-    "k_norm"
+    "k_norm",
+    "interleaved",
+    "norm_after"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 6, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 8, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }
@@ -9826,7 +9914,10 @@ inline const flatbuffers::TypeTable *IndexedLinearParamTypeTable() {
   static const flatbuffers::TypeCode type_codes[] = {
     { flatbuffers::ET_SEQUENCE, 1, 0 },
     { flatbuffers::ET_INT, 0, -1 },
-    { flatbuffers::ET_INT, 0, -1 }
+    { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_FLOAT, 0, -1 },
+    { flatbuffers::ET_FLOAT, 0, -1 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     Convolution2DTypeTable
@@ -9834,10 +9925,13 @@ inline const flatbuffers::TypeTable *IndexedLinearParamTypeTable() {
   static const char * const names[] = {
     "linears",
     "inputMode",
-    "fusedActivation"
+    "fusedActivation",
+    "routeWeight",
+    "routeEps",
+    "routeScale"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 3, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 6, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }
@@ -9848,6 +9942,7 @@ inline const flatbuffers::TypeTable *FusedLinearParamTypeTable() {
     { flatbuffers::ET_BOOL, 0, -1 },
     { flatbuffers::ET_BOOL, 0, -1 },
     { flatbuffers::ET_SEQUENCE, 0, 1 },
+    { flatbuffers::ET_BOOL, 0, -1 },
     { flatbuffers::ET_BOOL, 0, -1 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
@@ -9859,10 +9954,11 @@ inline const flatbuffers::TypeTable *FusedLinearParamTypeTable() {
     "act_silu_mul",
     "has_ln",
     "ln",
-    "ln_fold"
+    "ln_fold",
+    "row_mul"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 5, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 6, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

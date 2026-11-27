@@ -1,7 +1,7 @@
 // Copyright © Alibaba Group Holding Limited. All rights reserved.
 #include "CoreMLAttention.hpp"
 #include "backend/arm82/Arm82OptFunc.hpp"
-#include "core/AttentionMaskConvention.hpp"
+#include "core/AttentionCommon.hpp"
 #include <cstdlib>
 #include <cstring>
 #include <algorithm>

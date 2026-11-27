@@ -12,6 +12,8 @@ public:
     VulkanRoPE(const Op* op, Backend* backend);
     ~VulkanRoPE() override;
 
+    bool valid() const { return mValid; }
+
     ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                        const VulkanCommandPool::Buffer* cmdBuffer) override;
     bool onClone(Backend* backend, const Op* op, VulkanBasicExecution** dst) override;
@@ -19,7 +21,7 @@ public:
 private:
     struct GpuParam {
         ivec4 size0; // seqLen, headDim, numHead, kvNumHead
-        ivec4 size1; // ropeHalfDim, qNorm, kNorm, 0
+        ivec4 size1;
         vec4 eps;    // qEps, kEps, 0, 0
     };
 
@@ -35,6 +37,7 @@ private:
     float mKEps = 0.0f;
     bool mQNorm = false;
     bool mKNorm = false;
+    bool mInterleaved = false;
     bool mValid = false;
     bool mUseFP16 = false;
     std::shared_ptr<Tensor> mQGamma;

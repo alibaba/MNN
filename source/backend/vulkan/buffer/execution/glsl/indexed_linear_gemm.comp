@@ -32,6 +32,8 @@ layout(push_constant) uniform Params {
     int channels; int outputs; int experts; int topk;
     int inputMode; int groups; int groupSize; int weightStride;
     int rows; int maxTiles;
+    int tokens; int xC4;
+    float routeEps; float routeScale;
 } p;
 
 float weightValue(int expert, int outputChannel, int inputChannel) {
@@ -79,7 +81,8 @@ void main() {
             int k = baseK + index % TILE_K;
             int inputRow = INPUT_MODE != 0 ? tokenRow : tokenRow / p.topk;
             tileInput[index] = tokenRow >= 0 && ids.data[tokenRow] == expert && k < CHANNELS ?
-                float(inputData.data[inputRow * CHANNELS + k]) : 0.0;
+                float(inputData.data[p.xC4 != 0 ? ((k / 4) * p.tokens + inputRow) * 4 + (k & 3)
+                                                       : inputRow * CHANNELS + k]) : 0.0;
         }
         for (int index = localIndex; index < TILE_N * TILE_K; index += THREAD_COUNT) {
             int n = firstOutput + index / TILE_K;

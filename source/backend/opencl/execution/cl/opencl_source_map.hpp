@@ -440,7 +440,7 @@ const std::map<std::string, const char*> OpenCLProgramMap = {
 const std::map<std::string, std::string> OpenCLProgramMd5Map = {
 #ifndef MNN_OPENCL_BUFFER_CLOSED
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
-    {"indexed_linear_buf", "82e6e194c8a807a0a05103ba900c4289"},
+    {"indexed_linear_buf", "9323ef96480e69c905b8a305a187e7a5"},
 #endif
 #endif
     {"conv_2d", "0048eb0c6a571925e6f3e1bd1d314d09"},
@@ -467,7 +467,7 @@ const std::map<std::string, std::string> OpenCLProgramMd5Map = {
     {"binary_subgroup_buf", "8444f988543cd4a4d9b124442f02f999"},
     {"depthwise_conv2d_subgroup_buf", "3e37457e72b7e629655aa04bd03e559e"},
     {"nearest", "e8b2081c5e50ae6d370989f816cda543"},
-    {"rope_buf", "09654db5edfd395db0fb9d2c950ca6b8"},
+    {"rope_buf", "7563227be8dff191e863a94a1f873455"},
     {"pooling_subgroup_buf", "9c935c0caabe2ee20822fcfd7722472e"},
     {"pooling_buf", "806c95095431e361be2af7f4e9eae65e"},
     {"winogradTransformSource2_5_1", "f0ee12556faf4fe0222e2a4e64c53c5c"},
@@ -478,7 +478,7 @@ const std::map<std::string, std::string> OpenCLProgramMd5Map = {
     {"glmem_convert", "ee4866b2d889824e48d58fa3a78795d4"},
     {"winogradTransform_buf", "efa5fda527fce5820ba48b90a4707fa7"},
     {"winogradTransform_subgroup_buf", "904f2a0f1a062378418c6c90133ed5e0"},
-    {"attention_flash_decode_partial_buf", "afdfb392f77d0c245f9c6c340aa34b0e"},
+    {"attention_flash_decode_partial_buf", "8411b6840e4e2944f324fc785508f14a"},
     {"splitgelu_buf", "86d5b31ea14330d2b99273e4e868bd35"},
     {"select_buf", "6c12fe9273ab292a76fbc12cfa4afae0"},
     {"grid_sample", "0e08897ea35a57c04b834b2a83be8383"},
@@ -496,7 +496,7 @@ const std::map<std::string, std::string> OpenCLProgramMd5Map = {
     {"unary_subgroup_buf", "31e3768f899da6da45084f617b13c282"},
     {"gemm", "5729018147348682e02762ed5ec14d0c"},
     {"depthwise_deconv2d", "810f69205dede9b38e4858aad621fa71"},
-    {"topkv2_buf", "df1be3cf447e7cbf9a0754dc66e7847b"},
+    {"topkv2_buf", "a0feee8e261e9eca5ee520f402d7ba79"},
     {"range", "97feaf25d837a325382c162ad77ae0ca"},
     {"scale_buf", "9176b8e86fd4d326e7fa14640ce13b48"},
     {"matmul_buf", "c16b97f576a6b7d804fed52e0bdc7ad8"},
@@ -514,7 +514,7 @@ const std::map<std::string, std::string> OpenCLProgramMd5Map = {
     {"reduction_buf", "c16506adcebf7760a1a3c96ce0d386ee"},
     {"strassen_binary_buf", "1ec57b4f87beb05457f6ef00de593d9d"},
     {"matmul_params_buf", "34fba2156345dcdb8fb07a4081a92fd1"},
-    {"attention_flash_prefill_buf", "f8e5e48e1bc21a1001f843cdf25fea9d"},
+    {"attention_flash_prefill_buf", "d46f704c87eb54f0ed3e4dcc58d73114"},
     {"fused_proj_gemv_buf", "949aa438556236d9271ae1dd58d48bc4"},
     {"gemm_conv1x1_int4_b4_buf", "b3e7ba464769746d375a4041b4e71b6c"},
     {"cast", "129055345fd1d576eb398635c81701ab"},

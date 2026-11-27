@@ -11,7 +11,9 @@
 #import "MetalLinearAttentionShader.hpp"
 #import "MetalEnv.hpp"
 #import "core/TensorUtils.hpp"
+#include "core/AttentionCommon.hpp"
 #import "core/MNNFileUtils.h"
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 
@@ -20,6 +22,7 @@
 
 namespace MNN {
 
+// short_conv uses [qkv, conv_weight]; preserve legacy slots and acceptance of trailing inputs.
 // Must match LinearAttnParam in MetalLinearAttentionShader.hpp
 struct LinearAttnParam {
     int batch;
@@ -116,6 +119,10 @@ MetalLinearAttention::MetalLinearAttention(Backend *backend, const MNN::Op* op)
     auto context = (__bridge MNNMetalContext *)mtbn->context();
     mParamBuffer = [context newDeviceBuffer:sizeof(LinearAttnParam) access:CPUWriteOnly];
     mParamBufferFlush = [context newDeviceBuffer:sizeof(LinearAttnParam) access:CPUWriteOnly];
+    auto pipelineReady = [context](id<MTLComputePipelineState> pipeline, NSUInteger threads) {
+        return pipeline != nil && pipeline.maxTotalThreadsPerThreadgroup >= threads &&
+               pipeline.staticThreadgroupMemoryLength <= context.device.maxThreadgroupMemoryLength;
+    };
 
     // Compile shader pipelines
     MTLCompileOptions *option = [[MTLCompileOptions alloc] init];
@@ -162,7 +169,8 @@ MetalLinearAttention::MetalLinearAttention(Backend *backend, const MNN::Op* op)
         mConvSiluRow4Pipeline = rt->findPipeline(keys);
         if (nil == mConvSiluRow4Pipeline) {
             mConvSiluRow4Pipeline = mtbn->makeComputePipelineWithSourceOption(
-                gLinearAttnConvSilu, "linear_attn_conv_silu_row4", option);
+                gLinearAttnConvSilu, "linear_attn_conv_silu_row4", option, true);
+                if (!pipelineReady(mConvSiluRow4Pipeline, 1)) mConvSiluRow4Pipeline = nil;
             if (nil != mConvSiluRow4Pipeline) {
                 rt->insertPipeline(keys, mConvSiluRow4Pipeline);
             }
@@ -174,7 +182,8 @@ MetalLinearAttention::MetalLinearAttention(Backend *backend, const MNN::Op* op)
         mConvSiluStateDecodePipeline = rt->findPipeline(keys);
         if (nil == mConvSiluStateDecodePipeline) {
             mConvSiluStateDecodePipeline = mtbn->makeComputePipelineWithSourceOption(
-                gLinearAttnConvSilu, "linear_attn_conv_silu_state_decode", option);
+                gLinearAttnConvSilu, "linear_attn_conv_silu_state_decode", option, true);
+                if (!pipelineReady(mConvSiluStateDecodePipeline, 1)) mConvSiluStateDecodePipeline = nil;
             if (nil != mConvSiluStateDecodePipeline) {
                 rt->insertPipeline(keys, mConvSiluStateDecodePipeline);
             }
@@ -241,7 +250,8 @@ MetalLinearAttention::MetalLinearAttention(Backend *backend, const MNN::Op* op)
             mQKVPrepSGPipeline = rt->findPipeline(keys);
             if (nil == mQKVPrepSGPipeline) {
                 mQKVPrepSGPipeline = mtbn->makeComputePipelineWithSourceOption(
-                    gLinearAttnQKVPrepSG, "linear_attn_qkv_prep_sg", qkvOpt);
+                    gLinearAttnQKVPrepSG, "linear_attn_qkv_prep_sg", qkvOpt, true);
+                if (!pipelineReady(mQKVPrepSGPipeline, 128)) mQKVPrepSGPipeline = nil;
                 if (nil != mQKVPrepSGPipeline) rt->insertPipeline(keys, mQKVPrepSGPipeline);
             }
         }
@@ -265,8 +275,10 @@ MetalLinearAttention::MetalLinearAttention(Backend *backend, const MNN::Op* op)
             if (useFp16) keys.emplace_back("MNN_METAL_FLOAT16_STORAGE");
             mGatedDeltaRuleSGPipeline = rt->findPipeline(keys);
             if (nil == mGatedDeltaRuleSGPipeline) {
-                mGatedDeltaRuleSGPipeline = mtbn->makeComputePipelineWithSourceOption(gLinearAttnGatedDeltaRuleSG, "linear_attn_gated_delta_rule_sg", sgOption);
-                rt->insertPipeline(keys, mGatedDeltaRuleSGPipeline);
+                mGatedDeltaRuleSGPipeline = mtbn->makeComputePipelineWithSourceOption(
+                    gLinearAttnGatedDeltaRuleSG, "linear_attn_gated_delta_rule_sg", sgOption, true);
+                if (!pipelineReady(mGatedDeltaRuleSGPipeline, 128)) mGatedDeltaRuleSGPipeline = nil;
+                if (nil != mGatedDeltaRuleSGPipeline) rt->insertPipeline(keys, mGatedDeltaRuleSGPipeline);
             }
         }
         {
@@ -274,8 +286,10 @@ MetalLinearAttention::MetalLinearAttention(Backend *backend, const MNN::Op* op)
             if (useFp16) keys.emplace_back("MNN_METAL_FLOAT16_STORAGE");
             mVerifyFusedSGPipeline = rt->findPipeline(keys);
             if (nil == mVerifyFusedSGPipeline) {
-                mVerifyFusedSGPipeline = mtbn->makeComputePipelineWithSourceOption(gLinearAttnGatedDeltaRuleSG, "linear_attn_verify_fused_sg", sgOption);
-                rt->insertPipeline(keys, mVerifyFusedSGPipeline);
+                mVerifyFusedSGPipeline = mtbn->makeComputePipelineWithSourceOption(
+                    gLinearAttnGatedDeltaRuleSG, "linear_attn_verify_fused_sg", sgOption, true);
+                if (!pipelineReady(mVerifyFusedSGPipeline, 128)) mVerifyFusedSGPipeline = nil;
+                if (nil != mVerifyFusedSGPipeline) rt->insertPipeline(keys, mVerifyFusedSGPipeline);
             }
         }
         // dk==128 vectorized variant (ftype4 lanes, register state)
@@ -284,7 +298,9 @@ MetalLinearAttention::MetalLinearAttention(Backend *backend, const MNN::Op* op)
             if (useFp16) keys.emplace_back("MNN_METAL_FLOAT16_STORAGE");
             mGatedDeltaRuleSGV4Pipeline = rt->findPipeline(keys);
             if (nil == mGatedDeltaRuleSGV4Pipeline) {
-                mGatedDeltaRuleSGV4Pipeline = mtbn->makeComputePipelineWithSourceOption(gLinearAttnGatedDeltaRuleSG, "linear_attn_gated_delta_rule_sg_v4", sgOption);
+                mGatedDeltaRuleSGV4Pipeline = mtbn->makeComputePipelineWithSourceOption(
+                    gLinearAttnGatedDeltaRuleSG, "linear_attn_gated_delta_rule_sg_v4", sgOption, true);
+                if (!pipelineReady(mGatedDeltaRuleSGV4Pipeline, 128)) mGatedDeltaRuleSGV4Pipeline = nil;
                 if (nil != mGatedDeltaRuleSGV4Pipeline) {
                     rt->insertPipeline(keys, mGatedDeltaRuleSGV4Pipeline);
                 }
@@ -296,7 +312,9 @@ MetalLinearAttention::MetalLinearAttention(Backend *backend, const MNN::Op* op)
             if (useFp16) keys.emplace_back("MNN_METAL_FLOAT16_STORAGE");
             mGatedDeltaRuleSGV2Pipeline = rt->findPipeline(keys);
             if (nil == mGatedDeltaRuleSGV2Pipeline) {
-                mGatedDeltaRuleSGV2Pipeline = mtbn->makeComputePipelineWithSourceOption(gLinearAttnGatedDeltaRuleSG, "linear_attn_gated_delta_rule_sg_v2", sgOption);
+                mGatedDeltaRuleSGV2Pipeline = mtbn->makeComputePipelineWithSourceOption(
+                    gLinearAttnGatedDeltaRuleSG, "linear_attn_gated_delta_rule_sg_v2", sgOption, true);
+                if (!pipelineReady(mGatedDeltaRuleSGV2Pipeline, 128)) mGatedDeltaRuleSGV2Pipeline = nil;
                 if (nil != mGatedDeltaRuleSGV2Pipeline) {
                     rt->insertPipeline(keys, mGatedDeltaRuleSGV2Pipeline);
                 }
@@ -308,8 +326,13 @@ MetalLinearAttention::MetalLinearAttention(Backend *backend, const MNN::Op* op)
             if (useFp16) keys.emplace_back("MNN_METAL_FLOAT16_STORAGE");
             mGatedDeltaRuleFusedSGPipeline = rt->findPipeline(keys);
             if (nil == mGatedDeltaRuleFusedSGPipeline) {
-                mGatedDeltaRuleFusedSGPipeline = mtbn->makeComputePipelineWithSourceOption(gLinearAttnFusedSG, "linear_attn_fused_sg", sgOption);
-                rt->insertPipeline(keys, mGatedDeltaRuleFusedSGPipeline);
+                mGatedDeltaRuleFusedSGPipeline = mtbn->makeComputePipelineWithSourceOption(
+                    gLinearAttnFusedSG, "linear_attn_fused_sg", sgOption, true);
+                if (!pipelineReady(mGatedDeltaRuleFusedSGPipeline, 128)) mGatedDeltaRuleFusedSGPipeline = nil;
+                if (nil != mGatedDeltaRuleFusedSGPipeline) rt->insertPipeline(keys, mGatedDeltaRuleFusedSGPipeline);
+            }
+            if (nil == mGatedDeltaRuleSGPipeline || nil == mGatedDeltaRuleFusedSGPipeline) {
+                mUseSimdGroupOpt = false;
             }
         }
         // fused_sg_align: register-resident state + D_K_ALIGNED for decode.
@@ -335,7 +358,8 @@ MetalLinearAttention::MetalLinearAttention(Backend *backend, const MNN::Op* op)
             mFusedSGAlignPipeline = rt->findPipeline(keys);
             if (nil == mFusedSGAlignPipeline) {
                 mFusedSGAlignPipeline = mtbn->makeComputePipelineWithSourceOption(
-                    gLinearAttnFusedSGAlign, "linear_attn_fused_sg_align", alignOpt);
+                    gLinearAttnFusedSGAlign, "linear_attn_fused_sg_align", alignOpt, true);
+                if (!pipelineReady(mFusedSGAlignPipeline, mFusedSGAlignSimds * 32)) mFusedSGAlignPipeline = nil;
                 if (nil != mFusedSGAlignPipeline) rt->insertPipeline(keys, mFusedSGAlignPipeline);
             }
         }
@@ -361,16 +385,18 @@ MetalLinearAttention::MetalLinearAttention(Backend *backend, const MNN::Op* op)
             mFusedSGTGPipeline = rt->findPipeline(keys);
             if (nil == mFusedSGTGPipeline) {
                 mFusedSGTGPipeline = mtbn->makeComputePipelineWithSourceOption(
-                    gLinearAttnFusedSGTG, "linear_attn_fused_sg_tg", tgOpt);
+                    gLinearAttnFusedSGTG, "linear_attn_fused_sg_tg", tgOpt, true);
+                if (!pipelineReady(mFusedSGTGPipeline, mFusedSGTGSimds * 32)) mFusedSGTGPipeline = nil;
                 if (nil != mFusedSGTGPipeline) rt->insertPipeline(keys, mFusedSGTGPipeline);
             }
         }
         // Tensor-op chunk-64 prefill. A/P reuse conv_out's V storage after V
         // is backed up into the output; needs >= 128 V channels for the pair.
-        mUseFlashChunk = rt->useTensorOps() && mHeadKDim > 0 && mHeadKDim <= 128 &&
+        mUseFlashChunk = mtbn->isSupportTensorApi() && mHeadKDim > 0 && mHeadKDim <= 128 &&
                          mHeadKDim % 16 == 0 && mHeadVDim >= 128 &&
                          mHeadVDim % mFlashDvBlock == 0;
         if (mUseFlashChunk) {
+            const int requiredThreads = mFlashSimdsPerTG * 32;
             MTLCompileOptions *flashOption = [[MTLCompileOptions alloc] init];
             NSMutableDictionary *flashMacros = [NSMutableDictionary dictionary];
             if (useFp16) flashMacros[@"MNN_METAL_FLOAT16_STORAGE"] = @"1";
@@ -378,18 +404,26 @@ MetalLinearAttention::MetalLinearAttention(Backend *backend, const MNN::Op* op)
             flashMacros[@"CK_DV"] = [NSString stringWithFormat:@"%d", mHeadVDim];
             flashMacros[@"CK_CHUNK"] = @"64";
             flashMacros[@"CK_W"] = [NSString stringWithFormat:@"%d", mFlashDvBlock];
+            const bool preGen17CoopLayout = rt->gpuInfo().gen >= 13 && rt->gpuInfo().gen < 17;
+            if (preGen17CoopLayout) {
+                flashMacros[@"MNN_METAL_COOP_PRE_G17"] = @"1";
+            }
             flashOption.preprocessorMacros = flashMacros;
 
             std::string flashKey = "CHUNK64_INPLACE_" + std::to_string(mHeadKDim) + "_" +
                                    std::to_string(mHeadVDim) + "_DVB" +
                                    std::to_string(mFlashDvBlock);
+            if (preGen17CoopLayout) {
+                flashKey += "_MNN_METAL_COOP_PRE_G17";
+            }
             {
                 std::vector<std::string> keys = {"linear_attn_chunk64_prep_inplace", flashKey};
                 if (useFp16) keys.emplace_back("MNN_METAL_FLOAT16_STORAGE");
                 mFlashChunkPrepPipeline = rt->findPipeline(keys);
                 if (nil == mFlashChunkPrepPipeline) {
                     mFlashChunkPrepPipeline = mtbn->makeComputePipelineWithSourceOption(
-                        gLinearAttnChunk64Inplace, "linear_attn_chunk64_prep_inplace", flashOption);
+                        gLinearAttnChunk64Inplace, "linear_attn_chunk64_prep_inplace", flashOption, true);
+                    if (!pipelineReady(mFlashChunkPrepPipeline, requiredThreads)) mFlashChunkPrepPipeline = nil;
                     if (nil != mFlashChunkPrepPipeline) {
                         rt->insertPipeline(keys, mFlashChunkPrepPipeline);
                     }
@@ -401,16 +435,19 @@ MetalLinearAttention::MetalLinearAttention(Backend *backend, const MNN::Op* op)
                 mFlashChunkScanPipeline = rt->findPipeline(keys);
                 if (nil == mFlashChunkScanPipeline) {
                     mFlashChunkScanPipeline = mtbn->makeComputePipelineWithSourceOption(
-                        gLinearAttnChunk64Inplace, "linear_attn_chunk64_recurrent_inplace", flashOption);
+                        gLinearAttnChunk64Inplace, "linear_attn_chunk64_recurrent_inplace", flashOption, true);
+                    if (!pipelineReady(mFlashChunkScanPipeline, requiredThreads)) mFlashChunkScanPipeline = nil;
                     if (nil != mFlashChunkScanPipeline) {
                         rt->insertPipeline(keys, mFlashChunkScanPipeline);
                     }
                 }
             }
-            const int requiredThreads = mFlashSimdsPerTG * 32;
             if (nil == mFlashChunkPrepPipeline || nil == mFlashChunkScanPipeline ||
                 mFlashChunkPrepPipeline.maxTotalThreadsPerThreadgroup < requiredThreads ||
-                mFlashChunkScanPipeline.maxTotalThreadsPerThreadgroup < requiredThreads) {
+                mFlashChunkScanPipeline.maxTotalThreadsPerThreadgroup < requiredThreads ||
+                mFlashChunkPrepPipeline.staticThreadgroupMemoryLength > context.device.maxThreadgroupMemoryLength ||
+                mFlashChunkScanPipeline.staticThreadgroupMemoryLength > context.device.maxThreadgroupMemoryLength) {
+                MNN_PRINT("Metal LinearAttention Tensor pipelines unavailable; selecting non-Tensor path.\n");
                 mFlashChunkPrepPipeline = nil;
                 mFlashChunkScanPipeline = nil;
                 mUseFlashChunk = false;
@@ -441,7 +478,8 @@ MetalLinearAttention::MetalLinearAttention(Backend *backend, const MNN::Op* op)
             mFlashChunkSGMMPipeline = rt->findPipeline(keys);
             if (nil == mFlashChunkSGMMPipeline) {
                 mFlashChunkSGMMPipeline = mtbn->makeComputePipelineWithSourceOption(
-                    gLinearAttnFlashChunkSGMM, "linear_attn_flash_chunk_sgmm", sgmmOption);
+                    gLinearAttnFlashChunkSGMM, "linear_attn_flash_chunk_sgmm", sgmmOption, true);
+                if (!pipelineReady(mFlashChunkSGMMPipeline, mSgmmSimdsPerTG * 32)) mFlashChunkSGMMPipeline = nil;
                 if (nil != mFlashChunkSGMMPipeline) {
                     rt->insertPipeline(keys, mFlashChunkSGMMPipeline);
                 }
@@ -474,7 +512,8 @@ MetalLinearAttention::MetalLinearAttention(Backend *backend, const MNN::Op* op)
             mFusedChunkSGPipeline = rt->findPipeline(keys);
             if (nil == mFusedChunkSGPipeline) {
                 mFusedChunkSGPipeline = mtbn->makeComputePipelineWithSourceOption(
-                    gLinearAttnFusedChunkSG, "linear_attn_fused_chunk_sg", chunkOption);
+                    gLinearAttnFusedChunkSG, "linear_attn_fused_chunk_sg", chunkOption, true);
+                if (!pipelineReady(mFusedChunkSGPipeline, mChunkTGThreads)) mFusedChunkSGPipeline = nil;
                 if (nil != mFusedChunkSGPipeline) rt->insertPipeline(keys, mFusedChunkSGPipeline);
             }
             if (nil == mFusedChunkSGPipeline) {
@@ -497,6 +536,31 @@ MetalLinearAttention::MetalLinearAttention(Backend *backend, const MNN::Op* op)
 }
 
 ErrorCode MetalLinearAttention::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    if (!mValid) return NOT_SUPPORT;
+    auto mtbn = static_cast<MetalBackend*>(backend());
+    auto context = (__bridge MNNMetalContext*)mtbn->context();
+    auto ready = [context](id<MTLComputePipelineState> pipeline) {
+        return pipeline != nil && pipeline.maxTotalThreadsPerThreadgroup > 0 &&
+               pipeline.staticThreadgroupMemoryLength <= context.device.maxThreadgroupMemoryLength;
+    };
+    const bool shortConvReady = mAttentionType == "short_conv" && mShortConvPipeline != nil &&
+                               ready(mShortConvPipeline) && ready(mShortConvStateUpdatePipeline) &&
+                               ready(mShortConvOutputPipeline);
+    const bool deltaReady = mAttentionType != "short_conv" && mConvSiluPipeline != nil &&
+                            ready(mConvSiluPipeline) && ready(mConvStateUpdatePipeline) &&
+                            ready(mQKVPrepPipeline) && ready(mGatedDeltaRulePipeline) &&
+                            ready(mConvCommitPipeline) && ready(mQKVRawSavePipeline) &&
+                            (!mUseSimdGroupOpt || (mGatedDeltaRuleSGPipeline != nil &&
+                                                  ready(mGatedDeltaRuleSGPipeline) &&
+                                                  ready(mGatedDeltaRuleFusedSGPipeline)));
+    if (!shortConvReady && !deltaReady) {
+        MNN_ERROR("Metal LinearAttention required pipeline unavailable; resize stopped.\n");
+        return NOT_SUPPORT;
+    }
+    const int weightIndex = linearAttentionWeightIndex(mAttentionType == "short_conv", inputs.size());
+    if (weightIndex < 0 || outputs.empty()) {
+        return INVALID_VALUE;
+    }
     auto qkv = inputs[0];
     int batch = 0, convDim = 0, seqLen = 0;
     linearAttentionDims(qkv, batch, convDim, seqLen);
@@ -528,7 +592,7 @@ ErrorCode MetalLinearAttention::onResize(const std::vector<Tensor *> &inputs, co
             static_cast<MetalBackend*>(backend())->registerLinearAttnFold(&mFoldReq);
         }
     }
-    int K_conv = inputs[3]->length(2);
+    int K_conv = inputs[weightIndex]->length(2);
     int convStateSize = K_conv - 1;
     int H = mNumVHeads;
     int dk = mHeadKDim;
@@ -537,7 +601,6 @@ ErrorCode MetalLinearAttention::onResize(const std::vector<Tensor *> &inputs, co
     bool needRecurrentState = mAttentionType != "short_conv";
 
     // ─── Persistent state buffers (STATIC): allocate once, shared via onClone ───
-    auto mtbn = static_cast<MetalBackend *>(backend());
     int bytesPerElement = mtbn->useFp16InsteadFp32() ? 2 : 4;
     const bool needConvStateInit = mStateCache->mConvState.get() == nullptr;
     const bool needRecurrentStateInit = needRecurrentState && mStateCache->mRecurrentState.get() == nullptr;
@@ -625,9 +688,11 @@ ErrorCode MetalLinearAttention::onResize(const std::vector<Tensor *> &inputs, co
         mResizeGeneration++;
     }
     bool success = backend()->onAcquireBuffer(mConvOut.get(), Backend::DYNAMIC);
+    const bool gotConvOut = success;
 
 
-    bool needChunkStats = seqLen >= 64 && mUseFlashChunk;
+    bool needChunkStats = mUseSimdGroupOpt && seqLen >= 64 && mUseFlashChunk;
+    bool gotChunkStats = false;
     if (needChunkStats) {
         // Padded to whole chunks so prep writes, and the scan reads, all 64
         // slots of the tail chunk — the gate cumsum of the padded lanes is a
@@ -640,16 +705,20 @@ ErrorCode MetalLinearAttention::onResize(const std::vector<Tensor *> &inputs, co
             mChunkStats.reset(Tensor::createDevice<int32_t>({batch * H, 4, paddedSeq}));
             mResizeGeneration++;
         }
-        success = success && backend()->onAcquireBuffer(mChunkStats.get(), Backend::DYNAMIC);
+        gotChunkStats = success && backend()->onAcquireBuffer(mChunkStats.get(), Backend::DYNAMIC);
+        success = gotChunkStats;
     }
 
     // Fused decode kernels loop over L internally and read conv_out directly,
     // so short prefill (2 <= L < 16) shares the decode path: skips qkv_prep
     // and the mQ/mK/mV round-trip. Longer prefill takes a chunked kernel.
     bool fusedDecode      = mUseSimdGroupOpt && seqLen < 16;
-    bool fusedLongPrefill = (seqLen >= 64 && mUseFlashChunk) ||
-                            (seqLen >= 16 && mUseFlashChunkSGMM) ||
-                            (seqLen >= 32 && mUseFusedChunkSG);
+    // Must mirror the onEncode branches: they all require mUseSimdGroupOpt, so
+    // a base-SG compile failure must not skip the mQ/mK/mV allocation here.
+    bool fusedLongPrefill = mUseSimdGroupOpt &&
+                            ((seqLen >= 64 && mUseFlashChunk) ||
+                             (seqLen >= 16 && mUseFlashChunkSGMM) ||
+                             (seqLen >= 32 && mUseFusedChunkSG));
     // Register-state scan prefill (qkv_prep + delta_rule_sg_v4/v2) replaces the
     // chunked kernels on non-tensor-API devices. Tensor-API devices keep the
     // chunk64 flash path (untested there).
@@ -661,6 +730,7 @@ ErrorCode MetalLinearAttention::onResize(const std::vector<Tensor *> &inputs, co
     }
     // A verify block uses the fused verify kernel, which also reads conv_out directly.
     bool needQKV = mAttentionType != "short_conv" && !specVerify && !fusedDecode && !fusedLongPrefill;
+    bool gotQ = false, gotK = false, gotV = false;
     if (needQKV) {
         // Same reasoning as mConvOut above: keep the Tensor objects while their
         // shape is unchanged so a recording never holds a freed Tensor*, and
@@ -675,21 +745,27 @@ ErrorCode MetalLinearAttention::onResize(const std::vector<Tensor *> &inputs, co
             mV.reset(Tensor::createDevice<float>({batch, seqLen, H, dv}));
             mResizeGeneration++;
         }
-        success = success && backend()->onAcquireBuffer(mQ.get(), Backend::DYNAMIC);
-        success = success && backend()->onAcquireBuffer(mK.get(), Backend::DYNAMIC);
-        success = success && backend()->onAcquireBuffer(mV.get(), Backend::DYNAMIC);
+        gotQ = success && backend()->onAcquireBuffer(mQ.get(), Backend::DYNAMIC);
+        gotK = gotQ && backend()->onAcquireBuffer(mK.get(), Backend::DYNAMIC);
+        gotV = gotK && backend()->onAcquireBuffer(mV.get(), Backend::DYNAMIC);
+        success = gotV;
     }
-    if (!success) return OUT_OF_MEMORY;
-
-    if (needQKV) {
+    if (gotV) {
         backend()->onReleaseBuffer(mV.get(), Backend::DYNAMIC);
+    }
+    if (gotK) {
         backend()->onReleaseBuffer(mK.get(), Backend::DYNAMIC);
+    }
+    if (gotQ) {
         backend()->onReleaseBuffer(mQ.get(), Backend::DYNAMIC);
     }
-    if (needChunkStats) {
+    if (gotChunkStats) {
         backend()->onReleaseBuffer(mChunkStats.get(), Backend::DYNAMIC);
     }
-    backend()->onReleaseBuffer(mConvOut.get(), Backend::DYNAMIC);
+    if (gotConvOut) {
+        backend()->onReleaseBuffer(mConvOut.get(), Backend::DYNAMIC);
+    }
+    if (!success) return OUT_OF_MEMORY;
 
     return NO_ERROR;
 }
@@ -869,7 +945,8 @@ void MetalLinearAttention::onEncode(const std::vector<Tensor *> &inputs, const s
         }
     }
 
-    int K_conv = inputs[3]->length(2);
+    auto convWeight = inputs[linearAttentionWeightIndex(mAttentionType == "short_conv", inputs.size())];
+    int K_conv = convWeight->length(2);
     int convStateSize = K_conv - 1;
     int H = mNumVHeads;
     int dk = mHeadKDim;
@@ -897,13 +974,14 @@ void MetalLinearAttention::onEncode(const std::vector<Tensor *> &inputs, const s
     paramPtr->qkv_c4 = TensorUtils::getDescribe(inputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ? 1 : 0;
     // gate/beta chain fold: bind the raw projections and let the kernels do
     // the chain math (bit 2 of gate_c4/beta_c4); constants travel in cst.
-    const Tensor* gateSrc = mFoldReq.gateFolded ? mFoldReq.rawA : inputs[1];
-    const Tensor* betaSrc = mFoldReq.betaFolded ? mFoldReq.rawB : inputs[2];
+    const bool shortConv = mAttentionType == "short_conv";
+    const Tensor* gateSrc = shortConv ? nullptr : (mFoldReq.gateFolded ? mFoldReq.rawA : inputs[1]);
+    const Tensor* betaSrc = shortConv ? nullptr : (mFoldReq.betaFolded ? mFoldReq.rawB : inputs[2]);
     paramPtr->gate_c4 =
-        (TensorUtils::getDescribe(gateSrc)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ? 1 : 0) |
+        (gateSrc && TensorUtils::getDescribe(gateSrc)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ? 1 : 0) |
         (mFoldReq.gateFolded ? 2 : 0);
     paramPtr->beta_c4 =
-        (TensorUtils::getDescribe(betaSrc)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ? 1 : 0) |
+        (betaSrc && TensorUtils::getDescribe(betaSrc)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ? 1 : 0) |
         (mFoldReq.betaFolded ? 2 : 0);
     ::memset(paramPtr->gate_coef, 0, sizeof(paramPtr->gate_coef));
     ::memset(paramPtr->gate_bias, 0, sizeof(paramPtr->gate_bias));
@@ -936,7 +1014,7 @@ void MetalLinearAttention::onEncode(const std::vector<Tensor *> &inputs, const s
         [encoder setComputePipelineState:mShortConvPipeline];
         MetalBackend::setTensor(inputs[0], encoder, 0);
         MetalBackend::setTensor(mStateCache->mConvState.get(), encoder, 1);
-        MetalBackend::setTensor(inputs[3], encoder, 2);
+        MetalBackend::setTensor(convWeight, encoder, 2);
         MetalBackend::setTensor(mConvOut.get(), encoder, 3);
         [encoder setBuffer:mParamBuffer offset:0 atIndex:4];
         [encoder dispatchThreadgroups:MTLSizeMake((total + threadGroupSize - 1) / threadGroupSize, 1, 1)
@@ -987,8 +1065,8 @@ void MetalLinearAttention::onEncode(const std::vector<Tensor *> &inputs, const s
         const int readIdx = sc->mPendingIdx;
         [encoder setComputePipelineState:mVerifyFusedSGPipeline];
         MetalBackend::setTensor(mConvOut.get(), encoder, 0);
-        MetalBackend::setTensor(inputs[1], encoder, 1);
-        MetalBackend::setTensor(inputs[2], encoder, 2);
+        MetalBackend::setTensor(gateSrc, encoder, 1);
+        MetalBackend::setTensor(betaSrc, encoder, 2);
         MetalBackend::setTensor(sc->mRecurrentState.get(), encoder, 3);
         MetalBackend::setTensor(attentionOutput, encoder, 4);
         [encoder setBuffer:param offset:0 atIndex:5];

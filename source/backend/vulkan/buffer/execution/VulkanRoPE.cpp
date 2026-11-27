@@ -17,11 +17,12 @@ VulkanRoPE::VulkanRoPE(const Op* op, Backend* backend) : VulkanBasicExecution(ba
     mNumHead = param->num_head();
     mKvNumHead = param->kv_num_head();
     mHeadDim = param->head_dim();
+    mInterleaved = param->interleaved();
     mUseFP16 = vkBn->useFP16();
-    mQNorm = prepareGamma(param->q_norm(), mQGamma, mQEps);
-    mKNorm = prepareGamma(param->k_norm(), mKGamma, mKEps);
-    mValid = mNumHead > 0 && mKvNumHead > 0 && mHeadDim > 0 && (param->q_norm() == nullptr || mQNorm) &&
-             (param->k_norm() == nullptr || mKNorm);
+    mQNorm = param->q_norm() != nullptr;
+    mKNorm = param->k_norm() != nullptr;
+    mValid = mNumHead > 0 && mKvNumHead > 0 && mHeadDim > 0 && !param->norm_after() &&
+             prepareGamma(param->q_norm(), mQGamma, mQEps) && prepareGamma(param->k_norm(), mKGamma, mKEps);
     mParam = vkBn->allocUniform(nullptr, sizeof(GpuParam));
     createPipeline();
 }
@@ -36,6 +37,7 @@ VulkanRoPE::VulkanRoPE(Backend* backend, const VulkanRoPE* source)
       mKEps(source->mKEps),
       mQNorm(source->mQNorm),
       mKNorm(source->mKNorm),
+      mInterleaved(source->mInterleaved),
       mValid(source->mValid),
       mUseFP16(source->mUseFP16),
       mQGamma(source->mQGamma),
@@ -53,12 +55,15 @@ VulkanRoPE::~VulkanRoPE() {
 
 bool VulkanRoPE::prepareGamma(const LayerNorm* norm, std::shared_ptr<Tensor>& gamma, float& eps) {
     if (norm == nullptr) {
-        return false;
+        return true;
     }
     eps = norm->epsilon();
-    if (norm->gamma() == nullptr || norm->gamma()->size() != mHeadDim || !norm->useRMSNorm()) {
-        MNN_ERROR("Vulkan RoPE: q/k norm must be RMSNorm with headDim gamma.\n");
+    if (!norm->useRMSNorm() || (norm->gamma() != nullptr && norm->gamma()->size() != 0 && norm->gamma()->size() != mHeadDim)) {
+        MNN_ERROR("Vulkan RoPE: q/k norm must be RMSNorm with an optional headDim gamma.\n");
         return false;
+    }
+    if (norm->gamma() == nullptr || norm->gamma()->size() == 0) {
+        return true;
     }
     gamma.reset(Tensor::createDevice<float>({mHeadDim}));
     if (!backend()->onAcquireBuffer(gamma.get(), Backend::STATIC)) {
@@ -140,7 +145,7 @@ ErrorCode VulkanRoPE::onEncode(const std::vector<Tensor*>& inputs, const std::ve
     gpuParam->size1[0] = ropeDim / 2;
     gpuParam->size1[1] = mQNorm ? 1 : 0;
     gpuParam->size1[2] = mKNorm ? 1 : 0;
-    gpuParam->size1[3] = 0;
+    gpuParam->size1[3] = (mInterleaved ? 1 : 0) | (mQGamma ? 2 : 0) | (mKGamma ? 4 : 0);
     gpuParam->eps[0] = mQEps;
     gpuParam->eps[1] = mKEps;
     gpuParam->eps[2] = 0.0f;
@@ -166,19 +171,23 @@ class VulkanRoPECreator : public VulkanBackend::Creator {
 public:
     VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                    const Op* op, Backend* backend) const override {
-        if (inputs.size() != 4 || outputs.size() != 2 ||
-            TensorUtils::getDescribe(inputs[0])->dimensionFormat != MNN_DATA_FORMAT_NC4HW4 ||
-            TensorUtils::getDescribe(inputs[1])->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
+        auto execution = new VulkanRoPE(op, backend);
+        if (!execution->valid()) {
+            delete execution;
             return nullptr;
         }
-        return new VulkanRoPE(op, backend);
+        return execution;
     }
 };
 
-static bool gRegisterVulkanRoPE = []() {
-    VulkanBackend::addCreator(OpType_RoPE, new VulkanRoPECreator);
-    return true;
-}();
+void registerVulkanRoPECreator() {
+    static const bool registered = []() {
+        static VulkanRoPECreator creator;
+        VulkanBackend::addCreator(OpType_RoPE, &creator);
+        return true;
+    }();
+    (void)registered;
+}
 
 } // namespace MNN
 

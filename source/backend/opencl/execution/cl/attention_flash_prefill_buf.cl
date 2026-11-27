@@ -217,8 +217,16 @@ static inline FLOAT4 load_dim4(__global const FLOAT* input, const int count) {
 #define STORE_FA_ROW(out, off, val, n) store_scalar8((out), (off), CONVERT_FLOAT8(val), (n))
 #endif
 
-// "Masked out" sentinel. Must stay exactly representable in half (the score tile is
-// COMPUTE_FLOAT), so that the FA_NEG_TEST probe is an exact compare in both precisions.
+// Scores, probabilities and the O accumulator are fp32 at every backend precision, and only
+// global storage follows FLOAT. Phase 1 accumulates the *unscaled* Q.K dot product, so at the
+// Low level -- where COMPUTE_FLOAT is half -- a single key channel with a large activation
+// overflows the accumulator into +inf, and the online softmax then turns inf - inf into NaN
+// for the whole layer. Half would also quantize the scores the softmax compares.
+#define FA_FP float
+#define FA_FP4 float4
+#define FA_FP8 float8
+
+// "Masked out" sentinel, and the threshold below which phase 2 treats a score as masked.
 #define FA_NEG_INF (-60000.0f)
 #define FA_NEG_TEST (-50000.0f)
 
@@ -246,7 +254,11 @@ __kernel void flash_attention_prefill(
                               // Appended, not inserted: the record path patches args 7 and 9 by index.
                               __private const int mask_q_len,
                               // maskQLen * maskKvLen when the plane is per batch, 0 when it is shared.
-                              __private const int mask_batch_stride) {
+                              __private const int mask_batch_stride
+#ifdef ATTENTION_SINKS
+                              , __global const FLOAT* sinks
+#endif
+                              ) {
     const int lid = get_local_id(0);
     const int q_start = get_group_id(0) * FA_TILE_Q;
     const int z = get_global_id(1); // batch * headNum
@@ -255,7 +267,7 @@ __kernel void flash_attention_prefill(
     const int kv_hn = hn / NUMHEAD_GROUP_SIZE;
 
     __local FLOAT lq[FA_HEAD_DIM_4 * FA_TILE_Q]; // Q tile, [headDim rounded to 4][FA_TILE_Q]
-    __local COMPUTE_FLOAT ls[FA_TILE_KV * FA_TILE_Q]; // S then P, [FA_TILE_KV][FA_TILE_Q]
+    __local FA_FP ls[FA_TILE_KV * FA_TILE_Q]; // S then P, [FA_TILE_KV][FA_TILE_Q]
     __local float lred[FA_TILE_Q * FA_TPR];    // per-row partials of max / sum
     __local float ll[FA_TILE_Q];               // running row sum
     __local float la[FA_TILE_Q];               // this block's rescale factor
@@ -295,7 +307,12 @@ __kernel void flash_attention_prefill(
         lq[(d4 + 3) * FA_TILE_Q + r] = qv.w;
     }
     for (int r = lid; r < FA_TILE_Q; r += FA_WG_SIZE) {
-        ll[r] = 0.0f;
+        ll[r] =
+#ifdef ATTENTION_SINKS
+            1.0f;
+#else
+            0.0f;
+#endif
     }
 
     // phase 3 layout: work-item owns rows [r0, r0+4) and dims [d8, d8+8). Surplus lanes get
@@ -314,7 +331,7 @@ __kernel void flash_attention_prefill(
 #else
     const int p3_dims = min(8, FA_HEAD_DIM - d8);
 #endif
-    COMPUTE_FLOAT8 out0 = 0, out1 = 0, out2 = 0, out3 = 0;
+    FA_FP8 out0 = 0, out1 = 0, out2 = 0, out3 = 0;
 
     // phase 1 layout: work-item owns rows [qr0, qr0+4) and kv [kloc, kloc+4).
     const int num_kv_quad = FA_TILE_KV >> 2;
@@ -326,6 +343,9 @@ __kernel void flash_attention_prefill(
     // Running row max, kept private: the FA_TPR work-items of a row all reduce the same
     // lred partials, so they derive an identical m_new and never need to exchange it.
     float m_prev = FA_NEG_INF;
+#ifdef ATTENTION_SINKS
+    m_prev = (float)sinks[hn];
+#endif
     const int key_base = ((b * kv_head_num + kv_hn) * FA_HEAD_DIM) * max_len;
     const int value_base = ((b * kv_head_num + kv_hn) * max_len) * FA_HEAD_DIM + d8;
 
@@ -350,21 +370,20 @@ __kernel void flash_attention_prefill(
             const int kread = min(k_start + kloc, max_len - 4);
             __local const FLOAT* qp = lq + qr0;
             __global const FLOAT* kp = past_key + key_base + kread;
-            COMPUTE_FLOAT4 acc0 = 0, acc1 = 0, acc2 = 0, acc3 = 0;
+            FA_FP4 acc0 = 0, acc1 = 0, acc2 = 0, acc3 = 0;
             for (int d = 0; d < FA_HEAD_DIM; ++d) {
-                COMPUTE_FLOAT4 qv = CONVERT_COMPUTE_FLOAT4(vload4(0, qp + d * FA_TILE_Q));
-                COMPUTE_FLOAT4 kv = CONVERT_COMPUTE_FLOAT4(vload4(0, kp + d * max_len));
-                acc0 = mad((COMPUTE_FLOAT4)kv.x, qv, acc0);
-                acc1 = mad((COMPUTE_FLOAT4)kv.y, qv, acc1);
-                acc2 = mad((COMPUTE_FLOAT4)kv.z, qv, acc2);
-                acc3 = mad((COMPUTE_FLOAT4)kv.w, qv, acc3);
+                FA_FP4 qv = convert_float4(vload4(0, qp + d * FA_TILE_Q));
+                FA_FP4 kv = convert_float4(vload4(0, kp + d * max_len));
+                acc0 = mad((FA_FP4)kv.x, qv, acc0);
+                acc1 = mad((FA_FP4)kv.y, qv, acc1);
+                acc2 = mad((FA_FP4)kv.z, qv, acc2);
+                acc3 = mad((FA_FP4)kv.w, qv, acc3);
             }
-            const COMPUTE_FLOAT scale_c = (COMPUTE_FLOAT)scale;
-            __local COMPUTE_FLOAT* sp = ls + kloc * FA_TILE_Q + qr0;
-            vstore4(acc0 * scale_c, 0, sp);
-            vstore4(acc1 * scale_c, 0, sp + FA_TILE_Q);
-            vstore4(acc2 * scale_c, 0, sp + 2 * FA_TILE_Q);
-            vstore4(acc3 * scale_c, 0, sp + 3 * FA_TILE_Q);
+            __local FA_FP* sp = ls + kloc * FA_TILE_Q + qr0;
+            vstore4(acc0 * scale, 0, sp);
+            vstore4(acc1 * scale, 0, sp + FA_TILE_Q);
+            vstore4(acc2 * scale, 0, sp + 2 * FA_TILE_Q);
+            vstore4(acc3 * scale, 0, sp + 3 * FA_TILE_Q);
         }
         barrier(CLK_LOCAL_MEM_FENCE);
 
@@ -385,7 +404,7 @@ __kernel void flash_attention_prefill(
             float pmax = FA_NEG_INF;
             for (int j = 0; j < FA_KV_PER_THREAD; ++j) {
                 const int kk = p2_beg + j;
-                float s = (float)ls[kk * FA_TILE_Q + p2_row];
+                float s = ls[kk * FA_TILE_Q + p2_row];
                 if (kk >= kv_valid || q >= seq_len) {
                     s = FA_NEG_INF;
                 } else {
@@ -407,7 +426,7 @@ __kernel void flash_attention_prefill(
                     // Normalize -inf / -FLT_MAX / NaN onto the sentinel.
                     s = fmax(s, FA_NEG_INF);
                 }
-                ls[kk * FA_TILE_Q + p2_row] = (COMPUTE_FLOAT)s;
+                ls[kk * FA_TILE_Q + p2_row] = s;
                 pmax = fmax(pmax, s);
             }
             lred[p2_sub * FA_TILE_Q + p2_row] = pmax;
@@ -422,9 +441,9 @@ __kernel void flash_attention_prefill(
             float psum = 0.0f;
             for (int j = 0; j < FA_KV_PER_THREAD; ++j) {
                 const int kk = p2_beg + j;
-                const float s = (float)ls[kk * FA_TILE_Q + p2_row];
+                const float s = ls[kk * FA_TILE_Q + p2_row];
                 const float p = (s <= FA_NEG_TEST) ? 0.0f : native_exp(s - m_new);
-                ls[kk * FA_TILE_Q + p2_row] = (COMPUTE_FLOAT)p;
+                ls[kk * FA_TILE_Q + p2_row] = p;
                 psum += p;
             }
             m_prev = m_new;
@@ -446,39 +465,39 @@ __kernel void flash_attention_prefill(
         // ---- phase 3: O = O * alpha + P.V ----
         // Guarded, but the barrier below stays outside: it has to be reached by every lane.
         if (p3_active) {
-            out0 *= (COMPUTE_FLOAT)la[r0];
-            out1 *= (COMPUTE_FLOAT)la[r0 + 1];
-            out2 *= (COMPUTE_FLOAT)la[r0 + 2];
-            out3 *= (COMPUTE_FLOAT)la[r0 + 3];
+            out0 *= la[r0];
+            out1 *= la[r0 + 1];
+            out2 *= la[r0 + 2];
+            out3 *= la[r0 + 3];
             // kv_end, not kv_seq_len: P is zero past it for every row of this tile.
             const int kv_valid = min(FA_TILE_KV, kv_end - k_start);
             __global const FLOAT* vp = past_value + value_base + k_start * FA_HEAD_DIM;
             for (int kk = 0; kk < kv_valid; ++kk) {
-                COMPUTE_FLOAT4 p = vload4(0, ls + kk * FA_TILE_Q + r0);
+                FA_FP4 p = vload4(0, ls + kk * FA_TILE_Q + r0);
 #if (FA_HEAD_DIM % 8) == 0
-                COMPUTE_FLOAT8 vv = CONVERT_COMPUTE_FLOAT8(vload8(0, vp + kk * FA_HEAD_DIM));
+                FA_FP8 vv = convert_float8(vload8(0, vp + kk * FA_HEAD_DIM));
 #else
                 // V is [.. ][maxLen][headDim] with no padding on the dim axis, so the trailing
                 // group cannot be read as a whole vload8. Compile-time branch, so this covers
                 // every group and not just the short one -- p3_dims is 8 for all but the last.
                 // The aligned case above keeps its vector load in this hot loop.
-                COMPUTE_FLOAT8 vv = 0;
+                FA_FP8 vv = 0;
                 {
                     __global const FLOAT* vrow = vp + kk * FA_HEAD_DIM;
-                    vv.s0 = (COMPUTE_FLOAT)vrow[0];
-                    if (p3_dims > 1) { vv.s1 = (COMPUTE_FLOAT)vrow[1]; }
-                    if (p3_dims > 2) { vv.s2 = (COMPUTE_FLOAT)vrow[2]; }
-                    if (p3_dims > 3) { vv.s3 = (COMPUTE_FLOAT)vrow[3]; }
-                    if (p3_dims > 4) { vv.s4 = (COMPUTE_FLOAT)vrow[4]; }
-                    if (p3_dims > 5) { vv.s5 = (COMPUTE_FLOAT)vrow[5]; }
-                    if (p3_dims > 6) { vv.s6 = (COMPUTE_FLOAT)vrow[6]; }
-                    if (p3_dims > 7) { vv.s7 = (COMPUTE_FLOAT)vrow[7]; }
+                    vv.s0 = (FA_FP)vrow[0];
+                    if (p3_dims > 1) { vv.s1 = (FA_FP)vrow[1]; }
+                    if (p3_dims > 2) { vv.s2 = (FA_FP)vrow[2]; }
+                    if (p3_dims > 3) { vv.s3 = (FA_FP)vrow[3]; }
+                    if (p3_dims > 4) { vv.s4 = (FA_FP)vrow[4]; }
+                    if (p3_dims > 5) { vv.s5 = (FA_FP)vrow[5]; }
+                    if (p3_dims > 6) { vv.s6 = (FA_FP)vrow[6]; }
+                    if (p3_dims > 7) { vv.s7 = (FA_FP)vrow[7]; }
                 }
 #endif
-                out0 = mad((COMPUTE_FLOAT8)p.x, vv, out0);
-                out1 = mad((COMPUTE_FLOAT8)p.y, vv, out1);
-                out2 = mad((COMPUTE_FLOAT8)p.z, vv, out2);
-                out3 = mad((COMPUTE_FLOAT8)p.w, vv, out3);
+                out0 = mad((FA_FP8)p.x, vv, out0);
+                out1 = mad((FA_FP8)p.y, vv, out1);
+                out2 = mad((FA_FP8)p.z, vv, out2);
+                out3 = mad((FA_FP8)p.w, vv, out3);
             }
         }
         barrier(CLK_LOCAL_MEM_FENCE);
@@ -490,10 +509,10 @@ __kernel void flash_attention_prefill(
         return;
     }
     const float l0 = ll[r0], l1 = ll[r0 + 1], l2 = ll[r0 + 2], l3 = ll[r0 + 3];
-    out0 *= (COMPUTE_FLOAT)((l0 > 0.0f) ? (1.0f / l0) : 0.0f);
-    out1 *= (COMPUTE_FLOAT)((l1 > 0.0f) ? (1.0f / l1) : 0.0f);
-    out2 *= (COMPUTE_FLOAT)((l2 > 0.0f) ? (1.0f / l2) : 0.0f);
-    out3 *= (COMPUTE_FLOAT)((l3 > 0.0f) ? (1.0f / l3) : 0.0f);
+    out0 *= (l0 > 0.0f) ? (1.0f / l0) : 0.0f;
+    out1 *= (l1 > 0.0f) ? (1.0f / l1) : 0.0f;
+    out2 *= (l2 > 0.0f) ? (1.0f / l2) : 0.0f;
+    out3 *= (l3 > 0.0f) ? (1.0f / l3) : 0.0f;
 
     const int q0 = q_start + r0;
 #ifdef ATTENTION_C4

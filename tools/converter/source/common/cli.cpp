@@ -680,12 +680,15 @@ bool Cli::convertModel(modelConfig& modelPath) {
     if (1 == modelPath.optimizeLevel && modelPath.model == modelConfig::MNN) {
         expectedPass = {
             "TranslateJsonOp",
-            "FuseDupOp",
             "RemoveInvalidCast",
+            "FuseDupOp",
+            "FuseDecomposedRoPE",
             "RemoveDeadShapeOp",
         };
         if (modelPath.transformerFuseC4) {
-            expectedPass.insert(expectedPass.begin() + 1, "FuseTransformerC4");
+            expectedPass.insert(expectedPass.begin() + 4, "FuseTransformerC4");
+            expectedPass.insert(expectedPass.begin() + 5, "FuseMoeRouteSoftmax");
+            expectedPass.insert(expectedPass.begin() + 6, "FuseMoeRouteSigmoid");
         }
     }
     if (modelPath.splitQuantBlock) {
@@ -1123,27 +1126,29 @@ bool Cli::mnn2json(const char* modelFile, const char* jsonFile, int flag) {
             for (int i=0; i<netT->subgraphs.size(); ++i) {
                 auto& g = netT->subgraphs[i];
                 flatbuffers::FlatBufferBuilder newBuilder(1024);
+                newBuilder.ForceDefaults(true);
                 auto root = MNN::SubGraphProto::Pack(newBuilder, g.get());
                 newBuilder.Finish(root);
                 auto content = newBuilder.GetBufferPointer();
                 std::string subGraphName = std::string(jsonFile) + "_" + std::to_string(i);
                 printf("Dump subgraph %s to %s\n", g->name.c_str(), subGraphName.c_str());
                 std::ofstream tempOutput(subGraphName);
-                auto s       = flatbuffers::FlatBufferToString((const uint8_t*)content, MNN::SubGraphProtoTypeTable());
+                auto s = Json2Flatbuffer::writeFlatbufferToJson((const uint8_t*)content, MNN::SubGraphProtoTypeTable());
                 tempOutput << s;
             }
             netT->subgraphs.clear();
         }
         flatbuffers::FlatBufferBuilder newBuilder(1024);
+        newBuilder.ForceDefaults(true);
         auto root = MNN::Net::Pack(newBuilder, netT.get());
         MNN::FinishNetBuffer(newBuilder, root);
         {
             auto content = newBuilder.GetBufferPointer();
-            auto s       = flatbuffers::FlatBufferToString((const uint8_t*)content, MNN::NetTypeTable());
+            auto s       = Json2Flatbuffer::writeFlatbufferToJson((const uint8_t*)content, MNN::NetTypeTable());
             output << s;
         }
     } else {
-        auto s = flatbuffers::FlatBufferToString((const uint8_t*)buffer, MNN::NetTypeTable());
+        auto s = Json2Flatbuffer::writeFlatbufferToJson((const uint8_t*)buffer, MNN::NetTypeTable());
         output << s;
     }
 

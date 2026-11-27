@@ -47,14 +47,16 @@ struct ModelShape {
     int kvNumHead;
     int headDim;
     int layers;
+    int cutDim;
 };
 constexpr ModelShape kModels[] = {
-    {"Qwen3-0.6B", 16, 8, 128, 28},
-    {"Qwen3-1.7B", 16, 8, 128, 28},
-    {"Qwen3-4B", 32, 8, 128, 36},
-    {"Qwen3-8B", 32, 8, 128, 36},
+    {"Qwen3-0.6B", 16, 8, 128, 28, 0},
+    {"Qwen3-1.7B", 16, 8, 128, 28, 0},
+    {"Qwen3-4B", 32, 8, 128, 36, 0},
+    {"Qwen3-8B", 32, 8, 128, 36, 0},
+    {"Qwen3.6-35B-A3B", 16, 2, 256, 10, 64},
 };
-constexpr const char* kModelKeys[] = {"0.6b", "1.7b", "4b", "8b"};
+constexpr const char* kModelKeys[] = {"0.6b", "1.7b", "4b", "8b", "35b"};
 
 static const ModelShape* gModel = &kModels[0];
 
@@ -76,6 +78,8 @@ static void selectModel() {
 // for all layers, so MNN_ROPE_LAYERS reproduces that structure.
 static int gLayers = 1;
 
+static bool gInterleaved = false;
+
 static std::shared_ptr<Module> makeRopeModule(int layers) {
     const int numHead = gModel->numHead;
     const int kvNumHead = gModel->kvNumHead;
@@ -93,10 +97,11 @@ static std::shared_ptr<Module> makeRopeModule(int layers) {
         op->main.type = OpParameter_RoPEParam;
         op->main.value = new RoPEParamT;
         auto param = op->main.AsRoPEParam();
-        param->rope_cut_head_dim = headDim;
+        param->rope_cut_head_dim = gModel->cutDim > 0 ? gModel->cutDim : headDim;
         param->num_head = numHead;
         param->kv_num_head = kvNumHead;
         param->head_dim = headDim;
+        param->interleaved = gInterleaved;
         // Qwen3 normalizes each head before rotating it; both norms are RMSNorm
         // over head_dim. Absent them the kernel takes a different (non-simdgroup)
         // branch entirely, so they are not optional for a production reading.
@@ -168,8 +173,13 @@ static VARP makeTrig(int seq, bool isCos) {
         for (int i = 0; i < half; ++i) {
             float angle = (float)t / std::pow(1000000.0f, (float)(2 * i) / (float)headDim);
             float v = isCos ? std::cos(angle) : std::sin(angle);
-            ptr[t * headDim + i] = v;
-            ptr[t * headDim + i + half] = v;
+            if (gInterleaved) {
+                ptr[t * headDim + 2 * i] = v;
+                ptr[t * headDim + 2 * i + 1] = v;
+            } else {
+                ptr[t * headDim + i] = v;
+                ptr[t * headDim + i + half] = v;
+            }
         }
     }
     var->unMap();
@@ -210,7 +220,7 @@ static float benchOne(int seq, int loop, int round) {
     if (round < 0) {
         return ms;
     }
-    MNN_PRINT("r%d seq=%-5d  per-layer=%8.4f ms (%6.1f GB/s)  x%d layers=%8.3f ms\n", round, seq, ms,
+    MNN_PRINT("r%d seq=%-5d  per-layer=%9.6f ms (%6.1f GB/s)  x%d layers=%8.3f ms\n", round, seq, ms,
               bytes / (ms * 1e6), gModel->layers, ms * gModel->layers);
     return ms;
 }
@@ -236,7 +246,8 @@ public:
         if (auto layerEnv = getenv("MNN_ROPE_LAYERS")) {
             gLayers = std::max(1, atoi(layerEnv));
         }
-        MNN_PRINT("layers-per-forward=%d\n", gLayers);
+        gInterleaved = nullptr != getenv("MNN_ROPE_INTERLEAVED");
+        MNN_PRINT("layout=%s layers-per-forward=%d\n", gInterleaved ? "interleaved" : "half-split", gLayers);
         MNN_PRINT("--- warmup pass (untimed, GPU clock ramp) ---\n");
         for (int seq : seqs) {
             benchOne(seq, 2, -1);
@@ -249,10 +260,11 @@ public:
         }
         MNN_PRINT("--- best of %d ---\n", rounds);
         const int heads = gModel->numHead + gModel->kvNumHead;
+        const double elem = st.precision == 2 ? 2.0 : 4.0;
         for (size_t i = 0; i < seqs.size(); ++i) {
             double bytes =
-                2.0 * 2.0 * (double)seqs[i] * heads * gModel->headDim + 2.0 * 2.0 * (double)seqs[i] * gModel->headDim;
-            MNN_PRINT("BEST seq=%-5d  per-layer=%8.4f ms (%6.1f GB/s)  x%d layers=%8.3f ms\n", seqs[i], best[i],
+                elem * 2.0 * (double)seqs[i] * heads * gModel->headDim + elem * 2.0 * (double)seqs[i] * gModel->headDim;
+            MNN_PRINT("BEST seq=%-5d  per-layer=%9.6f ms (%6.1f GB/s)  x%d layers=%8.3f ms\n", seqs[i], best[i],
                       bytes / (best[i] * 1e6), gModel->layers, best[i] * gModel->layers);
         }
         return true;

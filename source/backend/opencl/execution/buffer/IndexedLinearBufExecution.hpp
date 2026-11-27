@@ -31,8 +31,12 @@ private:
     std::shared_ptr<Resource> mResource;
     int mInputMode = 0;
     bool mFuseSwiGLU = false;
+    int mRouteWeight = 0;
+    float mRouteEps = 0.0f;
+    float mRouteScale = 1.0f;
     int mRowsCapacity = 0;
     std::shared_ptr<cl::Buffer> mCounts, mOffsets, mSortedRows, mTiles;
+    std::shared_ptr<cl::Buffer> mRouteTmp;
 };
 
 } // namespace OpenCL

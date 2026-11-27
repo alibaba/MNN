@@ -4987,12 +4987,58 @@ static void Sme2MNNPackC4ForMatMul_A(float* destOrigin, float const** sourceGrou
 }
 #endif
 
-namespace MNN {
+#ifndef __aarch64__
+static inline Vec4 ropeSwapPairs(Vec4 v) {
+#if defined(MNN_USE_NEON)
+    return Vec4(vrev64q_f32(v.value));
+#elif defined(MNN_USE_SSE)
+    return Vec4(_mm_shuffle_ps(v.value, v.value, _MM_SHUFFLE(2, 3, 0, 1)));
+#else
+    std::array<float, 4> out = {v.value[1], v.value[0], v.value[3], v.value[2]};
+    return Vec4(std::move(out));
+#endif
+}
 
-static CoreFunctions* gCoreFunction = nullptr;
+static void MNNRoPEInterleavedCompute(void* dst, const void* src, const void* cosRow, const void* sinRow, int numHead,
+                                      int headDim, int ropeCutHeadDim) {
+    int ropeDim = ropeCutHeadDim;
+    if (ropeDim <= 0 || ropeDim > headDim) {
+        ropeDim = headDim;
+    }
+    ropeDim = (ropeDim / 2) * 2;
 
-static void MNNRoPEComputeBasic(void* dst, const void* src, const void* cosEven, const void* cosOdd,
-                                const void* sinEven, const void* sinOdd, int numHead, int headDim, int ropeCutHeadDim) {
+    auto srcFloat = static_cast<const float*>(src);
+    auto dstFloat = static_cast<float*>(dst);
+    auto cosFloat = static_cast<const float*>(cosRow);
+    auto sinFloat = static_cast<const float*>(sinRow);
+    const float signData[4] = {-1.0f, 1.0f, -1.0f, 1.0f};
+    const auto sign = Vec4::load(signData);
+    for (int h = 0; h < numHead; ++h) {
+        auto srcH = srcFloat + h * headDim;
+        auto dstH = dstFloat + h * headDim;
+        int i = 0;
+        for (; i + 3 < ropeDim; i += 4) {
+            auto v = Vec4::load(srcH + i);
+            auto c = Vec4::load(cosFloat + i);
+            auto s = Vec4::load(sinFloat + i) * sign;
+            Vec4::save(dstH + i, Vec4::fma(v * c, ropeSwapPairs(v), s));
+        }
+        for (; i < ropeDim; i += 2) {
+            float evenVal = srcH[i];
+            float oddVal = srcH[i + 1];
+            float c = cosFloat[i];
+            float s = sinFloat[i];
+            dstH[i] = evenVal * c - oddVal * s;
+            dstH[i + 1] = evenVal * s + oddVal * c;
+        }
+        if (ropeDim < headDim && dstH != srcH) {
+            ::memcpy(dstH + ropeDim, srcH + ropeDim, (headDim - ropeDim) * sizeof(float));
+        }
+    }
+}
+
+static void MNNRoPECompute(void* dst, const void* src, const void* cosEven, const void* cosOdd, const void* sinEven,
+                           const void* sinOdd, int numHead, int headDim, int ropeCutHeadDim) {
     int ropeDim = ropeCutHeadDim;
     if (ropeDim <= 0 || ropeDim > headDim) {
         ropeDim = headDim;
@@ -5028,12 +5074,17 @@ static void MNNRoPEComputeBasic(void* dst, const void* src, const void* cosEven,
             dst0[k] = q0 * cosEvenFloat[k] - q1 * sinEvenFloat[k];
             dst1[k] = q1 * cosOddFloat[k] + q0 * sinOddFloat[k];
         }
-        if (ropeDim < headDim) {
+        if (ropeDim < headDim && dstFloat != srcFloat) {
             ::memcpy(dstFloat + j * headDim + ropeDim, srcFloat + j * headDim + ropeDim,
                      (headDim - ropeDim) * sizeof(float));
         }
     }
 }
+#endif
+
+namespace MNN {
+
+static CoreFunctions* gCoreFunction = nullptr;
 
 template <int Pack>
 static void MNNNormPackedFloat(float* normOut, float* sumOut, const float* source, const float* residual,
@@ -5247,7 +5298,8 @@ void MNNCoreFunctionInit() {
     gCoreFunction->MNNQuantAttentionKey = MNNQuantAttentionKey;
     gCoreFunction->MNNQuantAttentionValue = MNNQuantAttentionValue;
 #endif // MNN_SUPPORT_TRANSFORMER_FUSE
-    gCoreFunction->MNNRoPECompute = MNNRoPEComputeBasic;
+    gCoreFunction->MNNRoPECompute = MNNRoPECompute;
+    gCoreFunction->MNNRoPEInterleavedCompute = MNNRoPEInterleavedCompute;
 
     gCoreFunction->MNNReluWithSlopeChannel = MNNReluWithSlopeChannel;
     gCoreFunction->MNNReluInt8 = MNNReluInt8;

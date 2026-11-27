@@ -21,6 +21,10 @@ layout(set=0, binding=4) readonly uniform constBuffer {
     vec4 f0;  // scale, 0, 0, 0
 } uConst;
 
+layout(set=0, binding=5) readonly buffer sinkBuffer {
+    FLOAT data[];
+} uSinks;
+
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 const float NEG_INF = -3.402823466e38;
@@ -36,8 +40,9 @@ void main() {
     const uint rowCount = qLen * headNum;
     const uint accCount = rowCount * headDim;
     if (idx < rowCount) {
-        uM.data[idx] = NEG_INF;
-        uL.data[idx] = 0.0;
+        const bool hasSinks = uConst.f0.y > 0.5;
+        uM.data[idx] = hasSinks ? float(uSinks.data[idx % headNum]) : NEG_INF;
+        uL.data[idx] = hasSinks ? 1.0 : 0.0;
         uAlpha.data[idx] = 0.0;
     }
     if (idx < accCount) {

@@ -33,6 +33,10 @@ layout(set=0, binding=7) readonly uniform constBuffer {
     vec4 f0;  // scale, 0, valueC4, outputC4
 } uConst;
 
+layout(set=0, binding=8) readonly buffer sinkBuffer {
+    FLOAT data[];
+} uSinks;
+
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 const int MAX_D4 = 64;   // per invocation z
@@ -88,6 +92,10 @@ void main() {
 
     float m = -3.402823466e38;
     float s = 0.0;
+    if (uConst.f0.y > 0.5) {
+        m = float(uSinks.data[h]);
+        s = 1.0;
+    }
 
     const int kStart = (maskMode == 1 && maskKvlen > 0 && totalLen > maskKvlen) ? (totalLen - maskKvlen) : 0;
 

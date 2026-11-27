@@ -31,7 +31,7 @@
 
 2. **dispatcher 要先摸清**。Metal conv1x1 同一 op 常有多条 kernel（gemv 多种 / gemm 多种 / outer dequant），按 `area`、`oc`、`ic_4` 等 case 切。新加 quant bit 不可能一次扩完所有路径，**必须先决定支持哪几条 + 让其他路径不被 dispatch**。
 
-3. **Apple GPU 内部也不能互推**。M 系列不同代、iPhone A 系列与 M 系列在 occupancy / 调度上差异显著；更不能把 Metal 上的结论推给 Vulkan/OpenCL。设备分档看 `MTLDevice.architecture.name` 与 `isSupportTensorApi()` / `isSupportTensorCoopInput()`。
+3. **Apple GPU 内部也不能互推**。M 系列不同代、iPhone A 系列与 M 系列在 occupancy / 调度上差异显著；更不能把 Metal 上的结论推给 Vulkan/OpenCL。设备调优分档看 `MTLDevice.architecture.name`，Tensor API 可用性看 `isSupportTensorApi()`，不要混用两者。
 
 4. **正确性 oracle 先于性能**。CPU / `temperature=0` greedy 对拍前 N token 是黄金标准；fp32（`precision: high`）bit-identical 是最强证据。错误 kernel 一样能"变快"。
 
@@ -42,37 +42,54 @@ grep -rn "OpType_<MyOp>" source/backend/metal/                    # Execution
 grep -rn "kernel void <my_kernel>" source/backend/metal/*.hpp     # shader 字符串入口
 ```
 
-低 bit 量化 conv 入口：`MetalConvolution1x1::onResize`。识别 quant：`mDequantBits ∈ {2,3,4,8}`（在 `MetalConvolutionCommon::loadWeight` 里设置）。`onResize` 把 `area` × `oc` × `dequantInShader` × simdgroup 能力组合分流到多条路径，扩 quant bit 前先把目标 shape 走的那条 case 标出来。
+低 bit 量化 conv 入口：`MetalConvolution1x1::onResize`。识别 quant：`mDequantBits ∈ {2,3,4,8}`（在 `MetalConvolutionCommon::loadWeight` 里设置）。`onResize` 把 `area` × `oc` × `dequantInKernel` × simdgroup 能力组合分流到多条路径，扩 quant bit 前先把目标 shape 走的那条 case 标出来。
 
 **当前 conv1x1 低 bit 量化路径**：
 
 ```
-dequantInShader 基线 = area < 64 || 不支持 simdgroupMatrix，三个覆盖：
-  ① W2/3 && area>1 && sgMatrix → false（W2/3 prefill 走 outer-dequant）
-  ② tensor-API 设备 && area>1 && Q4/Q8 → false
-  ③ 非 tensor-API && sgMatrix && area>1 && Q4/Q8 && 权重>4M 参数 && area<512 → true
+kernel 内反量化有两条路：legacy wquant kernel（*_wquant_sg）和 tensor-API fusedQuant GEMM。
+路由由单个 selectQuantRoute(shape) 决定，返回 gemmPlan.dequantInKernel（= wquantKernel || fusedQuant）+ GEMM plan：
+dequantInKernel = dequantScale && gemmPlan.dequantInKernel（kernel 内反量化总闸，一个变量）。
+wquantKernel = area==1 || legacy 优先级（先 block quad-fit 检查，不 fit → true；再按家族分）：
+  W2/3 → !sgMatrix（无 tile GEMM；有 sgMatrix 走 fused/prepass）
+  tensor-API && Q4/Q8 → area<=5 && sgReduce（g4mN 单次权重读，优于 M8 split-K），否则 false
+  非 tensor-API Q4/Q8 → area<64 || !sgMatrix → true；否则 权重>4M 参数 && area<512 → true
+GEMM plan 先按 shape/gen 定反量化位置（preDequant，不含 API 判据），外层 if(preDequant)，
+各分支内按 useTensorApi 选 kernel：M4+（g16+）全 fused；M1–M3（g13–15）area>=64 走
+preDequant（kernel 外），其余 fused；非 tensor 两臂都落 simdgroup fp GEMM。
+legacy 优先级不可省：纯 preDequant×API 四象限会漏掉 decode/g4mN/大权重等 legacy 抢先（约 38% shape 误判）。
+反量化位置 = kernel 内（fusedQuant）还是 kernel 外（Outer*）是独立一维，命名按该维取值：
+OuterTcM64 = kernel 外 dequant + tensor cooperative matmul2d；OuterSgM64 = kernel 外 dequant + simdgroup matrix；
+FusedQuantM8/M32/M64 = kernel 内 unpack，后缀是 tile 的 M 尺寸。
 
-mDequantScaleBias && dequantInShader
-  ├─ supportSimdGroupReduce && (area <= short_seq=16 || w23NoMatrix)
-  │    ├─ area ∈ [2,16]（或 ≤32 非 heavyMemory，halve 后 piece=2）→ conv1x1_gemv_g4mN_wquant_sg
-  │    ├─ lm_head（oc > 16384 且 oc_4 偶，g16LmHeadRoute）→ conv1x1_gemv_g16_wquant_sg
-  │    │    （decode 且 oc%8==0、blockCount 偶数除外：落到 area == 1 的 2sg 路由）
-  │    ├─ lm_head 其余 shape → conv1x1_gemv_g4m1_2sg_wquant_sg（oc16Sg4K1 / oc8Sg4K2
-  │    │    按 §2.1.5 的"网格对 TG 预算"规则选路）
-  │    ├─ area == 1 → conv1x1_gemv_g4m1_2sg_wquant_sg   (满足 shape 门控时 GEMV_SPLIT_K=2)
-  │    └─ else → conv1x1_gemv_g8_wquant_sg   (仅 w23NoMatrix 大 area 兜底)
-  └─ supportSimdGroupMatrix && area > short_seq && oc > 8 && ic_4 偶 → conv1x1_gemm_*_wquant_sg
-       (ic_4%8≠0 → 8x16；大 shape → 32x64_wquant_split_k / 32x16 / 16x32；默认 16x16)
+mDequantScaleBias && dequantInKernel
+  ├─ !wquantKernel → conv1x1_fused_q4_gemm_stage*（buildQuantGemm，kernel 内 unpack）
+  │    tile M：W4/W8 area<=8 → M8 核（q4：conv1x1_fused_q4_gemm_stage_m8 / _ksplit_m8；
+  │    q8：conv1x1_fused_q8_gemm_stage_m8，独立 kernel，不复用 q4 核加宏）；
+  │    area>=64 → M64 核（conv1x1_fused_q4_gemm_stage_m64，W8 同核不启用 dual/silu 折叠）；其余 M32 核
+  └─ wquantKernel（MNN_LOW_MEMORY）：
+     ├─ supportSimdGroupReduce && (area <= short_seq=16 || w23NoMatrix)
+     │    ├─ area ∈ [2,16]（或 ≤32 非 heavyMemory，halve 后 piece=2）→ conv1x1_gemv_g4mN_wquant_sg
+     │    ├─ lm_head（oc > 16384 且 oc_4 偶，g16LmHeadRoute）→ conv1x1_gemv_g16_wquant_sg
+     │    │    （decode 且 oc%8==0、blockCount 偶数除外：落到 area == 1 的 2sg 路由）
+     │    ├─ lm_head 其余 shape → conv1x1_gemv_g4m1_2sg_wquant_sg（oc16Sg4K1 / oc8Sg4K2
+     │    │    按 §2.1.5 的"网格对 TG 预算"规则选路）
+     │    ├─ area == 1 → conv1x1_gemv_g4m1_2sg_wquant_sg   (满足 shape 门控时 GEMV_SPLIT_K=2)
+     │    └─ else → conv1x1_gemv_g8_wquant_sg   (仅 w23NoMatrix 大 area 兜底)
+     └─ supportSimdGroupMatrix && area > short_seq && oc > 8 && ic_4 偶 → conv1x1_gemm_*_wquant_sg
+          (ic_4%8≠0 → 8x16；大 shape → 32x64_wquant_split_k / 32x16 / 16x32；默认 16x16)
 
-mDequantScaleBias && !dequantInShader
-  → conv1x1_w_dequant + fp gemm  (outer dequant + fp gemm)
+mDequantScaleBias && !dequantInKernel
+  → conv1x1_w_dequant + fp gemm（buildQuantGemm，kernel 外 dequant → mTempWeight → fp gemm）
      默认 conv1x1_gemm_32x64_split_k_sg；较新 arch-gen → 64x64_split_k；
-     tensor-API 设备 → conv1x1_fused_q4_gemm_stage*
+     tensor-API OuterTcM64 → conv1x1_gemm_device_tensor
 ```
 
 `w23NoMatrix` = W2/W3 且设备无 simdgroupMatrix：outer-dequant 与 g1z4 fallback 均不可用，g4mN/g8/g16 需覆盖全部 area——g4mN 实例只到 g4m16，超界 area 落 g8。
 
 新加 quant bit 时典型组合是 decode gemv path + prefill outer-dequant path，其他 gemv/gemm 实例 dispatcher 显式 fallback；一次性扩完所有 path 工作量太大。
+
+Conv1x1 的矩阵乘选型不读取 `KVMeta` 或 speculative 标记。同一 M/N/K、量化格式和设备能力必须得到同一路径；小 M 的 tile 行数与 K 分区数统一驱动 kernel、dispatch 网格和 partial buffer，不能为调用场景另设一套布尔开关。
 
 ## 1.3 shader 组织与命名约定
 
@@ -88,7 +105,7 @@ kernel void linear_attn_gated_norm(...) { ... }
 )metal";
 ```
 
-- C++ 常量命名 `g` + 大驼峰（`gBasicConvPrefix`、`gPrefillFlashAttn`、`gDecodeSplitKV`）。
+- C++ 常量命名 `g` + 大驼峰（`gBasicConvPrefix`、`gPrefillFlashAttnSg`、`gDecodeSplitKV`）。
 - 文件头统一 `#if MNN_METAL_ENABLED`；transformer 专用的再套 `#ifdef MNN_SUPPORT_TRANSFORMER_FUSE`。
 - **公共头通过 C++ 字符串拼接共享，不是 `#include`**：
 
@@ -117,7 +134,7 @@ kernel void linear_attn_gated_norm(...) { ... }
 | 量化 | `wquant`（**位宽走编译宏，不进名字**）| `conv1x1_gemv_g8_wquant_sg` |
 | 算法变体 | `split_k` / `rms` / `fused` / `align` / `chunk64` / `inplace` | |
 | 后缀 `_sg` | **依赖 simdgroup 原语**（需 `supportSimdGroupReduce()` / `supportSimdGroupMatrix()`）| `prefill_flash_attn_sg` |
-| 后缀 `_tc` | **依赖 tensor cooperative input**（`matmul2d` + cooperative tensor，需 `isSupportTensorCoopInput()`）⇒ 仅 tensor-coop 设备可达，其他设备结构性休眠 | `prefill_flash_attn_tc` |
+| 后缀 `_tc` | **使用 tensor cooperative input**（`matmul2d` + cooperative tensor，由统一的 `isSupportTensorApi()` 检查能力） | `prefill_flash_attn_tc` |
 | 版本 | `_v2` / `_v4` = 算法迭代 | `linear_attn_gated_delta_rule_sg_v4` |
 
 前缀谓词放最前（`binary_layernorm_c4_rms_sg` = binary 前导 + layernorm + C4 + RMS + simdgroup）。
@@ -295,6 +312,12 @@ Metal 的 `v * M`（行向量×矩阵）语义是 `(v*M)[j] = dot(v, M[j])`，�
 
 **定位配方**：① 用 seqLen 逐点 sweep 找**精确激活边界**，边界对齐某个 flag 的阈值就说明"不是数值误差而是换了 kernel"；② 一条链路里多级都有 tensor / 非 tensor 两版且由同一个 flag 一起切换时，必须能**分别**把某一级退回非 tensor 版才能二分；③ ⚠️ 做这个隔离时，**shader 名、pipeline 缓存 key 的宏、dispatch grid 三者必须一起改**——只换 shader 名会让宏与 grid 不匹配，制造出与真 bug 无关的假失败。
 
+### 陷阱 J：`Tensor::createDevice` 默认 TENSORFLOW 维度序，`channel()` 读到 area
+
+`Tensor::createDevice<T>({n,c,h,w})` 的 dimType 默认是 **TENSORFLOW (NHWC)**，`channel()` 读 dim[3]。直接构造 Execution 做路由/形状测试时若忘传 `Tensor::CAFFE`，ic/oc 会被读成 w/h，路由决策整体错乱但**不崩不告警**；当 oc==area 时个别 case 还会碰巧"看起来对"，掩盖问题。
+
+**规矩**：测试或 host 代码手工 `createDevice` 喂给按 NCHW 语义读 `channel()/width()` 的 Execution 时，一律显式传 `Tensor::CAFFE`。快照/路由结果与源码逻辑矛盾时，先打印 Execution 实际读到的 ic/oc，再怀疑二进制新鲜度。
+
 ## 1.7 Packed weight 设计
 
 新加 quant bit 时**先固定 5 个量**：
@@ -330,7 +353,7 @@ make -j8 MNN llm_demo
 | `MetalConvolution1x1.mm` `mDequantBits` | `useIntN ? N : (int4Path ? 4 : 8)` |
 | dispatcher 选路 | `mDequantBits == N` 时设 `W_QUANT_N` 宏，避开未扩展 path |
 | 融合 setup 的 keys/dic | 三处 fusion setup 都要补新 bit，**漏改是静默退融合** |
-| prefill（multi-token）| `(mDequantBits == N) && area > 1` 时 force `dequantInShader = false` |
+| prefill（multi-token）| `selectQuantRoute` 里为 N 补分支（legacy 优先级 + GEMM plan），area>1 落到有 `W_QUANT_N` 支持的 kernel，无则走 prepass |
 
 **跨分支移植优化前先核对隐含前置**：性能提交可能基于已 squash 的基础设施提交开发，单看补丁看不出依赖。移植前用 `git log -S'<新增 override/API>' -- <目录>` 定位接口来源，确认目标分支是否已有实现；没有就只补最小前置提交，不要整文件采用来源分支的公共 registry/backend 文件。解决冲突后检查：核心实现与来源分支目标行为一致；被新 kernel 取代的旧 shader、pipeline 成员、dispatch 分支必须一起删除并用 `rg` 确认零引用。最后 clean rebuild + 至少一次真实 Metal 运行——**普通 C++ 编译发现不了运行时 Metal shader 编译错误**。
 
@@ -389,7 +412,7 @@ MNN 现有 tensor 用法（`prefill_qk_tensor`、`conv1x1_fused_q4_gemm_stage`�
 
 ⚠️ **硬约束**：input cooperative tensor 只允许单 simdgroup 作用域 ⇒ 必须 `metal::execution_simdgroup`，每个 simdgroup 独立跑一个小 matmul。`execution_simdgroups<4>` + threadgroup source tensor 的写法**无法表达 online softmax**。
 
-⚠️ 能力探针在 `MetalBackend.mm` 的 `mSupportTensorCoopInput`（与 `mSupportTensorApi` 分开）。
+⚠️ `mSupportTensorApi` 仅表示构建和设备准入。使用真实 kernel 的 pipeline 创建结果决定是否回退；可选编译失败不能提前标记整个 runtime 失败，编译成功也不能替代数值验证。
 
 **逐元素布局**（`matmul2d_descriptor(16,32,16, false, TB, true, multiply_accumulate)` + `execution_simdgroup`，实测 dump）：
 
@@ -428,7 +451,7 @@ N = fn + (i&3) + ((i>>3)&1)*16 + ((i>>4)&1)*32
 
 ### dump 手法：改在 MNN 进程内做
 
-独立 harness 里一旦调 `get_multidimensional_index` 或 `run()` 就可能被 SIGKILL（无 stdout、无 crash report；只读 `get_capacity()` 的版本正常）。**改在 MNN 自己的进程里 dump**（`MetalBackend.mm` 的 `src_coop_input` 探针旁边加临时 env-gated 代码，用 `pipelineWithSourceOption` + 自建 command queue dispatch 32 线程）——那里 tensor-ops shader 编译和执行都正常。
+独立 harness 里一旦调 `get_multidimensional_index` 或 `run()` 就可能被 SIGKILL（无 stdout、无 crash report；只读 `get_capacity()` 的版本正常）。**改在 MNN 自己的进程里 dump**，用独立诊断 shader、`pipelineWithSourceOption` 和自建 command queue dispatch 32 线程；诊断代码不能作为生产初始化步骤。
 
 且不必依赖 `get_multidimensional_index`：把 A/B 都做成 device tensor handle，用数值编码反推坐标——
 `A[m][k] = (k==0)?1:(k==1)?m:0`，`B[n][k] = (k==0)?n:(k==1)?64:0` ⇒ `D[m][n] = n + 64*m`，读回来 `m = v/64, n = v%64`，每个元素自报坐标（fp16 精确）。tensor `dextents` 第 0 维 = 内存连续维，`slice(origin0, origin1)` 同序。模板函数里调 `mm.get_destination_cooperative_tensor<...>` 要写 `mm.template ...`。
@@ -582,29 +605,29 @@ decode GEMV 的带宽兑现率**随单 dispatch 体量单调上升**：几 MB �
 - **为什么赚**：**行内在途读加倍**——直接对着 §2.1.4 的"小 GEMV latency-bound"下药。收益本质是提高访存并发，不是省 barrier（免 barrier 的 shuffle 变体反而更差，已删除）。
 - **门控**：只在 `area==1` 的**普通** decode GEMV 分支；要求 `oc%8==0` 且每行 block 数可整除切分数（不整除会让 barrier 前出现不对齐的早退，见陷阱 G）。融合 leader 走自己的管线（§2.1.6）。
 - **块数窗口**：M4 世代起 split-K 只在 blockCount < 32 或 ≥ 96 时启用，[32, 96) 默认走 oc16Sg4K1（4 SG × 4 quads/TG）。Pro 档与 base M4 起（gen>=16）档在 Q4 block64 fp16 上改按下面的"网格对 TG 预算"规则选路；只有无预算的档位（A 系、pre-M4 base）仍按窗口。
-- **设备分档（pre-M4 世代，`Conv1x1GpuTier::belowM4Gen` = archName gen < 16 且窄于 Pro die（M1–M3 base 与同代 A 系），含 gen 0 的元数据地板以下机型）**：`oc%16==0` 且 blockCount ≤ 96 时否决 split-K、走 oc16Sg4K1——该世代 split-K 的 threadgroup 归约开销盖不过翻倍的在途读。**> 96 块保留 split-K**：那里孤立 op 读数仍支持 oc16Sg4K1，e2e 却反号——更多 TG 与前一 kernel 尾部的交叠更好，而孤立 op 循环里同一 kernel 背靠背、测不到这条。**大 block 数的路径开关以 e2e 相邻配对为判据，op 级只用于 kernel 内部旋钮。**
-- **网格对 TG 预算（`tgBudget`：Pro 档 160、base M4 起（gen>=16）档 80，其余档 0 即不启用；`proTier` = `tier >= TierPro`：所有代的 Pro / Max / Ultra，与 `MetalAttention` 的 `highBandwidthGpu` 同一谓词）**：Q4 block64 fp16、blockCount ≥ 32、`oc%16==0` 时，两条路都发 128 线程 TG——oc16Sg4K1 发 `oc16Sg4K1Threadgroups = oc/16` 个，split-K 发两倍、每个扫半段 K。按 `oc16Sg4K1Threadgroups` 对 `tgBudget` 分三段：① `2*oc16Sg4K1Threadgroups ≤ tgBudget`（split-K 加倍后的网格仍装得下）→ split-K；[32, 96) 内 split-K 网格达到 TG 预算一半（`4*oc16Sg4K1Threadgroups ≥ tgBudget`）用 lanes 4，不到一半用 `gemvLanesPerBlock` 的默认 lanes（网格小时 pass 少的默认 lanes 赢，网格大时 lanes 4 赢；两档拐点都在 TG 预算一半附近：Pro oc 512~640，M5 oc 256~320），≥ 96 沿用 `gemvLanesPerBlock`；② `oc16Sg4K1Threadgroups > oc16Sg4K1GridLimit`（oc16Sg4K1 自己的网格已远超预算）→ split-K；`oc16Sg4K1GridLimit` 在 base 档是 `tgBudget`、Pro 档是 `2*tgBudget`，**这个倍数本身是标定值**：base M5 的拐点在 88 个 TG、base M4 在 64~96 之间，而 M4 Pro 到 288 个 TG（oc 4608）还是 oc16Sg4K1 赢、320 个（oc 5120）起才换 split-K，没找到能解释这个差的单一变量。lanes：Pro 在这段用 `gemvSplitKFillLanes`（按 `blocksOwned = blockCount/2` 在 {2,4} 里选空槽最少的那个，和 Pro 实测逐格吻合：bc40/48/80→4，bc32/56/64/96+→2），base 档用 `gemvLanesPerBlock` 的默认 lanes（实测就是最优）。词表级 lm_head 是这段的极端情况（网格几千个 TG），原来的 `lmHeadScale` 排除和 2048→248320 的 quad1（1 SG/TG、lanes 1）形状特判都已删除——base M5 op 级 bc32/40/64 比 oc16Sg4K1 快 8~10%，2048→248320 比 quad1 快 1.6%；base M4 快 1~3%；M4 Pro 快 1.2~1.9%。Pro 的 `≥ 96 块无条件 split` 例外也随之去掉，预算规则覆盖全部块数；③ 其余走 oc16Sg4K1。Pro 的 160 即原 `oc ≤ 1280` 阈值；base 档 80 取代了原来 2048→2048 的精确形状白名单。**`tgBudget` 是按档标定的参数，不是读出的硬件常驻 TG 数**（M4 Pro 用 128 线程 TG 探针测得常驻约 200）。M5 的三段式是实测现象：中段 oc16Sg4K1 的优势一部分来自层间依赖——串联（chain）测法下 oc16Sg4K1 赢，同形状独立 kernel 测法下 split-K 反而小胜，所以标定要用 chain 测法。已知 regret：M5 上 blockCount ≥ 48 时，第二个拐点提前到 oc 1280 以下（目前 Qwen 系列没有这类独立层）；Pro 上 bc32/56/64（默认 lanes 2，与 lanes 4 的 lane 槽利用率相同）在 oc 640~1024 默认 lanes 仍快 1~2.5 个点，但 M5 同条件下 lanes 4 赢，不能按利用率统一；base M4 上 bc32 是唯一不吃 oc16Sg4K1 窗口的块数，oc 768~1280 实测 split-K lanes 2 还快 2~5%，规则仍按预算走 oc16Sg4K1；Pro 的 fill lanes 在 bc40 / oc 5632~7168 比 oc16Sg4K1 慢 1~2.8%（oc ≥ 8192 转为快 2~3%），bc48/56 在 oc 32768 比逐格最优 lanes 差约 1 个点。Pro 侧的原理：split-K 把每行串行的 quant block 链减半，只有在这条链（而不是全部 oc 行的 DRAM 排空）限速时才赚；两者都正比于 blockCount，所以分界只随 oc 移动、不随 blockCount 移动（AC 实测 blk 32/64/96 的拐点都在 oc≈1500）。每 TG 几个 ocQuad（q1/q2/q4/q8，即 TG 数）在 oc ≤ 2560 上差 ≤ 0.5 µs，不是杠杆。≥ 96 块的 e2e：down_proj 9216→2560 / 9728→2560 改 oc16Sg4K1 快 0.92% / 0.55%，6144→2048 快约 0.3%。pre-M4 的 Pro / Max / Ultra 不受上一条否决，按此条走。**op 级赢、e2e 不兑现的反例**（别据 op 读数改）：3584→1024（56 块）lanes 2 比 4 op 级快 4.7%，e2e −0.23%；6144→2048 split-K lanes 4 比 oc16Sg4K1 op 级快 1.8%，e2e −0.6%（1.7B）/ 0.0%（2B）；M4 Pro 上 blockCount ≥ 32 的大词表 lm_head（2048/2560 → 151936/248320）split-K 比 oc16Sg4K1 op 级快 1.3–1.9%，e2e −0.5% ~ +0.1%（llm_bench tg256 ABBA 复测：1.7B −0.09%、2B +0.36%、4B −0.29%）——Pro 这段改成 split-K 是按 op 级读数和跨机型一致性做的，e2e 只验证不回退。base M5 / base M4 则兑现：base M5 iPad +0.35% ~ +1.08%，base M4 Mac mini 1.7B +0.37%、2B +0.47%、4B +0.60%（新路由同时覆盖小 oc 段、大 oc 段和 lm_head）。
+- **设备分档（pre-gen16 世代，`Conv1x1GpuTier::belowGen16` = archName gen < 16 且窄于 Pro die（M1–M3 base 与同代 A 系），含 gen 0 的元数据地板以下机型）**：`oc%16==0` 且 blockCount ≤ 96 时否决 split-K、走 oc16Sg4K1——该世代 split-K 的 threadgroup 归约开销盖不过翻倍的在途读。**> 96 块保留 split-K**：那里孤立 op 读数仍支持 oc16Sg4K1，e2e 却反号——更多 TG 与前一 kernel 尾部的交叠更好，而孤立 op 循环里同一 kernel 背靠背、测不到这条。**大 block 数的路径开关以 e2e 相邻配对为判据，op 级只用于 kernel 内部旋钮。**
+- **网格对 TG 预算（`tgBudget`：Pro 档 160、base M4 起（gen>=16）档 80，其余档 0 即不启用；`highBandwidth` = `tier >= TierPro`：所有代的 Pro / Max / Ultra，与 `MetalAttention` 的 `highBandwidthGpu` 同一谓词）**：Q4 block64 fp16、blockCount ≥ 32、`oc%16==0` 时，两条路都发 128 线程 TG——oc16Sg4K1 发 `oc16Sg4K1Threadgroups = oc/16` 个，split-K 发两倍、每个扫半段 K。按 `oc16Sg4K1Threadgroups` 对 `tgBudget` 分三段：① `2*oc16Sg4K1Threadgroups ≤ tgBudget`（split-K 加倍后的网格仍装得下）→ split-K；[32, 96) 内 split-K 网格达到 TG 预算一半（`4*oc16Sg4K1Threadgroups ≥ tgBudget`）用 lanes 4，不到一半用 `gemvLanesPerBlock` 的默认 lanes（网格小时 pass 少的默认 lanes 赢，网格大时 lanes 4 赢），≥ 96 沿用 `gemvLanesPerBlock`；② `oc16Sg4K1Threadgroups > oc16Sg4K1GridLimit`（oc16Sg4K1 自己的网格已远超预算）→ split-K；`oc16Sg4K1GridLimit` 在 base 档是 `tgBudget`、Pro 档是 `2*tgBudget`，**这个倍数是按档标定的参数**。lanes：Pro 在这段用 `gemvSplitKFillLanes`（按 `blocksOwned = blockCount/2` 在 {2,4} 里选空槽最少的那个），base 档用 `gemvLanesPerBlock` 的默认 lanes。词表级 lm_head 是这段的极端情况（网格几千个 TG），预算规则覆盖全部块数，不按形状特判；③ 其余走 oc16Sg4K1。**`tgBudget` 是按档标定的参数，不是读出的硬件常驻 TG 数**。中段 oc16Sg4K1 的优势一部分来自层间依赖——串联（chain）测法与同形状独立 kernel 测法会给出相反符号，**所以这一段的标定要用 chain 测法**。Pro 侧的原理：split-K 把每行串行的 quant block 链减半，只有在这条链（而不是全部 oc 行的 DRAM 排空）限速时才赚；两者都正比于 blockCount，所以分界只随 oc 移动、不随 blockCount 移动。每 TG 几个 ocQuad（q1/q2/q4/q8，即 TG 数）不是杠杆。pre-M4 的 Pro / Max / Ultra 不受上一条否决，按此条走。**这类路径开关以 e2e 相邻配对为判据**：op 级赢、e2e 不兑现的形状真实存在（lanes 选择与大词表 lm_head 段都出现过），别只据 op 读数改默认。
+- **带宽档与档位表（`Conv1x1DieClass` = Base / Pro / Max / Ultra / Unknown，`MetalConv1x1Decode.hpp`）**：每个带宽档在档位表里独占一行（`pro160` / `max160` / `ultra160` / `base16` / `base17` / `nobudget32` / `nobudget4`）。**Max / Ultra 目前照抄 Pro 的数字**——这两档还没有在本路径上测过；行独立出来是为了将来某档被实测后可以单独改，不牵动 Pro 行。`highBandwidth`（Pro / Max / Ultra）为真时走上面那条预算规则。
 - **适用边界**：**融合管线上不要扩展 split-K**——融合 kernel 的寄存器/占用余量吃不起翻倍的 simdgroup + barrier，实测为负。融合管线的正确解是双流（§2.1.6）。
 - **陷阱**：K 切分改变 weight 读取模式，**量化块边界必须与切分对齐**，否则跳块/错块；若该 kernel 后紧跟 GPU→CPU 同步，kernel 加速不兑现为 e2e。
-- **g16 lm_head 的路由与已退役变体（别重试）**：基线 g16 = 2 SG/TG、threadgroup size 64、每 TG 覆盖 16 OC（2 SG × 8 OC/SG）。试过并退役两个：**4SG**（grid 减半，e2e 中性且抖动显著变大）与 **G16_OC4**（每 SG 4 个 oc_4 行，kernel 级读数变好但 e2e 中性）。两者都是"kernel 读数好看、e2e 不兑现"，与上面 pre-M4 那条同源。现行路由（`g16LmHeadRoute`）**不按设备分档**：`oc > 16384` 且 oc_4 偶即走 g16，唯一例外是 decode 且 `oc%8==0`、blockCount 偶数那一格——落到 2sg 路由（`lmheadSplitKMode`）按 §2.1.5 的预算规则选 oc16Sg4K1 / oc8Sg4K2。历史：曾按档门控（`twoSgWideVocab`）并带 g16 split-K；标定的结论是 g16 split-K 只在**宽词表 + 短 K**一格赢（`blockCount < 32 && oc > 200000`，base M4 标定值：248320 上比 2sg split-K 快 2.5%，151936 持平），Pro / base M5 上 1024→248320 落到 2sg split-K lanes 4 后 op 级快 6% / 3.7%、Qwen3.5-0.8B e2e +1.3%（8/8），最终收敛为现行统一规则，base M4 的 g16 例外一并移除。**base M5 的 lm_head e2e**（iPad M5，`bench metal 512 256`，新旧路由 ABBA 各 4 次）：Qwen3.5-0.8B（1024→248320）decode +1.08%，Qwen3-1.7B（2048→151936）+0.93%，Qwen3-4B（2560→151936）+1.01%，Qwen3.5-2B（2048→248320）+0.35%（与 op 级省下的 31 µs 吻合），四个模型配对都是 4/4，prefill 不变。
+- **g16 lm_head 的路由与已退役变体（别重试）**：基线 g16 = 2 SG/TG、threadgroup size 64、每 TG 覆盖 16 OC（2 SG × 8 OC/SG）。试过并退役两个：**4SG**（grid 减半，e2e 中性且抖动显著变大）与 **G16_OC4**（每 SG 4 个 oc_4 行，kernel 级读数变好但 e2e 中性）——都是"kernel 读数好看、e2e 不兑现"。现行路由（`g16LmHeadRoute`）**不按设备分档**：`oc > 16384` 且 oc_4 偶即走 g16，唯一例外是 decode 且 `oc%8==0`、blockCount 偶数那一格——落到 2sg 路由（`lmheadSplitKMode`）按 §2.1.5 的预算规则选 oc16Sg4K1 / oc8Sg4K2。g16 自身的 split-K 只在**宽词表 + 短 K**一格成立过，统一规则落地后已移除，别按旧文档复活它。
 
 ### 2.1.6 双流融合 GEMV（`oc16Sg2K1`，宏 `GEMV_SG_OC_QUADS_2`）
 
 - **机制**：仅用于 gate_up / QKV / LN 融合 leader。每 simdgroup 同时处理 2 个相邻 output slice，两条 raw_dot 累加流**共享同一次 input 读**（LN 前导也共享），**无 barrier、无额外 simdgroup**，grid.x 减半。第二行越界时别名到第一行（安全读，结果丢弃），投影尾部由 per-row guard 处理。
-- **gateup 臂上叠的 K 拆分（`GEMV_SG_OC_QUADS_2_KSPLIT`，base M4 起档取整除块数的 2–16，其余档取 2）**：只作用于 `GATE_UP_SILU` 双流体及其 LN 折叠变体，是融合管线里唯一成立的 K 拆分——gateup 的 oc 体量最小、并行度最饿，加宽 TG 的在途读收益盖过占用损失，且 LN 前导仍被全部 simdgroup 共享。host 值链 `mGateUpSiluKSplit`（常量）→ 宏，在 `setupGateUpFusion` / `setupLNFusion` 两处进 `preprocessorMacros` 与 cache key。base M4 起（gen>=16）档与无 tensor API 的 A 系 M4 起代（`gateUpFactorSkRoute`：fp16、Q4/Q8、`blockCount*64 == ic`、`oc%8==0`）先按下面的选档法则取因子，取不到再落到 pow2 兜底；兜底的生效门槛 `mGateUpSilu && outputDepthQuad%2==0 && blockCount 为 2 的幂且 ≥ 下限`（下限按档取 4，pre-M4 档与 Pro 及更宽档取 32——小块数上 split-K 的归约开销盖不过在途读翻倍）——偶数 quad 数保证 grid 精确、无 SG 在归约 barrier 前早退，2 的幂保证每对的块区间与 lanes-per-block 都精确。shader 侧 5 处消费（全在双流体分支内）：① `tg_simds = 2*factor`（4 → 8 SG / 256 线程）；② `uz = tg_x*2 + (sgitg&1)` 选两个 quad 中的哪一个、`ds_sk = sgitg>>1` 选该对扫 K 的第几段；③ `lanesPerBlock` 加宽补偿——每对只管 `blockCount/factor` 个块，不加宽则多出的 lane 组空转；④ 块区间 `[ds_sk*owned, +owned)`；⑤ 收尾各对 partial 写 `threadgroup ds_partial[2][2*factor]`，一次 barrier 后由 `ds_sk==0` 那对的 lane 0 按流加总并写输出（SiLU epilogue 不变）。**选档法则（`gateUpSiluSplitK`，只在 `gateUpFactorSkRoute` 成立的档位生效）**：分两步。① **可行带**——一对 SG 只管 `owned = blockCount/factor` 个块，shader 把 lanes-per-block 加宽到 `32/owned`；可行要求 (a) **单遍**：`owned ≤ 32/legacyLanes`（`legacyLanes = quadsPerBlock/4`），否则 lane 组要跑多遍、末遍有 lane 组空转；(b) **每 lane 每块至少 2 个 quad**：`owned ≥ 64/quadsPerBlock`，否则每个 lane 只读一个 quad、per-block 的 scale/bias 与归约摊不开。block64（每块 16 quad）即 `owned ∈ [4, 8]`。违反 (b) 在 M4 / M5 上一律更差（+6%~+126%）；违反 (a) 在 M4 上一律更差（+1%~+5%），M5 上 48 块及以下一律更差（+3%~+8%），56 块及以上例外（见下面的未解释现象）。② **带内**取不超过 SG 对上限 `kMaxPairs` 的**最大**因子（每 lane 串行段最短）；带内因子全超上限时取**最小**的；带内无因子返回 0，落到 pow2 兜底。**最优因子不随 oc（TG 数）移动**，旧法则"取总在途线程足以填满机器的最小因子"因此被证伪——填不填得满机器只取决于 TG 数，而最优因子与它无关。
+- **gateup 臂上叠的 K 拆分（`GEMV_SG_OC_QUADS_2_KSPLIT`，base M4 起档取整除块数的 2–16，其余档取 2）**：只作用于 `GATE_UP_SILU` 双流体及其 LN 折叠变体，是融合管线里唯一成立的 K 拆分——gateup 的 oc 体量最小、并行度最饿，加宽 TG 的在途读收益盖过占用损失，且 LN 前导仍被全部 simdgroup 共享。host 值链 `mGateUpSiluKSplit`（常量）→ 宏，在 `setupGateUpFusion` / `setupLNFusion` 两处进 `preprocessorMacros` 与 cache key。base M4 起（gen>=16）档与无 tensor API 的 A 系 M4 起代（`gateUpFactorSkRoute`：fp16、Q4/Q8、`blockCount*64 == ic`、`oc%8==0`）先按下面的选档法则取因子，取不到再落到 pow2 兜底；兜底的生效门槛 `mGateUpSilu && outputDepthQuad%2==0 && blockCount 为 2 的幂且 ≥ 下限`（下限按档取 4，pre-M4 档与 Pro 及更宽档取 32——小块数上 split-K 的归约开销盖不过在途读翻倍）——偶数 quad 数保证 grid 精确、无 SG 在归约 barrier 前早退，2 的幂保证每对的块区间与 lanes-per-block 都精确。shader 侧 5 处消费（全在双流体分支内）：① `tg_simds = 2*factor`（4 → 8 SG / 256 线程）；② `uz = tg_x*2 + (sgitg&1)` 选两个 quad 中的哪一个、`ds_sk = sgitg>>1` 选该对扫 K 的第几段；③ `lanesPerBlock` 加宽补偿——每对只管 `blockCount/factor` 个块，不加宽则多出的 lane 组空转；④ 块区间 `[ds_sk*owned, +owned)`；⑤ 收尾各对 partial 写 `threadgroup ds_partial[2][2*factor]`，一次 barrier 后由 `ds_sk==0` 那对的 lane 0 按流加总并写输出（SiLU epilogue 不变）。**选档法则（`gateUpSiluSplitK`，只在 `gateUpFactorSkRoute` 成立的档位生效）**：分两步。① **可行带**——一对 SG 只管 `owned = blockCount/factor` 个块，shader 把 lanes-per-block 加宽到 `32/owned`；可行要求 (a) **单遍**：`owned ≤ 32/legacyLanes`（`legacyLanes = quadsPerBlock/4`），否则 lane 组要跑多遍、末遍有 lane 组空转；(b) **每 lane 每块至少 2 个 quad**：`owned ≥ 64/quadsPerBlock`，否则每个 lane 只读一个 quad、per-block 的 scale/bias 与归约摊不开。block64（每块 16 quad）即 `owned ∈ [4, 8]`。违反 (b) 在各档上一律更差；违反 (a) 在小块数上一律更差，大块数（≥56 块）例外（见下条的适用边界）。② **带内**取不超过 SG 对上限 `kMaxPairs` 的**最大**因子（每 lane 串行段最短）；带内因子全超上限时取**最小**的；带内无因子返回 0，落到 pow2 兜底。**最优因子不随 oc（TG 数）移动**——填不填得满机器只取决于 TG 数，而最优因子与它无关，"取总在途线程足以填满机器的最小因子"不成立。
 
 **现值**（`mGateUpSiluKSplit`）：由 `gateUpSiluSplitK` 按块数现算，SG 对上限 `kMaxPairs = 6`，base M4 起（gen>=16）档与无 tensor API 的 A 系 M4 起代共用。**具体读数不写进仓库**——重测方法见 op-bench-and-diagnosis.md，重测时只需重标对上限。
-**这条规则含一个标定参数**：SG 对上限（相邻因子的交叉点），没有被独立的硬件量解释，换 die 必须重标。M4 上 op 级与 e2e 都给 6；M5 上 op 级偏好 12（32/40 块加宽到 8/10，op 级小胜 1–2%），但 iOS e2e 反号（约 −0.8%），统一取 6。**反号已定位为权重存储差异，不是 kernel 问题**：iOS App 默认 `use_mmap=true`，权重走 `MetalRuntime::onCreate` 里的 mmap 静态分配器，当时只有 32B 对齐（普通分配器是 64B）。这种对齐下大因子的 gate/up kernel 在 e2e 里慢 3–4%，小因子不受影响。把该分配器的对齐改为 64（已改），或关掉 mmap，e2e 与 op 同向：大因子小胜 0.2–0.5%，小于按 die 分档的维护成本，所以仍取 6。op 单测不走 mmap，**op 与 iOS e2e 反号时，先做 mmap 开/关对照**。**未解释的现象**：M5 上 56 块及以上（ic ≥ 3584）op 级偏好更窄的 TG（4–7 对、owned 8–16，甚至跑两遍），落在可行带之外，规则在这几格有几个百分点的 op 级 regret；候选解释（合并访问宽度、每核驻留线程数）都未证实。8B 级（ic 4096）落在这一区：规则选的因子仍胜旧的 SK=2，但不是该格最优。因子不要求是 2 的幂（`tg_simds = 2*factor`、`ds_sk = sgitg>>1` 对任意 factor 成立），只要求 `blockCount % factor == 0` 且 `64*factor ≤ 1024` 线程；host 在 pipeline 的 `maxTotalThreadsPerThreadgroup` 不够时撤销融合。
-**顺带被证伪的既有标定**：32 块这一档原本"带 LN 时细化到 8"（`setupGateUpFusion` 的 `hasLn` 参数就是为它加的），相邻配对显示因子 4 稳定胜出 ⇒ 细化与 `hasLn` 参数一并删除。**教训**：一条已提交的标定也可能只差千分之几而当年没测出来；要翻案必须把噪声底压到远小于差值（靠白捡空臂，见 op-bench-and-diagnosis.md）。
+**这条规则含一个标定参数**：SG 对上限（相邻因子的交叉点），没有被独立的硬件量解释，换 die 必须重标；当前各档统一取 6，不按 die 分档（分档的维护成本大于收益）。**op 与 iOS e2e 反号时，先做 mmap 开/关对照**：iOS App 默认 `use_mmap=true`，权重走 `MetalRuntime::onCreate` 里的 mmap 静态分配器，它曾只有 32B 对齐（普通分配器是 64B），这种对齐下大因子的 gate/up kernel 在 e2e 里变慢、小因子不受影响，而 op 单测不走 mmap ⇒ 两个尺度反号。该分配器的对齐已改为 64B。**适用边界**：大块数（ic ≥ 3584）上 op 级可能偏好可行带之外更窄的 TG（甚至跑两遍），机制未证实，规则在这些格上有 regret；因子不要求是 2 的幂（`tg_simds = 2*factor`、`ds_sk = sgitg>>1` 对任意 factor 成立），只要求 `blockCount % factor == 0` 且 `64*factor ≤ 1024` 线程；host 在 pipeline 的 `maxTotalThreadsPerThreadgroup` 不够时撤销融合。
 
 **⚠️ 因子按 die 分档，跨档外推会反号（这是 `gateUpFactorSkRoute` 设备门的依据，别为"全机器统一"拆掉它）**：
 
-- **base M4 起（gen>=16）档**：走上面的两步法则。16/32/40 块与旧白名单同档（4/4/5）；非 2 的幂块数与 64 块从原来的不拆 / SK=2 变为带内因子（如 56 块取 7、64 块取 8）。
-- **Pro die 及更宽（所有代的 Pro / Max / Ultra 按同一规则，实测只在 M4 Pro 上）**：因子 ≥ 4 在所有形状上都亏、越大越亏。**32 块以下不拆胜 SK=2**（16 块的 0.6B / 0.8B 级 gate/up），所以 Pro 档与 pre-M4 档共用下限 32；32 块 SK=2 与不拆持平（各模型 e2e 方向不一），保留 pow2 兜底给的 SK=2；40 块非 pow2 不拆。已知边界：16 块且 oc 很小（gate/up 的 TG 数约 256 以下，如 1024→2048）时 op 级 SK=2 反而小胜，现有模型不落这一格，未加形状特判。**op 级与 e2e 在这一档会反号**：40 块上 op 级 SK=5 小胜、e2e 却输，Pro 档改因子以 e2e 为准。旧结论"pow2 兜底恰好最优、无需改代码"测于当前 kernel 之前，已被推翻。
-- **A 系**：只有 16 块那一格验过，SK=4 胜 SK=2，但幅度只有当年那次标定的零头——当年捆了三个杠杆（split-K 2→4、lanes 4→8、关掉 W16 双流体 lane chooser），后两个是 uint4 宽加载体的属性、随 W16 删除一起消失。**A15 是负例**：gate/up 只编得出 SK=2、编不出 4，`gen >= 16` 地板因此生效。
+- **base M4 起（gen>=16）档**：走上面的两步法则。16/32/40 块取因子 4/4/5；非 2 的幂块数与 64 块取带内因子（如 56 块取 7、64 块取 8）。
+- **Pro die 及更宽（所有代的 Pro / Max / Ultra 按同一规则）**：因子 ≥ 4 在所有形状上都亏、越大越亏。**32 块以下不拆胜 SK=2**（小块数 gate/up），所以 Pro 档与 pre-M4 档共用下限 32；32 块 SK=2 与不拆持平，保留 pow2 兜底给的 SK=2；40 块非 pow2 不拆。已知边界：16 块且 oc 很小（gate/up 的 TG 数约 256 以下）时 op 级 SK=2 反而小胜，现有模型不落这一格，未加形状特判。**op 级与 e2e 在这一档会反号**，Pro 档改因子以 e2e 为准。
+- **A 系**：只有 16 块那一格验过，SK=4 胜 SK=2。**A15 是负例**：gate/up 只编得出 SK=2、编不出 4，`gen >= 16` 地板因此生效。
 - **pre-M4 档**：同样偏好不拆（见 §2.1.5 的设备分档条）。
-- **"核多 ⇒ 因子要高"被证伪**：核更多的 Pro die 反而要更低因子。候选解释"带宽余量"（宽带宽档不拆就接近上限，split-K 只剩归约 + barrier 的净开销）**又被 pre-M4 档反驳**——那一档带宽最低、小块数上同样不拆稳赢。自变量未定；现有证据只支持"base M4 起档偏好高因子，pre-M4 与 Pro die 都偏好 ≤2"。
-- **在用的工作机上重测的注意事项**：背景负载会造成跨轮漂移 ⇒ 臂间轮转 + 同轮配对 + 空臂定噪声底；大模型连跑两轮就降频，**降频探针用 prefill 而不是 thermalState**（后者可以全程为 0）。harness `build/m4pro_sk_scan.sh`。**op 级要测依赖链**（FusedLinear → down_proj 串成一条，接近 decode 实况）而不是独立层——独立层会把 Pro 档 16 块上不拆的优势压到噪声里。
+- **"核多 ⇒ 因子要高"不成立**：核更多的 Pro die 反而要更低因子；"带宽余量"也解释不了——pre-M4 档带宽最低、小块数上同样不拆稳赢。自变量未定；现有证据只支持"base M4 起档偏好高因子，pre-M4 与 Pro die 都偏好 ≤2"。
+- **在用的工作机上重测的注意事项**：背景负载会造成跨轮漂移 ⇒ 臂间轮转 + 同轮配对 + 空臂定噪声底；大模型连跑两轮就降频，**降频探针用 prefill 而不是 thermalState**（后者可以全程为 0）。**op 级要测依赖链**（FusedLinear → down_proj 串成一条，接近 decode 实况）而不是独立层——独立层会把 Pro 档小块数上不拆的优势压到噪声里。
 
 - **为什么赚**：**加行内 ILP 而不加 simdgroup**——占用不变，同时把前导（input / LN）读量减半。
 - **⚠️ 收益来自"共享前导"，不是来自"双行"**：plain（未融合）GEMV 路径里没有可共享的前导，权重读就是全部流量，而总在途字节数在重分组下不变（§2.1.4）⇒ **这个手段不要搬到 plain 路径**，实测为负。
@@ -614,7 +637,7 @@ decode GEMV 的带宽兑现率**随单 dispatch 体量单调上升**：几 MB �
 - ⚠️ **名字的不准确处**：在 `GATE_UP_SILU` 臂上，第二条流是同一个 quad 的 up 矩阵，每 SG 只有 1 个 oc quad × 2 个矩阵。shader 几何块里已就地注明。
 - ⚠️ **QKV 臂的双流体被 wide 几何一票否决**：`useOc16Sg2K1` 谓词是 `!useOc16Sg8K2 && !isSupportTensorApi()`，`useOc16Sg8K2` 为真时直接短路。`useOc16Sg8K2` 有两个入口：`qkvAllowOc16Sg8K2`（base M4（gen==16）+ fp16 + Q4/Q8，不按形状列举）与 `proAllowOc16Sg8K2`（Pro 档 + fp16 + Q4/Q8，由 `qkvOc16Sg8K2Admissible` 准入）⇒ base M4 上 Q4/Q8 一律 oc16Sg8K2，Pro 档只在准入时 oc16Sg8K2，其余非 tensor-API 形状走双流体。另外 `useOc8Sg4K2` 在非 tensor-API 设备上恒不可达（`!useOc16Sg8K2` 即 `useOc16Sg2K1`，而 `useOc8Sg4K2` 要求 `!useOc16Sg2K1`），所以 base M5 起（gen>=17）档的 plain 拆分只在 tensor-API 设备上成立。**任何"某路径应该出现却没出现"的结论，先确认谓词链没把它短路。**
 - **QKV split-K 的 lanes 与 Pro 准入按 lane 组槽占用推，不按形状列举**（`gemvLanesPerBlock(splitK=true)` / `qkvOc16Sg8K2Admissible`）：每个 SG 拥有 `blockCount/2` 个块，32 lane 按 lanes-per-block 切成若干 lane 组、一轮在途若干块。lanes 下限默认 2；若 2-lane 时第二轮不超过半满，就降到 1 让一轮扫完（多出的那轮几乎全是空槽，比单块少一半 lane 更亏）。plain（base M5 起档）与 oc16Sg8K2 共用这一个函数，不再另设单轮版本。Pro 准入看整段 K 扫描的槽利用率 `owned / (inflight × passes)`：利用率不够时空槽的成本盖过 split-K 的收益，双流体（不拆 K、无归约 barrier）更好；短 K 规则另行保留。base M4 上 oc16Sg8K2 在全部标定宽度上都胜双流体，不设利用率门。**有无前置 LN 不是判别量**（无 LN 的首层同样 oc16Sg8K2 胜），`setupQKVFusion` 不再带 `hasLn` 参数。M5 Pro 与 pre-M4 的 Pro / Max / Ultra 按同一规则外推，未实测。
-- **QKV plain 拆分（`useOc8Sg4K2`，GEMV_SPLIT_K=2、2 quads/TG × 4 SG）的上限曲线测在已退役的 uint4 宽加载权重体上**：当时 16-block 形状（block64 @ ic=1024 这一档）实测为**亏**、8-block 仍赚、32-block（oc16Sg8K2）打平，机制是宽加载已把在途读做够、barrier 变纯开销。窄加载（ushort4）单次 load 的在途字节只有一半，这条结论**未必平移**——`qkvSplitKMaxBlocks` 现值 16（`MetalEnv.hpp`），要改先在当前体上重测。
+- **QKV plain 拆分（`useOc8Sg4K2`，GEMV_SPLIT_K=2、2 quads/TG × 4 SG）的上限标定在已退役的 uint4 宽加载权重体上**：宽加载已把在途读做够、barrier 变纯开销，所以小块数上拆分为亏。窄加载（ushort4）单次 load 的在途字节只有一半，这条结论**未必平移**——`qkvSplitKMaxBlocks` 现值 16（`MetalEnv.hpp`），要改先在当前体上重测。
 - **LN staging 的路由与存储精度**：`MetalConvolution1x1::setupLNFusion`（`MetalConvolution1x1.mm`）只允许 QKV oc16Sg8K2 split-K（`useOc16Sg8K2`）使用 staging，且 auto 仅开在 hidden ≤ 1024。两个预算分开：`lnStageFits` 是 threadgroup 内存上限（staged 向量是 `ftype4`，`*16` 取 float4 最坏情况，≤ 8192 B），`lnStageWorth` 更窄（≤ 4096 B），因为 hidden 一大 staging 就不再是稳定的赢。**hidden=2048 上符号随形状变、驱动因素未定**（同一档设备上有形状赢、有形状输，幅度都不大）⇒ 宁可放弃可能的小赢也不吃可能的亏，所以 staging 留在它原本调好的 hidden ≤ 1024。注意成本/收益比**不是**显然的形状函数：packed grid 下每个 TG 恰好产出 `quadsPerTG` 个 output quad，所以 staging 恒花 `lnStageQuads/quadsPerTG` 次写/输出 quad，与融合成员多不平衡无关。双流体在两个输出流间共享输入读取，不能仅按输出流数推断 staging 收益；QKV plain 拆分不进入 staging。`ConvSimdGroupShader.hpp` 的 `ln_staged` 保存 `(in+residual)*gamma`，类型为 `ftype4`（fp16 存储时为 `half4`）；RMS 平方和归约与 GEMV 累加仍为 fp32，读 staging 后才乘 `inv_rms`，因此不能宣称与未融合 AddRMSNorm 的 fp16 输出逐位相同。
 - **改宏名 / 动这类几何时的验证方式**（因为它同时动 6 处 cache key 与宏字典，单测通过不算证据）：① `git diff -U0` 过滤掉纯改名 token 后**没有剩余 `+` 行**，证明是纯令牌替换；② key/`setValue` 成对计数平衡，排除"key 在宏没了"；③ **下毒正向证明宏进了 shader**（故意改坏一个只在该变体里用到的量，e2e 必须乱码，撤掉后恢复）；④ op 单测覆盖不到 gate/up 的双流体，**那条只有 e2e 能覆盖**。
 
@@ -622,7 +645,7 @@ decode GEMV 的带宽兑现率**随单 dispatch 体量单调上升**：几 MB �
 
 单 token 路径的微调候选已基本穷尽，剩下的数量级杠杆是"一次前向多算几个 token"（权重只读一次摊薄到 B 个 token，投机解码正走这条路径）。
 
-- **现状**：`area ∈ [2,16]` 走 `conv1x1_gemv_g4mN`，拿到的 simdgroup 并行度只有 decode 路径的一半（每 TG 1 个 simdgroup vs 4 个），**且完全没有融合**——`mIs2sgDecode` 与融合注册只在 `area == 1` 分支设置，所以 B≥2 时每层是若干个独立投影 dispatch 而非几个融合 dispatch。
+- **现状**：`area ∈ [2,16]` 走 `conv1x1_gemv_g4mN`，拿到的 simdgroup 并行度只有 decode 路径的一半（每 TG 1 个 simdgroup vs 4 个），**且完全没有融合**——`mDecodeFusionEligible` 与融合注册只在 `area == 1` 分支设置，所以 B≥2 时每层是若干个独立投影 dispatch 而非几个融合 dispatch。
 - **为什么慢得不该**：decode GEMV 是权重带宽 bound，理想情况下 `cost(B) ≈ cost(1)`；实测 B=2 就显著变贵，而且 B=2 反常地比 B=4 更差。与 §2.0 画像自洽：**把 simdgroup 数砍半 ⇒ 时间近乎翻倍**，是并行度问题不是算法问题。
 - **可动项**：把 split-K / 多 SG 并行度以及融合移植到 `conv1x1_gemv_g4mN`。
 - **前置依赖已就绪**：`transformers/llm/engine/src/speculative_decoding/` 已有 lookahead / ngram / tokentree / eagle / mtp，n-gram lookahead 不需要 draft 模型。实际收益 = 摊薄曲线 × 接受率，立项时需实测接受率。
@@ -648,6 +671,13 @@ decode GEMV 的带宽兑现率**随单 dispatch 体量单调上升**：几 MB �
 - **划分一改，"唯一写者"守卫必须重审**：`ln_residual_out` 原来由 `sgitg == 0` 独写——这个条件本是"每个 SG 都扫全量"那份冗余的副产品；拆分后它的含义会从"避免重复写"悄悄变成"只写一半"。此类错误静默（下游拿到半截 residual）、与 barrier 无关、review 极易滑过。**规矩**：改并行划分时 grep 该 kernel 全部 `sgitg ==` / `tiisg ==` / `gid.* == 0` 守卫，逐个确认语义是否被新划分掀翻。
 - **隐式契约**：初版把"恰好 2 个 simdgroup"写死在步长与 partial 数组里，依赖 setup 恒发固定线程数；split-K / wide 几何进来后必须改由 `tg_simds` 驱动。shader 注释只防得住读代码的人，防不住改 dispatch 的人——**隐式契约要么消掉（SG 数当宏传入），要么在契约两侧都留可执行检查**。
 
+### 2.1.10 IndexedLinear route GEMV
+
+- **机制**：IndexedLinear 的单 token/多路由形态要服务动态专家，不能按普通 conv 的固定 weight 指令流走。把每个专家的 W4/W8 在 host 重排成 `[expert][stream][outputQuad][inputQuad][tile]`，shader 侧沿用 2-simdgroup GEMV 的宽 tile 加载和延迟反量化；gate/up 是两条共享 input 的 stream。
+- **为什么赚**：索引专家路径同样受惠于"在途读 + 宽 load + 一次性反量化"；保留按路由的单个 dispatch 是为了守住小路由形态的固定开销。**该 packed buffer 就是唯一 resident 权重布局**，grouped prefill 由 128 线程按“固定输出行 × 4 连续输入”直接读 row bytes，不与 raw bank 并存；同一线程的 4 个输入落在同一个 quant block，因此只查一次 scale/offset，不能按元素重复查元数据。
+- **门控**：只有 W4/W8 且 IC/result quad/quant block 都对齐 4 才走 packed；其余形状回退 scalar。因此**新增 packed kernel 时必须配对齐且 fused/nonfused 的可点亮正确性 case**，否则默认单测可能整段根本到不了新路径。
+- **陷阱**：host 把原始 nibble 作为 `q+8` 写入 packed tile 时，shader 的 dequant offset 必须是 `scale.y - 8*scale`，不能沿用 W8 直接加 offset。
+
 ## 2.2 GEMM（prefill）
 
 ### 2.2.1 Fused Q4/Q8 GEMM（in-kernel 解包）+ M64 tile
@@ -655,6 +685,8 @@ decode GEMV 的带宽兑现率**随单 dispatch 体量单调上升**：几 MB �
 - **机制**：tensor-API 设备上 prefill 量化 conv 在 GEMM kernel 内解包反量化；M64 tile 再增大每 TG 的 M 维。
 - **为什么赚**：① 省掉 dequant 预处理 dispatch 与 `mTempWeight` 分配（约 4× 权重体积的带宽往返）；② 更大的 M tile 减少跨 TG 的权重读冗余。
 - **适用边界**：**小模型 + 低 bit 组合上可能翻负**，因此对权重规模设了下限（低于阈值的 conv 路由回 outer-dequant）。
+- **M tile 加大被双重寄存器预算锁死，缩 N 救不回来**：destination cooperative tensor 摊到每线程 `M*N/threads` 个 float（超过约 32 float/thread 即溢出），但**输入 staging 的活跃行寄存器随 M 同步增长**（每线程行数 = M/16，M64 持 4 行、M128 持 8 行）。所以即便缩 N 把累加器压回 32 float/thread（M128×N32），多出的活跃输入寄存器仍把核推到同一条溢出悬崖——M128×N64、M128×N32、§2.2.5 的 N128×M64 全部翻负。判据：若变慢比值**跨短/中/长序列恒定**，则是每 TG 固有的寄存器/MMA 效率悬崖，**不是 DRAM 冗余流量**（后者随 grid.x∝area 变化、必有交叉点）。据此"缩 N 加 M 减权重冗余"在这族 fused-quant 核上已被证伪，别再试 M tile 增长。附流量模型：总重读 ≈ `(oc/N)·InputBytes + (area/M)·WeightBytes`，输入 fp16(2B/elem) 比 Q4 权重(0.5B/elem) 重 4×，缩 N 会放大更贵的输入重读——即使没有寄存器悬崖也是净亏。
+- **短序列差距先归属再选手段**：短 prefill 的 GEMM 常是 latency-bound（达成带宽随 TG 数单调升）。用消融删 MMA 读"加载+staging 地板"：**地板≈对手总时间 ⇒ 差距全在 MMA 重叠效率**（tensor-op `mmOps.run` 同步退休，MMA 串行暴露在访存之上），不在权重冗余。此时加深 B 预取、预取 A、单缓冲提占用都会因寄存器压力/barrier 净亏而翻负——别再去省指令或加预取，也**别靠缩 N 加 M 减冗余流量**（见上条，已证伪）；唯一剩下的结构性手段是改 MMA 与 load 的重叠本身（让 tensor-op 不同步退休、把 MMA 藏到访存之下）。
 - **位宽覆盖**：M64 tile 的门控是 `bits ∈ {4, 8} && area >= 64`（tensor-API 设备）。判据与位宽无关的原因是 **staging 存的是反量化后的 ftype**，`SMEM_OPERAND` 只随 ftype 与 tile 常量变化——W8 不会因权重字节翻倍而撑爆 threadgroup memory 预算。W2/W3 不在内：它们的解包是逐 nibble 标量，且 prefill 本来就走 outer-dequant。
 - **epilogue 仍按位宽分档**：gate/up 双累加器（`FQ4_GATEUP_DUAL`）与 MUL_SILU 折叠（`FQ4_SILU_MUL`）**只对 Q4 开**，因为它们的面积阈值是按 Q4 形状标定的；W8 只拿 M64 tile 与双缓冲 staging，gate 张量照旧落地并由 owner 单独 dispatch。双缓冲宏因此改名为 `FQ_DOUBLE_BUF`（它不再只服务 Q4），而 dual/silu 两个宏保留 `FQ4_` 前缀以如实反映其位宽范围。
 - **回退**：`OUTER_DEQUANT_GEMM_TENSORAPI` 开关回到 outer-dequant + fp GEMM；非 tensor-API 设备该开关是 no-op。
@@ -662,10 +694,10 @@ decode GEMV 的带宽兑现率**随单 dispatch 体量单调上升**：几 MB �
 ### 2.2.2 M64 sg_matrix GEMM 与设备分档
 
 - **机制**：M64 的计算主体依赖 tensor ops，移植到只有 simdgroup matrix 的设备等于重写一个 kernel（寄存器 ×2、threadgroup mem 翻倍、全新 index math）。
-- **结论与处置**：收益远低于预期 ⇒ **prefill GEMM 早已接近算力峰值（约七成），权重重复读不是它的瓶颈**，所以"减少权重重读"类手段在这里天花板很低。
+- **结论与处置**：收益远低于预期 ⇒ **prefill GEMM 早已接近算力峰值，权重重复读不是它的瓶颈**，所以"减少权重重读"类手段在这里天花板很低。
 - **设备分档（当前）**：gate 就是 `supportsFamily(Apple7)`，**M-chip 与 A 系列一视同仁**，不再按 device.name 的产品线前缀收窄。tile 的真实前置条件只有 simdgroup_matrix + 16 KB threadgroup memory（4 simdgroup / 128 线程），Apple7 全体都满足 ⇒ 按**能力位**分档才是对的自变量。历史：先是 archName `gen >= 16`（把 M1–M3 也误关在外），再是 device.name `"Apple M"` 前缀（把整个 A 系列误关在外），两版都是把"没测过"写成了"不适用"。
 - **可复用的判据**：
-  - **动手前先估这个 op 距离它自己的硬件上限还有多远**。已在七成算力峰值的 kernel，任何"省访存"类手段的上限都被算力锁住。
+  - **动手前先估这个 op 距离它自己的硬件上限还有多远**。已接近算力峰值的 kernel，任何"省访存"类手段的上限都被算力锁住。
   - **按产品线名收窄的门控不是实测结论，只是"没测过"**。这种 gate 读起来像"另一条产品线实测变慢"，会长期埋没收益且没人怀疑。正确顺序是：先按能力位（family / simdgroup_matrix / threadgroup memory 预算）放宽到该 kernel 真正能跑的全集，再**只在实测反号的那一档**上用 archName 世代加地板。
   - **放宽必须逐代实测，同一产品线不同代会反号**——见 §2.1.6 的 gateup split-K：同一个 tile 类改动在老世代手机档上大赚、新世代上小赚，而同一条 decode 默认值改动在新世代手机档上赚、老世代上亏。两个方向都存在，所以"某一档测出来是赚的"永远不能推及整条产品线。
 
@@ -681,6 +713,23 @@ decode GEMV 的带宽兑现率**随单 dispatch 体量单调上升**：几 MB �
 - MPP `matmul2d` 要求 M/N 至少一个 16 倍数、静态 K 16 倍数。**探测 kernel 的描述符写错会让 tensor API 整体禁用**，症状是新设备上性能没有任何变化（而不是报错）。
 - 另有一类更隐蔽的：探测**通过**但运行时 pipeline 反复编译失败并回退，反而比不探测更慢。⇒ **能力探测必须验证"探测结果 == 运行时真的能编译并跑"**，不能只看探测返回 true。
 
+### 2.2.5 MoE grouped GEMM：staging 是主成本，不是 MMA
+
+- **判据**：每专家行数小（M ≈ routes/experts）的 grouped GEMM，kernel 时间大头在 staging——量化权重解包、dequant scale 取数、A 的间接 gather——MMA 本体只占小头。动手前先用消融阶梯把 B staging / A gather / MMA 逐类删掉读差值，别按"GEMM=算力 bound"的直觉选手段。
+- **有效杠杆**（都作用于 staging 指令数与冗余流量，不改变总在途字节，§3.6 不变量仍然成立）：
+  ① staging 加载向量化：A 沿 C4 连续轴按 `ftype4` gather（每 lane 一个 quad，替代逐元素标量读）；B 每个 packed tile 一次宽加载覆盖其全部行（如 Q4 的 `ushort4` = 4 行 × 4 nibble），替代逐行 2B 标量读。
+  ② scale 按 K 窗口单次暂存 smem 复用：逐元素直读会把同一 (oc, block) 的 scale 冗余取数倍于唯一字节量；smem 暂存 + 一次 barrier 换掉全部冗余 device 读。
+  ③ 加宽 K（如 32→64）：barrier 与 matmul2d 调用次数减半，destination capacity 不变（§2.3.4 判据）；smem 预算随之翻倍，先核对 threadgroup memory 上限。
+- **陷阱**：编译期 smem 数组按运行时参数的上限分配（如 scale 子块数 = K 窗口/blockSize）时，dispatcher 必须对该参数加门控，否则小参数用例（极小 blockSize）越界写 smem，症状是 NaN 而非编译错误；不满足门控的形状回退旧路径，而不是缩小数组。
+- **循环不变的间接 gather 元数据要手动 hoist 出 K 循环**：A 的行映射（`order[row]`→source row）与 K 窗口无关，但 Metal 编译器不对 device load 做 LICM，留在循环内会每窗口重发 `order[]` 依赖加载。提到循环外每线程只取一次，窗口多的短 K 形状小赚、长 K 中性，纯重构逐位等价。反向把 B 的 packed 加载 hoist 到 A barrier 前求延迟重叠则翻负——跨 barrier 持寄存器加剧压力（§2.2.1 寄存器悬崖），与加宽 K 跨占用边界同类，别试。
+- **M tile 按 rows/expert 分档路由，不可全局加大**：M 加大把每专家权重读摊到更多 route 行（长序列下权重重复读是主成本），但 ceil-padding 的 MMA 浪费随 M 增大；rows/expert 小时 padding 项反超流量项，净收益为负。正确形态是 M16/M32/M64 编译期变体 + dispatcher 按 rows/expert 阈值路由，阈值用 op 单测在临界 T 上交替配对扫描定。tile 粒度常量同时活在 routing 预处理（tileOffsets 构建）与 grouped kernel（firstRow）里，变体宏必须同步这两处并进 pipeline 缓存 key；resize 改变 M 时作废受影响 kernel 的本地 pipeline 缓存。attention tc 的"加 M 溢出"判据不能外推到 GEMM：GEMM 只有 D 累加器，没有 q_reg/softmax 状态一起翻倍。
+- **smem 相位复用**：K 循环结束后 staging tile 已死，epilogue 的 C tile 可别名同一块 threadgroup buffer（dense M64 GEMM 的做法），既省出大 M 的预算，也可能因占用下降直接提速；staging 与 epilogue 之间必须有 barrier。
+- **A 直喂 device tensor（staging 地板的结构性手段）**：廉价杠杆（向量化/scale 暂存/加宽 K/hoist）用尽后，把 A 在路由预处理里 permute 成专家排序的连续 scratch（每 route 行一线程，`inputChannels%4==0`），grouped GEMM 用 `tensor<device ftype,…>` handle 的 `slice(firstInput, firstRow)` 直喂 matmul2d（§2.3.9 `FATC_KV_DEV_TENSOR` 机制），消掉 A 的 smem 往返与跨 N-tile 散读，`slice()` 自带尾行 zero-fill。已验证 `execution_simdgroups<4>` + device-A/threadgroup-B 混合地址空间可行；destination CT 类型用 `remove_addrspace_t<decltype(slice)>` 推。**形状门控**：短 K 非融合（down，staging-bound）赚，长 K 融合（gate_up，compute-bound）因 permute 开销 + 长 K device 重读收不回而翻负——按 `!fuseSwiGLU` 门控（down-like 的稳健代理），融合路径保留 smem staging。permute 在 routing 之后、grouped 之前 dispatch（serial encoder 隐式定序），scratch 绑 grouped buffer 0 不改签名。**连带杠杆**：handle 直喂后 A 的 smem 区已死，令 `A_BYTES=0` 缩 smem 可提占用（M32 上叠加收益），cTile 别名仍成立。
+- **验证**：staging 改写属于归约顺序不变但加载布局全变的改动，正确性 oracle 必须覆盖 K 尾块、奇数输出通道 partial tile、融合/非融合、全部位宽与两种 inputMode；"全绿"前先确认新路径真的被用例命中（门控可能把用例全部推回旧路径）。M 变体还要覆盖 resize 序列（token 数变化触发 M 切换与缓存失效路径）。
+- **N/K tile 先算占用与 MMA 效率再动手**：加宽的判据是 smem 预算跨过 32KB/2 占用边界或累加器寄存器超预算；缩 N 省 smem 提占用同样翻负——tensor-op MMA 效率随 N 走，且 TG 数与 barrier 总数翻倍，占用收益补不回来。N64 是双向局部最优，两个方向均已实测否决。
+- **smem 字节数学必须 `sizeof(ftype)`**：staging 偏移若硬编码 `*2`（fp16 假设），fp32 路径会越界写 threadgroup buffer，症状是 fp32 单测大数值用例错而 fp16 全绿——两种精度都要跑才算验证完。
+- **路由预处理融合 + 原子 RW epilogue**：Clear/Histogram/Prefix/Scatter 四 dispatch 可合成单 TG(1024) kernel（tg atomic 直方图 + tid0 串行 O(E) prefix + scatter），op 级中性但每层省 3 次 dispatch；down-proj 的 routeWeight 折叠可用 half2 CAS 原子加直接累进 C4 输出（fp16 无原生原子加），省 route-row scratch 与 reduce dispatch（op −5%、e2e pp512 +4%）。**RAW probs（routeWeight=2）的 topK 归一化 sum 必须按行 hoist 进 smem wTile**：逐 channel-pair 重算会把 op 收益吃光并造成 e2e 回退——op 测速用例必须镜像模型的 routeWeight 模式，只测 mode=1 会漏掉 mode=2 的尾段成本。原子路径的宏（RW_ATOMIC）改变 kernel 签名与 smem 布局，必须在 grouped pipeline 编译**之前**定夺，且编译失败回退时同步关掉原子标志重建。
+
 ## 2.3 Attention Kernel
 
 ### 2.3.1 Causal 三角 QK dispatch + 有界 softmax/AV（CAUSAL_TRI / CAUSAL_BOUND）
@@ -691,21 +740,29 @@ decode GEMV 的带宽兑现率**随单 dispatch 体量单调上升**：几 MB �
   1. `CAUSAL_TRI`（prefill_qk）：host 只 dispatch 因果对角线下的梯形 tile，kernel 内二次方程反解线性 tile id → (slq, slk)；interior tile 跳过全部 per-element mask 读取/分支（三区域分解）。
   2. `CAUSAL_BOUND`（softmax_plane/_sg + prefill_qkv）：softmax 每行只归约/写出 causally-valid 前缀 + 少量零 pad（覆盖 prefill_qkv 的对齐 tile 读界）；prefill_qkv 的 av 上界截断同步激活。
 - **为什么赚**：省掉 QK 写 + softmax 读 + softmax 写各 O(seq²/2) 的带宽，**收益随 seq 增长**。whole-tile early-exit 已达下三角理论上界，不需要额外的 block classifier。
-- **门控是数据驱动的**：`mCausalLayout` 由"mask 输入是否为标量哨兵 / 无 mask + 有 KV cache"推出。真实 mask 张量 ⇒ 非 causal ⇒ 自动关掉 causal-tri/bound/FA。**非 causal 模型不需要设任何 env**——原先的 env 开关是"忘了设就静默乱码"的正确性陷阱，已删除。这是个可复用的设计选择：**正确性相关的路径开关应当从数据推导，不该交给用户设 env。**
+- **门控是数据驱动的**：causal 判定（`AttnFacts::causal`）由"mask 输入是否为标量哨兵 / 无 mask + 有 KV cache"推出。真实 mask 张量 ⇒ 非 causal ⇒ 自动关掉 causal-tri/bound 与两条融合 prefill。**非 causal 模型不需要设任何 env**——原先的 env 开关是"忘了设就静默乱码"的正确性陷阱，已删除。这是个可复用的设计选择：**正确性相关的路径开关应当从数据推导，不该交给用户设 env。**
 - decode 侧不存在等价优化——seq_q=1 时分数行全部因果有效，无三角可跳。
 
 ### 2.3.2 为什么 Apple Silicon 全档把 FlashAttention 降级到三段路径
 
 - 优化后的三段路径（+causal-tri/bound）在无 tensor-coop 的设备上**反超 legacy FA，且差距随 seq 增长**——因为 causal-bound 省的是 O(seq²) 带宽，而 legacy FA kernel 没享受到这一层。
-- **处置**：所有 simdgroup-matrix Apple GPU（M 全档 + A 系列）默认走三段 + causal-tri；FA 保留给两类场景：① 超长上下文（省 O(seq²) scratch 内存）；② `head_dim` 不在 FA 支持集合里的兜底。路由由 config `attention_mode/8` 决定，无 env 覆盖。**已从"M4 档"放宽为全档**：老世代 M 芯片上短 prefill 同样是赢、长 prefill 持平（该处 FASG 本就覆盖）、decode 无影响，greedy 输出逐 token 一致；此前 M1–M3 被 `isM4ClassGpu` 排除是 gate 过严，该 flag 已随此次放宽删除。
-- **可复用的判据**：**"融合 kernel 一定比多段快"是错的**。多段路径若能把 O(n²) 中间量的读写整段砍掉，可以赢过没做这层优化的融合 kernel。比较对象必须是"两边都做了同等算法优化"的版本。
+- **处置**：所有 simdgroup-matrix Apple GPU（M 全档 + A 系列）默认走三段 + causal-tri。
+- **结局**：legacy FA 已**整体删除**（kernel 源码 + 路由 flag + `attention_mode/8` 门控）。它最后仅剩的两条理由都不成立了：① "超长上下文省 O(seq²) scratch" 已被三段路径的 q 序列分片（`MNN_METAL_ATTN_QSPLIT_MB`，见 §2.3.1）覆盖；② "head_dim 兜底" 由 FA-TC / FA-SG 与三段路径分担。删除前它在运行时已**不可达**：`eligible ⇒ causal ⇒ kvCache ⇒ kvLen ≥ seqLen ⇒ causal-bound 可用 ⇒ 立刻被否决`，只有 `preparePipelines` 的代表性 kv 扫描（kv < seqLen）会点亮它、白编译一个 pipeline。
+- **可复用的判据**：
+  1. **"融合 kernel 一定比多段快"是错的**。多段路径若能把 O(n²) 中间量的读写整段砍掉，可以赢过没做这层优化的融合 kernel。比较对象必须是"两边都做了同等算法优化"的版本。
+  2. **被更优路径无条件否决的开关就是死代码**，而它的存在会让"路径判定"这套布尔互相取否、读不出真实优先级。发现某条路径的实际准入恒为假时，要么修门控让它真能生效，要么连 kernel 一起删——留着只会让后来人照着文档去排查一条不存在的路。
 
-### 2.3.3 Fused Prefill Flash-Attention（legacy，保留场景：长上下文 / 特殊 head_dim）
+### 2.3.3 Fused Prefill Flash-Attention（legacy，**kernel 已删除**，机制与避坑留存）
+
+> ⚠️ `gPrefillFlashAttn` / `prefill_flash_attn` 已随 §2.3.2 的结论整体删除，运行时无此路径。
+> **本节只作机制留存**：它是 MNN 上第一个 online-softmax 融合 attention，下面这些坑
+> （`ATTENTION_C4` 输出布局、在线 softmax 的 NaN 双短路、mixed-dtype MMA、PV 前的 barrier）
+> 在 FA-TC / FA-SG 上同样成立，排查那两条路径时仍然适用。
 
 - **机制**：融合 Q·K^T + online softmax + P·V 到一个 kernel，中间数据全留在 threadgroup memory 和寄存器；每 simdgroup 拥有若干行 Q 的 running max / sum 寄存器；每 KV 块做 QK → 在线 softmax → 同段 P 做 PV → 累加进 O。
 - **为什么赚**：三段路径要把 O(seq²) 的 QK / softmax 结果写进 global 再读回；融合后这些流量归零。
 - **threadgroup 布局**：`sq`（Q 分块，half）/ `sf`（QK 的 fp32 scratch）/ `ss`（归一化后的 P，half）/ `so`（O accumulator，float，在线 rescale）。
-- **关键文件**：`MetalFlashAttnShader.hpp`（`gPrefillFlashAttn`）、`MetalAttention.mm/hpp`。
+- **关键文件**：原 `MetalFlashAttnShader.hpp`（`gPrefillFlashAttn`，已删除）、`MetalAttention.mm/hpp`。
 - **实施要点**：
   1. 门控要求 simd-matrix + fp16 + causal + head_dim / group_size 在支持集合内 + seq 下限。
   2. **在线 softmax 数值稳定性**：`M_new = simd_max(fmax(M[j], s))`；`ms`/`vs` 对 `-INFINITY` 的双短路是必需的，否则 `exp(-inf - -inf)` = NaN 会从初始态或全 masked 行传播。
@@ -731,7 +788,9 @@ decode GEMV 的带宽兑现率**随单 dispatch 体量单调上升**：几 MB �
 ### 2.3.4 tensor-API 版 FlashAttention（`prefill_flash_attn_tc`）
 
 - **机制**：用 Metal4 cooperative tensor 重写融合 attention（§1.10 的布局表就是为它测的）：`matmul2d` + input cooperative tensor + **零 threadgroup memory**，S/O 全寄存器、score 不落全局。
-- **门控**：`mCausalLayout` && `isSupportTensorCoopInput()` && fp16 && causal && 非量化 KV && head_dim 在支持集合 && seq 下限。命中即关 legacy FA。**在非 tensor-coop 设备上结构性休眠**，所以默认开对它们是零影响 no-op。
+- **门控**：`fusedPrefillOk`（causal && fp16 && 非量化 KV && KV 在内存 && `kvLen >= seqLen`）&& `isSupportTensorApi()` && head_dim 在支持集合 && seq 下限。输入形式不对应单独的设备能力标志。
+- **宽 head 选路**：`gpu.gen <= 16 && head_dim == 256` 使用分阶段 Tensor Attention；gen>=17 与窄头（64/128）保持 Tensor FA。宽头在 gen<=16 上分阶段明显更快、且差距随 seq 拉大；窄头方向相反。**不要改成无条件按 gen 选路**，窄头会大幅回退。
+- **宽头分歧的机制**：g16 上常驻 Q/O cooperative tensor 触发寄存器驻留悬崖，把 Q 移入 threadgroup memory 反而赚；g17 上常驻形态高效。是设备共性差异，不是 kernel 写法问题。每 tile 重载 Q 的形态重载流量 ∝ seq²、省寄存器是固定收益，两者在长 seq 交叉，印证同一机制。
 
 #### 根因：tc 是 coop-tensor 打包/解包 bound，不是 MMA throughput bound
 
@@ -772,18 +831,19 @@ auto t_k = tensor<device ftype, dextents<int32_t, 2>, tensor_inline>(
 - PV 的 B 操作数是 `transpose_b=false`（`[k][n]`），QK 是 `true`——**K=32 多出来的那一级落在元素索引哪一位，不能从 QK 类比推导**，必须单独 dump。
 - 只有常驻-CT 的 PV 分支实现了宽 K 填充，故 `PV_K32` 依赖 `O_CT`，shader 里加 `#error` 守卫。
 - 让 QK 累加也常驻单个 destination CT 是**中性**的——K32 之后编译器已自行合并了那处往返。
+- **大 head_dim 的 O 累加器寄存器悬崖必须按 D 切，但切法决定 QK 是否冗余**：online softmax 要求 O 跨 kv tile 常驻，full head_dim 的 O（每 lane `HEAD_DIM/32×16` float，d256=128）单独就超预算（destination CT >~32 float/thread 即溢出）。**不切 O 的两条路都实测翻负**：Q_CT 常驻（O+Q 双份寄存器）数倍慢；流式 Q（腾 Q 寄存器、Q 每 kv tile 重读）长 seq 仍明显慢——O 单独撞悬崖，腾 Q 救不回。切 O 有两种：① grid.z 切到不同 TG 各持半 O，但每 slice 重算整段 QK（QK 跨 full head_dim），冗余随 S² 增长；② **simdgroup 级切（`FATC_WN`）**——同一 row group 的 WN 个 simdgroup 各算一段 D 的 partial QK，经 threadgroup memory 交换求和得完整 score，QK 只算一次，O 仍按 D 切片常驻。② 实测优于 ①（消冗余 QK，长 seq 尤甚），代价是每 kv tile 两次 TG-wide barrier + smem 交换 + 各 d_group 冗余 softmax；且 WN>1 必须用 **block 级 kv_lim**（整 64 行块的顶行）保证全 TG 走相同 kv tile 数，否则 barrier 死锁，低 row group 的多余 tile 由逐行 causal mask 清零。P 落 smem/global 共享不可行（P 行=16×seq_k，smem 放不下；global 的 S² 带宽比重算 QK 更贵）。
+- **短 seq attention op 单测的时钟爬坡陷阱**：Apple GPU 轻负载不升频，短 seq（如 T512）kernel 太轻喂不 boost clock，**先跑的臂冷低频、后跑的臂被前任暖升频**，A/B 顺序直接决定符号（同核可差 3×）。短 seq 的 TFLOPS 随 seq 单调升很大一部分是升频假象，不是核效率。可靠 A/B 只在重负载长 seq（T2048，rounds≥25 收敛到稳态）做；短 seq 要么 interleaved 配对、要么先重负载暖机再测，别信冷却后第一跑。
 
 ### 2.3.5 单 pass 融合 SDPA decode
 
-> ⚠️ **恒为单 pass 形态**：`gDecodeSplitKV` / `decode_splitkv` 曾由 env 在两条路间切换，
-> 开关已删；2-pass split-KV 形态（`SPLIT_KV_PARTIAL` 宏变体、`decode_splitkv_reduce`
-> kernel、partial buffer、host 侧 ntg 参数）也已整体拆除。**恒为单 pass 融合 SDPA**：
-> grid `(1, B*H/qh, 1)`，一个 threadgroup 一个 q-head 组（`qh` = `SDPA_QH_PER_TG`，见 §2.3.5b），
-> 无 reduce、score 不落全局、kernel 直写输出。
+> ⚠️ **两种形态，按 kv 长度自动切**：短/中 kv 走单 pass 融合 SDPA——grid `(1, B*H/qh, 1)`，
+> 一个 threadgroup 一个 q-head 组（`qh` = `SDPA_QH_PER_TG`，见 §2.3.5b），无 reduce、score
+> 不落全局、kernel 直写输出。kv ≥ 2048 额外编出 2-pass 形态（`SPLITKV_PARTIAL` 宏变体 +
+> `decode_splitkv_reduce` + partial buffer），见 §2.3.5d。env 切换开关已删，形态由路由决定。
 
 - **机制**：一个 TG 负责一个 q head 组，QK + online softmax + AV 单 kernel 完成。
 - **为什么赚**：score 不落任何内存、无第二段 AV dispatch、无跨 workgroup reduce。
-- **门控**：`totalKv >= 阈值` && `mKVCache` && `mSeqLen==1` && `!mKvInDisk` && (`mCausalLayout` || trivial mask) && `mHeadDim%32==0` && tg 内存在上限内。阈值取得极低（kv≥2），⇒ **实践上 decode 全部走这条路**，它在 `_computePathFlags` 里会无条件清掉下面的 fused flag。
+- **门控**：`totalKv >= 阈值` && `mKVCache` && `mSeqLen==1` && `!mKvInDisk` && (causal || trivial mask) && `mHeadDim%32==0` && tg 内存在上限内。阈值取得极低（kv≥2），⇒ **实践上 decode 全部走这条路**；它在 `_resolvePlan` 的阶梯上排第一，命中即返回，下面的 fused flag 根本不会被算。
   - ⚠️ 因此**排查 decode attention 问题时不要按旧文档去看 QK_QSPLIT 那条路**——kv≥2 时活跃路径只有单趟 SDPA（无开关可对照）。
 - **NSG 是 device-tiered 的**：tensor-API 档取较大常量；非 tensor-API 档按 `clamp(常数 / (batch*head_num/qh), lo, hi)`，短 kv 再 cap。
   - ⚠️ **分档必须排在 `qh` 解析之后**：它的输入量是 grid.y（整个 dispatch 的并行度），不是 head 数。**两个 auto 旋钮读同一个量时，谁先算谁就看不见对方——顺序即正确性**（这条错过一次，代价是一个模型档拿到窄了 qh 倍的 nsg）。
@@ -793,15 +853,15 @@ auto t_k = tensor<device ftype, dextents<int32_t, 2>, tensor_inline>(
 - **已删除的变体（勿重试）**：
   - **QK 合并读**（simdgroup↔kv 行、长连续 K 读）：kernel 级快、e2e 平，**合并读不兑现**，同一模式已复现多次。
   - **kv token 批量取**（一次预取 KVB 个 kv token 的 K/V 行）：**作为单纯的 load 预发射在这个 kernel 里无效**——它的 V 行读**本来就已经 hoist 到 `simd_sum(score)` 之上**，单 token 的 load 延迟早已被覆盖，批量只多付寄存器。**注意这与 FA-SG 上同类手段有效并不矛盾**（那里 smem fragment load 与 MMA 是 1:1 且阻塞 MMA，批量才拉开 ILP）。⇒ **"批量预发射"只在被阻塞的依赖链上有效，先确认那条 load 是否已经被 hoist。** 但同一个"多 token"外壳换一个依赖目标就成立了——见 §2.3.5c（共享 online-softmax 更新）。
-  - **2-pass split-KV 加 TG 数**（kv 轴切到 grid.x、partial + reduce 第二趟）：在"8 TG 封顶、加 TG 提带宽"的假设下被复活重测过一次，**全部 ctx 单调变差、ntg 越大越差**，再次删除。机制：split 不改变总 KV 字节，却把**每个 TG 的固定尾款**（跨 simdgroup 转置归约的 barrier 串、q 寄存器装载、reduce dispatch 本身）乘上了 TG 数——固定开销随 TG 数线性涨，而流式带宽不动。⇒ **该 kernel 的低利用率不是 TG 数不足**；每 TG 流式速率低是 token 循环内依赖链（QK 点积 → simd_sum → online-softmax 更新）的延迟属性，不是并行度属性。要提带宽得改 token 循环的依赖结构，不是加 TG。
-- **历史 split-KV 形态的坑**（2-pass 形态已拆除，此条仍适用）：路径 flag 判定必须放在 `handleKVAllocMemory()` **之前**，否则首个 decode step 临时缓冲未分配 → `setTensor(null)` SIGSEGV（单 pass SDPA 的 early return 跳过 mTempQK/mTempSoftMax，fallback 时靠 re-run 补救）。partial buffer 若要按 kv 增长扩容，必须按**进程级固定值**（如 env 上限）一次分够：按当前 ntg 扩容会在 ntg 翻档时 free 掉 recorded replay 仍绑定的 Tensor*，是 `metalReplayValidate` 看不见的 UAF。
+  - **2-pass split-KV 加 TG 数**（kv 轴切到 grid.x、partial + reduce 第二趟）：split 不改变总 KV 字节，却把**每个 TG 的固定尾款**（跨 simdgroup 转置归约的 barrier 串、q 寄存器装载、reduce dispatch 本身）乘上 TG 数——固定开销随 TG 数线性涨，而流式带宽不动。该 kernel 的低利用率是 token 循环内依赖链（QK 点积 → simd_sum → online-softmax 更新）的**延迟属性**，TG 数足够时加 TG 只会更差。所以现行形态只在 `kv >= 2048`（TG 数真正不够填满 GPU）时启用（§2.3.5d），**不要把加 TG 的逻辑外推到短 kv**。
+- **split-KV 形态的坑**（对当前 2-pass 形态依然适用）：路径 flag 判定必须放在 `handleKVAllocMemory()` **之前**，否则首个 decode step 临时缓冲未分配 → `setTensor(null)` SIGSEGV（单 pass SDPA 的 early return 跳过 mTempQK/mTempSoftMax，fallback 时靠 re-run 补救）。partial buffer 若要按 kv 增长扩容，必须按**进程级固定值**（如 env 上限）一次分够：按当前 ntg 扩容会在 ntg 翻档时 free 掉 recorded replay 仍绑定的 Tensor*，是 `metalReplayValidate` 看不见的 UAF。
 
 ### 2.3.5b KV 跨 GQA 组共享（`SDPA_QH_PER_TG`）
 
 - **机制**：`decode_splitkv` 原本一个 TG 只算一个 q head，于是 GQA group 内同一份 K/V 行被 group 个 TG 各读一遍。`SDPA_QH_PER_TG > 1` 让一个 TG 拥有若干个连续 q head（须整除 `group_size`），K 行进寄存器 `k_row[DPT]` 后对每个 head 各做一次点积，V 行同样只取一次。
 - **为什么赚**：**削掉请求侧的冗余 KV 读**。GQA group 大的模型上，unique KV 流量远小于请求侧流量，达成带宽被压在 DRAM 峰值之下；分组后能把达成带宽推到接近峰值。
 - **代价与真正的因变量**：`qh↑` ⇒ KV 读请求↓（收益）**且** threadgroup 数 `= batch*head_num/qh` ↓（代价）。所以净效果是**两个反向效应的乘积**，`group_size=2` 的模型上分组一次就把冗余削光、同时把 TG 数压到下限，两者刚好抵消 ⇒ 看起来"机制不成立"。**真正的因变量是"请求侧带宽还是不是瓶颈"**，TG 数和 group_size 都只是它的代理。
-- **自动门控**（`MetalAttention.mm` `_computePathFlags`）：从 qh=2 起逐次翻倍，取满足下面两条的最大 2 的幂（须整除 `group_size` 与 `head_num`）：
+- **自动门控**（`MetalAttention.mm` `_resolveSdpa`）：从 qh=2 起逐次翻倍，取满足下面两条的最大 2 的幂（须整除 `group_size` 与 `head_num`）：
   1. `batch*head_num/qh >= 8` —— **硬下限**，低于此纯粹并行度饿死，没有任何带宽收益能救；
   2. 若落在 **8~15 TG** 这一档，还要求**剩余冗余 `group_size/qh >= 2`** —— 这一档要付并行度代价，只有"分完之后还有冗余可削"时才划得来。剩余冗余 ≥2 说明请求侧带宽仍是瓶颈；剩余 =1 说明 unique KV 的 DRAM 流量已经是瓶颈，再分组换不到东西。
 - **已知的门控局限**：`head_dim` 会调制 TG 下限（head_dim 大 ⇒ 每 TG 单 token 工作量大 ⇒ 更少的 TG 也能填满）。真正的并行度单位是 `TG 数 × 每 TG 工作量`，当前用"TG 数 ≥8"当代理是**偏保守**的近似；想再榨这一档得把 head_dim 放进门控并重新标定。
@@ -812,13 +872,23 @@ auto t_k = tensor<device ftype, dextents<int32_t, 2>, tensor_inline>(
 
 - **机制**：单 token 形态里每个 kv token 都要走完整依赖链：QK 点积 → `simd_sum` shuffle 串 → online-softmax 更新（`M/S/O` 逐 token 串行）。`SDPA_KVB = 2` 让一个迭代处理同一 stripe 步里的 2 个 token：两条点积/shuffle 链互相独立、在时间里交叠，且 2 个 score **共享一次 online-softmax 更新**（max/exp2 因子可代数合并，求和序仍是合法序）⇒ 每 token 的串行更新次数减半。收益来自**改依赖结构**，不是 load 预发射（那条路 §2.3.5 已证伪）。
 - **为什么赚**：该 kernel 的低利用率是 token 循环依赖链的**延迟属性**（§2.3.5 split-KV 条目已定位）；TG 数少、occupancy 遮不住这条链时，交叠直接把链长减半。
-- **自动门控**：`mSdpaSinglePass && totalKv >= 2048 && tgCount < 16`（`tgCount = batch*head_num/qh`，与 nsg 分档读同一个量，**必须排在 qh 解析之后**）。两个反向数据点定界：8 TG（d256）长 ctx 稳定正收益；16 TG（d128）长 ctx 稳定小亏——occupancy 足够时链已被遮住，只剩寄存器代价。kv < 2048 时循环太短、正负都在噪声内，不开。env `MNN_METAL_DECODE_SDPA_KVB`：0=auto（默认），1/2/4 强压。
+- **自动门控**：`DecodeSdpa 路由 && totalKv >= kvbMinKv && tgCount < kvbMaxTg`（`tgCount = batch*head_num/qh`，与 nsg 分档读同一个量，**必须排在 qh 解析之后**）。TG 上限的依据：occupancy 足够遮住依赖链时，交叠只剩寄存器代价；kv < 2048 时循环太短、正负都在噪声内，不开。env `MNN_METAL_DECODE_SDPA_KVB`：0=auto（默认），1/2/4 强压。
 - **KVB=4 稳定输给 KVB=2**：`k_row/v_row` 各多一份 DPT 寄存器，register pressure 吃掉交叠收益。别再扫更宽。
 - **正确性**：合并更新对每个 q head 是独立累加器、kv 迭代序不变，与串行形在 fp16 输出上逐位一致或差 ≤1 ulp（合并 vs 顺序累加的结合序差）。变体随 kv 跨档每 token 翻转 ⇒ **必须进 `_pathSignature`**（bit 28），否则 recorded replay 拿到旧 kernel。
 
+### 2.3.5d 2-pass split-KV decode（`SPLITKV_PARTIAL` + `decode_splitkv_reduce`）
+
+- **机制**：把 kv 轴按 `SPLITKV_BLK = 512` 切块，grid `(blocks, B*H/qh, 1)`，一个 TG 一块，写出**未归一化**的 partial（每 head `head_dim + 2` 个 float：O 累加器 + running max + sum）；第二趟 `decode_splitkv_reduce` 用 log-sum-exp 合并各块。目的是在长 kv 上把 TG 数从 8 提到 blocks×8，填满 GPU。
+- **门控**：`kv >= 2048` 且 partial/reduce 两个 pipeline 都编得出来（partial 还要过 `32*nsg` 线程上限与 threadgroup 内存上限）。再短的话单趟 grid 已经够了。
+- **实现要点**：
+  - partial buffer **按字节分配**（`Tensor::createDevice<uint8_t>`）：声明成 float 会被 fp16 后端砍半，而 shader 每元素写 4 字节 ⇒ 越界。
+  - block 数跟**执行期的真实 kv 长度**走（`UP_DIV(kvLen, 512)`），不是 prepare 期的代表长度。
+  - ⚠️ **它是 plan 属性，不是路由键**：形态由"pipeline 编不编得出来"决定，而 `pipelineSignature()` 必须在编译**之前**算完才能查表 ⇒ two-pass 位若进 signature，插入侧与查表侧会算出不同的键，运行时报 `pipeline was not prepared by resize`。当前实现里它只存在于 `PipelinePlan`，`updateExecutionState` 从 plan 恢复。
+  - 也因此 **2-pass 不走 replay**：它有 3 个 dispatch，而 `onReplayUpdate` 对 SDPA 路由只接受 2 个事件，事件数不符自然退回普通 encode。
+
 ### 2.3.6 Q-head-split Fused Decode QK+Softmax（QK_QSPLIT，**当前不可达**）
 
-> ⚠️ §2.3.5 的 SDPA 阈值极低且会清掉 `mDecodeQkSoftmax` ⇒ QK_QSPLIT 连同它的宿主
+> ⚠️ §2.3.5 的 SDPA 阈值极低且在阶梯上排在 `DecodeFusedQkSoftmax` 之前 ⇒ QK_QSPLIT 连同它的宿主
 > `decode_qk_softmax` 已不可达。**本节只作机制留存**，不要拿它给
 > decode 问题定位。
 
@@ -833,18 +903,33 @@ auto t_k = tensor<device ftype, dextents<int32_t, 2>, tensor_inline>(
 
 ### 2.3.8 decode/prefill attention 路由速查
 
-全部路由在 `MetalAttention.mm` 的 `_computePathFlags()`，**每 token 重算**；`_pathSignature()` 决定 replay 是否失效。
+**代码结构**：路由是**一个枚举 + 一个 resolver**，不再是一堆互相取否的布尔。
 
-**decode**（优先级从高到低）：
-1. 单 pass 融合 SDPA（`mSdpaSinglePass`，§2.3.5）——阈值极低且清掉下面的 flag ⇒ **实践中 decode 全部走这一条**；kernel 内部两个旋钮是 nsg（按设备分档）与 `SDPA_QH_PER_TG`（§2.3.5b，按 TG 数与剩余冗余自动）；
-2. 融合 `decode_qk_softmax`（`mDecodeQkSoftmax`）：`mKVCache && mShortSeq && mSeqLen<=8 && (mCausalLayout || trivialFloatMask) && !mKvInDisk && group_size>=2 && mHeadDim%8==0 && mKvSeqLen<=maxKvForFusion`；可叠 `QK_QSPLIT`（§2.3.6）；
-3. 三段 `decode_qk` → softmax → `decode_qkv`（else 分支）。
+| 概念 | 类型 | 作用 |
+|---|---|---|
+| `AttnFacts` | struct | 决策输入的快照，按三轴分组：seqLen 档 / 设备能力 / mask-KV 形态。`_collectFacts()` 每 token 重建 |
+| `AttnRoute` | enum(6) | 唯一的"走哪条路"：`DecodeSdpa` / `DecodeFusedQkSoftmax` / `DecodeStaged` / `PrefillFaTc` / `PrefillFaSg` / `PrefillStaged` |
+| `AttnPlan` | struct | route + 该 route 专属旋钮（nsg/kvb/qhPerTg/twoPass、qkQsplit、faTcWN、causalTri/causalBound、qseqSplit、各 simd 变体）。`_resolvePlan()` 是 `(facts, veto) -> plan` 的纯函数 |
+| `AttnVeto` | bitmask | 编译期否决（tensor API / FA-TC / FA-SG / SDPA 的 pipeline 编不出来或超 threadgroup 上限），只被 resolver 消费 |
+| `PipelinePlan` | struct | signature -> 编译产物 + `veto` + 两个编译期才确定的旋钮（`sdpaNsg` 降档结果、`sdpaTwoPass`） |
 
-**prefill**（优先级 faTc > legacy FA > faSg > 三段）：
-1. `prefill_flash_attn_tc`（§2.3.4，tensor-coop 设备）；
-2. legacy `gPrefillFlashAttn`（§2.3.3，强制开或长上下文 / 特殊 head_dim）；
-3. `prefill_flash_attn_sg`（§2.3.9，非 tensor-coop 设备长 seq auto）；
-4. 三段 + CAUSAL_TRI/BOUND（§2.3.1）。
+入口链：`onResize -> preparePipelines`（按代表性 kv 长度扫一遍边界，逐条编译并缓存）；`onExecute -> updateExecutionState -> _resolveRoute -> 查表 -> handleKVAllocMemory -> onEncode`。`_pathSignature(true)` 决定 replay 是否失效，`pipelineSignature()` = `_pathSignature(false)` + SDPA 旋钮 + kv 区间。
+
+⚠️ **查表键取"未否决"的解析结果**：`preparePipelines` 与 `updateExecutionState` 都先把 `mVeto` 清零再算 signature，命中后才把 `plan.veto` 叠回去重解析。两侧规则必须一致，否则运行时报 `pipeline was not prepared by resize`。
+
+**decode 阶梯**（`f.decode` = seqLen < 16）：
+1. `DecodeSdpa`（§2.3.5）——`kvLen >= 2` 且 kvCache、非 disk、causal 或单元素 add-mask、`headDim%32==0`、tg 内存在 30KB 内 ⇒ **实践中 decode 全部走这一条**；kv ≥ 2048 自动切 2-pass（§2.3.5d）；旋钮 nsg（设备分档）、`SDPA_QH_PER_TG`（§2.3.5b）、`SDPA_KVB`（§2.3.5c）；
+2. `DecodeFusedQkSoftmax`——`seqLen<=8 && kvLen <= FusedQkSoftmaxMaxKv(group)`（group 2/4/8 → 2048/1024/512）；可叠 `QK_QSPLIT`（§2.3.6）；
+3. `DecodeStaged`——`decode_qk` → softmax → `decode_qkv`。
+
+**prefill 阶梯**：
+1. `PrefillFaTc`（§2.3.4）——tensor API 设备，`headDim ∈ {64,128,256}`，`seqLen >= 64`；**例外**：`headDim==256 && gen<=16` 让位给三段 tensor（寄存器驻留悬崖）；
+2. `PrefillFaSg`（§2.3.9）——非 tensor API 设备，`headDim ∈ {64,128}`，`seqLen >= 512`（Pro 档）/ `1024`（其余）；
+3. `PrefillStaged`——三段 + `CAUSAL_TRI`/`CAUSAL_BOUND`（§2.3.1），并按 `MNN_METAL_ATTN_QSPLIT_MB` 切 q 序列约束 scratch。
+
+两条融合 prefill 的公共前提（`fusedPrefillOk`）：非 sinks、fp16、causal、KV 在内存、**非量化 KV**、`kvLen >= seqLen`。⇒ 开了 KV int8 就退回三段。
+
+> legacy `gPrefillFlashAttn`（原第 2 优先级）已删除，见 §2.3.2/§2.3.3；`attention_mode / 8` 在 Metal 上不再选路。
 
 ### 2.3.9 STEEL-like fused prefill（`prefill_flash_attn_sg`，无 tensor-coop 设备）
 

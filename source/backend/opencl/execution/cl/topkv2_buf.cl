@@ -10,8 +10,12 @@
         return;                                                                                   \
     }
 
+#ifndef THREAD_NUMBER
 #define THREAD_NUMBER 128
+#endif
+#ifndef LOCAL_K
 #define LOCAL_K 8
+#endif
 #define CANDIDATE_NUMBER (THREAD_NUMBER * LOCAL_K)
 
 #ifdef IS_INT

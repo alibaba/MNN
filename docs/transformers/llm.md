@@ -548,14 +548,14 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
       - 12: FlashAttention + KV-TQ3（3-bit量化，极致压缩，推荐4B+模型）
     - 注意：TQ3/TQ4基于TurboQuant算法（WHT旋转+Lloyd-Max码本），建议在4B及以上参数模型上使用，小模型（<1B）精度损失较大
     - Metal 后端 attention_mode 说明（其他 GPU 后端暂不支持 FlashAttention，`attention_mode` 会被忽略）：
-      - FlashAttention（attention_mode / 8 >= 1）：启用 prefill 阶段的融合 Flash Attention kernel，跳过 `mTempQK` / `mTempSoftMax` 两块 O(seq²·B·H) 中间显存，长上下文场景峰值内存显著下降。当前 kernel 已支持 head_dim ∈ {64, 128, 256}、GQA group ∈ {1,2,4,8}、causal ADD-mask 输入。
+      - FlashAttention（attention_mode / 8）：**Metal 上已无作用**。Metal 按 seq 长度、设备能力与 mask 形态自动选路：prefill 在 tensor API 设备上走 `prefill_flash_attn_tc`、在 simdgroup-matrix 设备上达到 seq 下限时走 `prefill_flash_attn_sg`，两者都是融合 kernel，同样跳过 `mTempQK` / `mTempSoftMax` 两块 O(seq²·B·H) 中间显存；不满足融合条件时走三段路径并按 q 序列分片约束中间显存峰值。原先由该开关启用的 legacy `prefill_flash_attn` kernel 已删除。
       - KV Cache 量化（attention_mode % 8）：Metal 目前仅支持 int8 通道，即 `0/1/2`（TQ3/TQ4 为 CPU 专属）：
         - 0: 不量化
         - 1: 仅 Key int8 量化
         - 2: Key 和 Value 均 int8 量化
       - 常用组合：
-        - 8：FlashAttention，KV 保持 fp16（长上下文默认推荐）
-        - 10：FlashAttention + KV-INT8（进一步降低 KV 显存，短上下文 pp 会略降 5–14%）
+        - 8：KV 保持 fp16（长上下文默认推荐）
+        - 10：KV-INT8（进一步降低 KV 显存，短上下文 pp 会略降 5–14%；注意量化 KV 会退出融合 prefill，走三段路径）
     - 其他 GPU 后端（OpenCL / Vulkan / CUDA）目前仅遵循 attention_mode 中的默认行为，不支持 FlashAttention 切换。
   - use_mmap: 是否使用mmap方式，在内存不足时将权重写入磁盘，避免溢出，默认为false，手机上建议设成true
   - chunk: 限制每次最大处理的token数，高于此值将分块运行，以减少内存占用，eg: chunk: 128
@@ -1076,9 +1076,11 @@ python llmexport.py --path /path/to/Qwen2.5-0.5B-Instruct --lora_path /path/to/l
 ```bash
 python llmexport.py --path /path/to/Qwen2.5-0.5B-Instruct --lora_path /path/to/lora --lora_split --export mnn
 ```
-导出后模型文件夹内除了原始模型外，还会增加`lora.mnn`，这个就是lora模型文件。
+导出后模型文件夹内还会增加 `lora.mnn`，保留计算图，LoRA A/B 权重默认以 FP16 存储，`alpha/r` 已乘入 B。基础模型权重和其他参数精度不变。
 
-也可以同时指定 `--dst_file model.mpack`，基础模型会导出为 `model.mpack`，分离的 `lora.mnn` 保存在同一目录。单文件模型调用 `create_lora` 时，传入 `lora.mnn` 的文件路径。`lora.mnn` 包含计算图，采用普通 MNN 格式存储。
+也可以同时指定 `--dst_file model.mpack`，基础模型会导出为 `model.mpack`，分离的 `lora.mpack` 保存在同一目录。适配器包内是带计算图的 `lora.mnn`，沿用单文件包的格式规则，不重复打包基座的外部权重文件。普通 `lora.mnn` 不经过包格式编码。
+
+`create_lora` 同时支持已有的 `lora.mnn` 和单文件适配器包，包格式按内容识别，不依赖后缀。目录基座的相对适配器路径相对于基座目录；单文件基座使用适配器的实际文件路径。
 
 运行时创建lora模型
   ```cpp

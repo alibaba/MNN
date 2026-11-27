@@ -191,7 +191,7 @@ MetalBackend::onResizeEnd()        （MetalBackend.mm:1042）
 ```cpp
 // ① 融合 kernel 只存在于 decode-GEMV 管线；其它（含全部 prefill）保持逐成员 dispatch
 for (auto &conv : mConvs) {
-    if (!conv->is2sgDecodePipeline()) { return; }
+    if (!conv->decodeFusionEligible()) { return; }
 }
 
 // ② 分组直接来自导出的成员顺序，运行时不做任何模式推断
@@ -271,8 +271,7 @@ LN 折叠会 `mLn->setFused()` 压掉 LayerNorm 自己的 dispatch，`mNormalize
 | `setupGateUpFusion(peer, peerOutput)` | `this` = gate（leader），`peer` = up（follower）|
 | `setupQKVFusion(k,kOut, v,vOut, [w,wOut])` | 成员顺序第一个当 leader；默认使用 `maxGridX × 3/4` 矩形网格，一个 kernel 打全部投影；可通过 env 显式启用紧凑网格；**follower 的 `onEncode` 变 no-op** |
 | `setupLNFusion(hiddenIn, residualIn, residualOut, gamma, eps)` | 把 residual-add + RMSNorm 折进 leader kernel 的前导 |
-| `is2sgDecodePipeline()` | 是否走 `conv1x1_gemv_g4m1_2sg_wquant_sg` 管线——**融合的准入条件** |
-| `isGateUpLeader/Follower()`、`isQKVLeader/Follower()` | 状态查询 |
+| `decodeFusionEligible()` | 是否走 `conv1x1_gemv_g4m1_2sg_wquant_sg` 管线——**融合的准入条件** |
 | `getWeight/getBias/getDequantScale()` | leader 在融合 encode 时取 peer 的 buffer |
 
 **kernel 侧**由编译宏区分变体：`GATE_UP_FUSED`（grid 加 z=2 维、强制 64 线程）、
@@ -460,10 +459,10 @@ RoPE/Attention 形状放行 + Metal `kBaseOffset`/`v_channel_offset`）已**全�
 1. **模型是不是新导出的？** 旧模型图里根本没有 `FusedLinear` / `GatedRMSNorm`。
    用 `MNNDump2Json` 看图里有没有这两个 op type。
 2. **导出时有没有被 `--disable_fuse_*` / `--disable_transformer_c4` 关掉？**（默认全开，但脚本可能带了）
-3. **是不是 prefill？** 融合 kernel 只在 decode-GEMV 管线存在（`is2sgDecodePipeline()`），
+3. **是不是 prefill？** 融合 kernel 只在 decode-GEMV 管线存在（`decodeFusionEligible()`），
    prefill 全部逐成员 dispatch。**这条只针对 `FusedLinear`**；`GatedRMSNorm` 是独立链路，
    prefill 同样融合（§5.1）。
-4. **`is2sgDecodePipeline()` 为什么 false？** 量化位宽 / oc 对齐 / pipeline 创建失败。
+4. **`decodeFusionEligible()` 为什么 false？** 量化位宽 / oc 对齐 / pipeline 创建失败。
 5. **env 关了吗？** `MNN_METAL_DISABLE_{QKV,GATE_UP,LN}_FUSION`。
 6. **LN 没折？** 检查 converter 的 `has_ln` 是否置上（唯一消费者约束），
    以及运行时 `mLn->isNC4HW4() && isRMSNormWithGammaBeta()`。

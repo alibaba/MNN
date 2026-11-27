@@ -54,11 +54,13 @@ MNN supports end-to-end LLM export and inference:
 - **C++**: Google Style variant, see `.clang-format`. 4-space indent, 120-char line width, attached braces. Class names `PascalCase`, functions `camelCase`, member variables `mCamelCase`. RTTI and exceptions disabled (`-fno-rtti -fno-exceptions`). Default standard: C++11.
 - **Python**: Standard Python conventions
 - **Formatting**: `clang-format -i -style=file <file>`
-- **Comments**: 注释要精简，一处注释尽量两句话以内说清楚。只写代码本身看不出来的"为什么"，不要逐个成员/逐行解释，也不要写修改过程（如"替换了旧的 xxx"、"以前是 yyy"），这些放到 commit message 里。struct/类只在开头给一段整体说明，函数按类别分组即可。注释过多会让代码 AI 味太浓，反而降低可读性。
+- **Comments.** Use comments sparingly and aim for two sentences or fewer. Omit comments when the code is self-explanatory. Explain rationale that the code cannot convey and leave change history to commit messages. Prefer a single overview comment at the top of a struct or class and avoid commenting on each member. Group related functions together.
 
-> ⚠️ **禁止 C++ 全局对象（动态初始化）**:不允许在命名空间作用域定义需要动态初始化的非 POD 对象（如 `static const std::string` / `static const json` / 全局 STL 容器，**头文件中同样禁止**,每个包含它的 TU 都会生成一份）。这类对象产生 `__GLOBAL__sub_I_*` 启动初始化函数，会被手淘等打包静态检查拦截（代码安全风险 + 启动性能下降）。替代方案:`constexpr`/POD 常量（直接进 .rodata)、函数内 `static`（懒初始化）、或按需构造返回。
+> ⚠️ **C++ namespace-scope objects must not require dynamic initialization.** This applies to headers as well. Dynamic initialization adds startup overhead and can fail packaging checks. Use `constexpr` or statically initialized POD constants, lazy function-local statics, or construct objects on demand.
 
 ## Build & Test
+
+> **Build and run test binaries within the current working directory.** Prefer its `build/` subdirectory for build outputs. Run each binary from its build output directory. Never run test binaries from `/tmp`, `/private/tmp`, or other temporary directories, including their subdirectories.
 
 ```bash
 # Build C++ (with LLM)

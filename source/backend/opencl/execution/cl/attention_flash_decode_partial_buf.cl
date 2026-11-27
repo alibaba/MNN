@@ -253,6 +253,9 @@ __kernel void flash_decode_partial(
                               , __global const FLOAT *mask,
                               __private const int mask_kv_len
 #endif
+#ifdef ATTENTION_SINKS
+                              , __global const FLOAT* sinks
+#endif
                               ) {
     const int lid = get_local_id(0);
     const int chunk = get_group_id(0);
@@ -334,6 +337,9 @@ __kernel void flash_decode_partial(
         m4 = fmax(m4, vload4(0, lsd + i));
     }
     m = fmax(fmax(m4.x, m4.y), fmax(m4.z, m4.w));
+#ifdef ATTENTION_SINKS
+    if (chunk == 0) m = fmax(m, (float)sinks[hn]);
+#endif
     float2 p2 = (float2)0.0f;
     p2.x = (qk2.x <= FA_NEG_TEST) ? 0.0f : native_exp(qk2.x - m);
     p2.y = (qk2.y <= FA_NEG_TEST) ? 0.0f : native_exp(qk2.y - m);
@@ -381,6 +387,9 @@ __kernel void flash_decode_partial(
         m = fmax(m, lsd[i]);
     }
 #endif
+#ifdef ATTENTION_SINKS
+    if (chunk == 0) m = fmax(m, (float)sinks[hn]);
+#endif
     // Everyone is done reading the scores before they are overwritten with probabilities. The
     // score is re-read from local rather than kept private, because a lane no longer owns exactly
     // one kv.
@@ -406,6 +415,9 @@ __kernel void flash_decode_partial(
 #endif
 #endif
 
+#ifdef ATTENTION_SINKS
+    if (chunk == 0) l += native_exp((float)sinks[hn] - m);
+#endif
     // Unnormalized O for this chunk, one dim quad per unit.
     const int kv_valid = min(FD_CHUNK, kv_seq_len - k0);
     const int base = (hn * num_chunk + chunk);

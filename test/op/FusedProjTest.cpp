@@ -161,6 +161,68 @@ public:
 };
 MNNTestSuiteRegister(FusedGateUpSplitTest, "op/fused_gateup_split");
 
+// MoE shared expert: out = sigmoid(gate(x)) * (x * down^T + b), the gate value being
+// one scalar per token. Metal folds that row multiply into the projection's decode
+// GEMV epilogue and, on the routes without the fold (the prefill tiles), runs a
+// standalone scaling pass instead -- both must give the reference result.
+static bool runRowMulCase(int seq, int ic, int oc) {
+    std::vector<float> xData(seq * ic);
+    for (int i = 0; i < seq * ic; ++i) {
+        xData[i] = (float)((i % 13) - 6) * 0.11f;
+    }
+    std::vector<float> sData(seq);
+    for (int t = 0; t < seq; ++t) {
+        sData[t] = 0.25f + 0.05f * (float)(t % 7);
+    }
+    auto x = _Input({seq, ic, 1, 1}, NC4HW4);
+    auto xC4 = packC4(xData, seq, ic);
+    ::memcpy(x->writeMap<float>(), xC4.data(), xC4.size() * sizeof(float));
+    x->unMap();
+    // Single-channel C4 scale: one ftype4 per token, value in component 0.
+    auto s = _Input({seq, 1, 1, 1}, NC4HW4);
+    auto sC4 = packC4(sData, seq, 1);
+    ::memcpy(s->writeMap<float>(), sC4.data(), sC4.size() * sizeof(float));
+    s->unMap();
+
+    std::unique_ptr<OpT> op(new OpT);
+    op->type = OpType_FusedLinear;
+    op->main.type = OpParameter_FusedLinearParam;
+    op->main.value = new FusedLinearParamT;
+    op->defaultDimentionFormat = MNN_DATA_FORMAT_NC4HW4;
+    auto param = op->main.AsFusedLinearParam();
+    param->convs.push_back(makeConv(ic, oc, seq));
+    param->row_mul = true;
+    auto expr = Expr::create(std::move(op), {x, s}, 1);
+    if (nullptr == expr) {
+        return false;
+    }
+    auto& conv = op->main.AsFusedLinearParam()->convs[0];
+    std::vector<float> expected;
+    convRef(xData, conv->weight, conv->bias, expected, seq, ic, oc);
+    for (int t = 0; t < seq; ++t) {
+        for (int o = 0; o < oc; ++o) {
+            expected[t * oc + o] *= sData[t];
+        }
+    }
+    char tag[32];
+    ::snprintf(tag, sizeof(tag), "row_mul_%d", seq);
+    return checkOut(Variable::create(expr, 0), expected, seq, oc, tag);
+}
+
+class FusedRowMulTest : public MNNTestCase {
+public:
+    virtual ~FusedRowMulTest() = default;
+    virtual bool run(int precision) {
+        bool ok = true;
+        ok = runRowMulCase(1, 128, 32) && ok; // eligible for floating-point Metal GEMV
+        ok = runRowMulCase(5, 128, 32) && ok; // distinct per-token scales in GEMV
+        ok = runRowMulCase(33, 16, 24) && ok; // shape that does not take the GEMV fold
+        ok = runRowMulCase(4, 8, 6) && ok;     // output channel needs C4 padding
+        return ok;
+    }
+};
+MNNTestSuiteRegister(FusedRowMulTest, "op/fused_row_mul");
+
 static std::vector<int8_t> makeSharedFusedProjModel(int seed) {
     const int ic = 8;
     auto x = _Input({2, ic, 1, 1}, NC4HW4);
@@ -683,9 +745,9 @@ MNNTestSuiteRegister(FusedQKVP4LNTest, "op/fused_qkv_p4_ln");
 // --- Quantized decode-shape coverage -----------------------------------------
 //
 // The float cases above never reach a backend's fused GEMV path: Metal's
-// mIs2sgDecode is only set for quantized convs under Memory_Low. These cases
-// run at seq == 1 with 4/8-bit weights under their own Memory_Low executor so
-// Metal actually exercises setupQKVFusion / setupGateUpFusion / setupLNFusion.
+// mDecodeFusionEligible is only set for quantized convs under Memory_Low. These cases
+// run at seq == 1 with 4/8-bit weights under their own Memory_Low executor to
+// exercise the Metal FusedLinear group GEMV and its optional LN fold.
 // The mixed-bit case makes the projection fusion fail on purpose (quant layout
 // mismatch): the LayerNorm must then stay a separate dispatch — the regression
 // guard for MetalFusedProj::setupFusion ignoring the projection-fusion result.
@@ -722,7 +784,8 @@ static std::unique_ptr<Convolution2DT> makeQuantConv(int ic, int oc, int nbits, 
             alpha[2 * (o * blocknum + b)]     = mn;
             alpha[2 * (o * blocknum + b) + 1] = scale;
             for (int u = 0; u < blocksize; ++u) {
-                int q = (int)((w[u] - mn) * (threshold - clampMin) / (mx - mn) + clampMin);
+                int q = (int)std::round((w[u] - mn) / scale) + (int)clampMin;
+                q = std::max((int)clampMin, std::min((int)threshold, q));
                 recon[o * ic + b * blocksize + u] = (q - (int)clampMin) * scale + mn;
             }
         }
@@ -1026,7 +1089,7 @@ public:
 };
 MNNTestSuiteRegister(FusedGateUpLNQuant8PrefillTest, "op/fused_gateup_ln_quant8_prefill");
 
-// Mixed 4/8-bit q/k/v + LN: setupQKVFusion rejects the quant-layout mismatch,
+// Mixed 4/8-bit q/k/v + LN: the group GEMV rejects the quant-layout mismatch,
 // so the LN fold must be skipped and the LayerNorm dispatched separately —
 // wrong output here means the projection-fusion result was ignored again.
 class FusedQKVLNQuantMixedTest : public MNNTestCase {
@@ -1038,7 +1101,7 @@ public:
 };
 MNNTestSuiteRegister(FusedQKVLNQuantMixedTest, "op/fused_qkv_ln_quant_mixed");
 
-// Uniform 4-bit 4-projection group + LN: the QKV_FUSED_P4 × LN_FUSED pipeline
+// Uniform 4-bit 4-projection group + LN: the QKV_FUSED_4PROJ × LN_FUSED pipeline
 // that Qwen3.5 linear-attention layers use (qkv/z/b/a share one LN input).
 // The 2/3-bit P4 variants are separate shader builds but have no case here:
 // makeQuantConv's reference dequantization only has 4 levels at 2 bits and
@@ -1085,5 +1148,72 @@ public:
     }
 };
 MNNTestSuiteRegister(FusedQKVP4LNQuantBlock64ShapesTest, "op/fused_qkv_p4_ln_quant_block64_shapes");
+
+class FusedWidePrefillMergeTest : public MNNTestCase {
+public:
+    bool run(int precision) override {
+        struct Case {
+            std::vector<int> ocs;
+            const char* tag;
+            bool hasLn;
+        };
+        const std::vector<Case> cases = {
+            {{256, 128, 128}, "wide_prefill_all", true},
+            {{256, 128, 128}, "wide_prefill_all_noln", false},
+            {{256, 128, 32, 32}, "wide_prefill_partial", true},
+            {{256, 128, 32, 32}, "wide_prefill_partial_noln", false},
+            {{8192, 4096, 32, 32}, "wide_prefill_linattn", true},
+            {{32, 256, 128}, "wide_prefill_tiny_leader", true},
+            {{256, 128, 30, 30}, "wide_prefill_oc_tail", true},
+        };
+        for (const auto& c : cases) {
+            const std::vector<int> bits(c.ocs.size(), 4);
+            if (!runQuantLNCase(bits, c.ocs, c.tag, 128, 512, 64, 0.25f / 512, c.hasLn)) {
+                return false;
+            }
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(FusedWidePrefillMergeTest, "op/fused_wide_prefill_merge");
+
+// Decode QKV (merged weights + split-K) and GateUp+SiLU (split-K) across W2/W3/W4/W8
+// in both FP16 and FP32.
+class FusedDecodeWQuantBitsMetalTest : public MNNTestCase {
+public:
+    bool run(int precision) override {
+        if ((MNNForwardType)MNNTestSuite::get()->pStaus.forwardType != MNN_FORWARD_METAL) {
+            MNNTestSuite::get()->skipped++;
+            return true;
+        }
+        for (int bits : {2, 3, 4, 8}) {
+            const float relTol = (bits <= 3) ? 0.08f : 0.05f;
+            const std::string tagPrefix = "decode_w" + std::to_string(bits);
+            if (!runQuantLNCase({bits, bits, bits}, {128, 64, 64}, (tagPrefix + "_qkv_b8").c_str(), 1, 512, 64,
+                                0.25f / 512, true, relTol)) {
+                return false;
+            }
+            if (!runQuantLNCase({bits, bits, bits}, {256, 128, 128}, (tagPrefix + "_qkv_b16_noln").c_str(), 1, 1024,
+                                64, 0.25f / 1024, false, relTol)) {
+                return false;
+            }
+            if (!runQuantLNCase({bits, bits}, {128, 128}, (tagPrefix + "_gateup_b8").c_str(), 1, 512, 64,
+                                0.25f / 512, true, relTol)) {
+                return false;
+            }
+            if (!runQuantLNCase({bits, bits}, {256, 256}, (tagPrefix + "_gateup_b16").c_str(), 1, 1024, 64,
+                                0.25f / 1024, true, relTol)) {
+                return false;
+            }
+            // Fresh-module GateUpDual prefill (verifies deferred mGate/mUp acquisition).
+            if (!runQuantLNCase({bits, bits}, {128, 128}, (tagPrefix + "_gateup_dual_prefill").c_str(), 64, 512, 64,
+                                0.25f / 512, true, relTol)) {
+                return false;
+            }
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(FusedDecodeWQuantBitsMetalTest, "op/fused_decode_wquant_bits_metal");
 
 #endif

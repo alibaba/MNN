@@ -421,7 +421,8 @@ void MetalConvolutionCommon::loadWeight(const MNN::Op *op, bool loadWeightInt8) 
 }
 
 std::shared_ptr<MNN::Tensor> MetalConvolutionCommon::weightTransform(int group, int oc, int ic, int kh, int kw, const float *src, bool int8Weight, bool int4Weight, id<MTLBuffer> srcGpuBuffer, int subBits) {
-    if(srcGpuBuffer != nil) {
+    // W2/W3 decode returns a temp buffer and packing reads src, so the identity only holds elsewhere.
+    if(srcGpuBuffer != nil && subBits != 2 && subBits != 3) {
         MNN_ASSERT((void*)src == (void*)srcGpuBuffer.contents);
     }
     auto backend = static_cast<MetalBackend *>(this->backend());
@@ -633,6 +634,36 @@ std::shared_ptr<MNN::Tensor> MetalConvolutionCommon::weightTransform(int group, 
     }
 
     return t;
+}
+
+NSMutableDictionary* conv1x1Macros(bool fp16) {
+    const std::string type = fp16 ? "half" : "float";
+    auto macros = [NSMutableDictionary dictionaryWithCapacity:0];
+    [macros setValue:@(type.c_str()) forKey:@"ftype"];
+    [macros setValue:@((type + "2").c_str()) forKey:@"ftype2"];
+    [macros setValue:@((type + "4").c_str()) forKey:@"ftype4"];
+    [macros setValue:@((type + "2x4").c_str()) forKey:@"ftype2x4"];
+    [macros setValue:@((type + "4x4").c_str()) forKey:@"ftype4x4"];
+    [macros setValue:@"1" forKey:@"MNN_METAL_FLOAT32_COMPUTER"];
+    if (fp16) {
+        [macros setValue:@"1" forKey:@"MNN_METAL_FLOAT16_STORAGE"];
+    }
+    return macros;
+}
+
+id<MTLComputePipelineState> loadConv1x1Pipeline(MetalBackend* backend,
+    const std::vector<std::string>& keys, const std::string& source, const char* name, NSDictionary* macros) {
+    auto rt = backend->runtime();
+    auto pipeline = rt->findPipeline(keys);
+    if (pipeline == nil) {
+        MTLCompileOptions* options = [[MTLCompileOptions alloc] init];
+        options.preprocessorMacros = macros;
+        pipeline = backend->makeComputePipelineWithSourceOption(source.c_str(), name, options);
+        if (pipeline != nil) {
+            rt->insertPipeline(keys, pipeline);
+        }
+    }
+    return pipeline;
 }
 
 } // namespace MNN

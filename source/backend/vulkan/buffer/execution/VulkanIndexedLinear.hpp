@@ -32,6 +32,8 @@ private:
         int channels, outputs, experts, topk;
         int inputMode, groups, groupSize, weightStride;
         int rows, maxTiles;
+        int tokens, xC4;
+        float routeEps, routeScale;
     };
     VulkanIndexedLinear(const Op* op, Backend* backend, std::shared_ptr<Resource> resource);
     bool initResource(const Op* op);
@@ -39,8 +41,12 @@ private:
     std::shared_ptr<Resource> mResource;
     int mInputMode = 0;
     bool mFuseSwiGLU = false;
+    int mRouteWeight = 0;
+    float mRouteEps = 0.0f, mRouteScale = 1.0f;
     bool mValid = false;
-    std::shared_ptr<VulkanBuffer> mRouting;
+    std::shared_ptr<VulkanBuffer> mRouting, mRouteTmp;
+    const VulkanPipeline* mReduce = nullptr;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mReduceSet;
     const VulkanPipeline* mGemv = nullptr;
     const VulkanPipeline* mGemm[2] = {nullptr, nullptr};
     const VulkanPipeline* mRoute[4] = {nullptr, nullptr, nullptr, nullptr};

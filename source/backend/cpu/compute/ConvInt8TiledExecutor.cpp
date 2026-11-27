@@ -1546,10 +1546,13 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
         }
         // A axisSum kernel
     } else { // use sme and neon gemmInt8
+        // Fixed slots: [0] SME, [1] NEON. onResize reruns on every shape change, so appending
+        // would leave the previous shape's kernels in the slots onExecute reads.
+        mGemmKernels.resize(2);
         // Fp32
         if (planeSize == 1) { // Decode
-            mGemmKernels.push_back(mRelatedFunctions.MNNGemmInt8AddBiasScale_Unit_FP32_DecodeMax);
-            mGemmKernels.push_back(mArm82Functions.Int8GemmKernel);
+            mGemmKernels[0] = mRelatedFunctions.MNNGemmInt8AddBiasScale_Unit_FP32_DecodeMax;
+            mGemmKernels[1] = mArm82Functions.Int8GemmKernel;
             if (mResourceInt8->mWeightBits == 4) {
                 mGemmKernels[0] = mRelatedFunctions.MNNGemmInt8AddBiasScale_w4_Unit_FP32_DecodeMax;
                 mGemmKernels[1] = mArm82Functions.Int8GemmKernel_W4;
@@ -1564,8 +1567,8 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
                                                                                : mRelatedFunctions.Int8GemmKernel_W3;
             }
         } else { // Prefill
-            mGemmKernels.push_back(mRelatedFunctions.Int8GemmKernel);
-            mGemmKernels.push_back(mArm82Functions.Int8GemmKernel);
+            mGemmKernels[0] = mRelatedFunctions.Int8GemmKernel;
+            mGemmKernels[1] = mArm82Functions.Int8GemmKernel;
             if (mResourceInt8->mWeightBits == 4) {
                 mGemmKernels[0] = mRelatedFunctions.Int8GemmKernel_W4;
                 mGemmKernels[1] = mArm82Functions.Int8GemmKernel_W4;

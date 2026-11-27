@@ -1119,11 +1119,11 @@ def run_export(args, cli=False):
         if args.export != 'mnn' or args.generate_for_npu:
             raise ValueError('--dst_file requires --export mnn without --generate_for_npu')
         output = Path(args.dst_file).absolute()
-        lora_output = output.parent / 'lora.mnn'
+        lora_output = output.parent / 'lora.mpack'
         split_lora = args.lora_split and args.lora_path
         if split_lora:
             if output.name.casefold() == lora_output.name:
-                raise ValueError('--dst_file must differ from the split LoRA output lora.mnn')
+                raise ValueError('--dst_file must differ from the split LoRA output lora.mpack')
             if output.is_dir() or lora_output.is_dir():
                 raise ValueError('Split LoRA outputs must be files')
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -1139,6 +1139,10 @@ def run_export(args, cli=False):
             lora = Path(args.work_path) / 'lora.mnn'
             if not lora.is_file() or lora.stat().st_size == 0:
                 raise ValueError('Split LoRA export did not produce a nonempty lora.mnn')
+            adapter = Path(staging) / 'adapter'
+            adapter.mkdir()
+            os.replace(lora, adapter / 'lora.mnn')
+            lora = Path(pack_model(adapter, Path(staging) / 'lora.mpack'))
             bundle = pack_model(args.dst_path, Path(staging) / 'base.mpack', args.file_regions)
             _publish_split_lora(bundle, output, lora, lora_output)
             return str(output)

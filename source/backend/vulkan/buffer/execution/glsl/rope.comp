@@ -1,9 +1,9 @@
 layout(set=0, binding=0) readonly buffer s0 {
-    FLOAT data[];
+    FLOAT4 data[];
 } uQ;
 
 layout(set=0, binding=1) readonly buffer s1 {
-    FLOAT data[];
+    FLOAT4 data[];
 } uK;
 
 layout(set=0, binding=2) readonly buffer s2 {
@@ -32,13 +32,13 @@ layout(set=0, binding=7) readonly buffer s7 {
 
 layout(set=0, binding=8) readonly uniform constBuffer {
     ivec4 size0; // seqLen, headDim, numHead, kvNumHead
-    ivec4 size1; // ropeHalfDim, qNorm, kNorm, 0
+    ivec4 size1;
     vec4 eps;    // qEps, kEps, 0, 0
 } uConstant;
 
-layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
 
-shared float squareSum[64];
+shared float squareSum[32];
 
 int c4Offset(int token, int channel, int seqLen) {
     return ((channel >> 2) * seqLen + token) * 4 + (channel & 3);
@@ -61,18 +61,29 @@ void main() {
     const int channelBase = head * headDim;
     const int outputBase = (token * headCount + head) * headDim;
     const bool useNorm = isQ ? (uConstant.size1.y != 0) : (uConstant.size1.z != 0);
+    const int flags = uConstant.size1.w;
+    const bool interleaved = (flags & 1) != 0;
+    const bool hasGamma = isQ ? ((flags & 2) != 0) : ((flags & 4) != 0);
     const uint tid = gl_LocalInvocationID.x;
     float localSum = 0.0;
     if (useNorm) {
-        for (int d = int(tid); d < headDim; d += 64) {
+        if (interleaved && (headDim & 3) == 0) {
+            for (int d = int(tid) * 4; d < headDim; d += 128) {
+                int offset = c4Offset(token, channelBase + d, seqLen) / 4;
+                vec4 v = isQ ? vec4(uQ.data[offset]) : vec4(uK.data[offset]);
+                localSum += dot(v, v);
+            }
+        } else {
+        for (int d = int(tid); d < headDim; d += 32) {
             int offset = c4Offset(token, channelBase + d, seqLen);
-            float value = isQ ? float(uQ.data[offset]) : float(uK.data[offset]);
+            float value = isQ ? float(uQ.data[offset / 4][offset & 3]) : float(uK.data[offset / 4][offset & 3]);
             localSum += value * value;
+        }
         }
     }
     squareSum[tid] = localSum;
     barrier();
-    for (uint stride = 32u; stride > 0u; stride >>= 1u) {
+    for (uint stride = 16u; stride > 0u; stride >>= 1u) {
         if (tid < stride) {
             squareSum[tid] += squareSum[tid + stride];
         }
@@ -84,33 +95,84 @@ void main() {
     const int ropeDim = ropeHalfDim * 2;
     const int trigBase = token * ropeDim;
 
-    for (int d = int(tid); d < ropeHalfDim; d += 64) {
-        const int evenOffset = c4Offset(token, channelBase + d, seqLen);
-        const int oddOffset = c4Offset(token, channelBase + d + ropeHalfDim, seqLen);
-        float even = isQ ? float(uQ.data[evenOffset]) : float(uK.data[evenOffset]);
-        float odd = isQ ? float(uQ.data[oddOffset]) : float(uK.data[oddOffset]);
-        if (useNorm) {
-            even *= scale * (isQ ? float(uQGamma.data[d]) : float(uKGamma.data[d]));
-            odd *= scale *
-                   (isQ ? float(uQGamma.data[d + ropeHalfDim]) : float(uKGamma.data[d + ropeHalfDim]));
+    if (interleaved && (headDim & 3) == 0 && (ropeDim & 3) == 0) {
+        for (int ch = int(tid) * 4; ch < ropeDim; ch += 128) {
+            int offset = c4Offset(token, channelBase + ch, seqLen) / 4;
+            vec4 v = isQ ? vec4(uQ.data[offset]) : vec4(uK.data[offset]);
+            if (useNorm) {
+                v *= scale;
+                if (hasGamma) {
+                    for (int j = 0; j < 4; ++j) v[j] *= isQ ? float(uQGamma.data[ch+j]) : float(uKGamma.data[ch+j]);
+                }
+            }
+            vec2 c = vec2(float(uCos.data[trigBase+ch]), float(uCos.data[trigBase+ch+2]));
+            vec2 sn = vec2(float(uSin.data[trigBase+ch]), float(uSin.data[trigBase+ch+2]));
+            vec4 result = v * c.xxyy + v.yxwz * sn.xxyy * vec4(-1.0, 1.0, -1.0, 1.0);
+            for (int j = 0; j < 4; ++j) {
+                if (isQ) uQOut.data[outputBase+ch+j] = FLOAT(result[j]);
+                else uKOut.data[outputBase+ch+j] = FLOAT(result[j]);
+            }
         }
-        const float cEven = float(uCos.data[trigBase + d]);
-        const float cOdd = float(uCos.data[trigBase + d + ropeHalfDim]);
-        const float sEven = float(uSin.data[trigBase + d]);
-        const float sOdd = float(uSin.data[trigBase + d + ropeHalfDim]);
-        if (isQ) {
-            uQOut.data[outputBase + d] = FLOAT(even * cEven - odd * sEven);
-            uQOut.data[outputBase + d + ropeHalfDim] = FLOAT(odd * cOdd + even * sOdd);
-        } else {
-            uKOut.data[outputBase + d] = FLOAT(even * cEven - odd * sEven);
-            uKOut.data[outputBase + d + ropeHalfDim] = FLOAT(odd * cOdd + even * sOdd);
+    } else if (interleaved) {
+        for (int i = int(tid); i < ropeHalfDim; i += 32) {
+            const int ch = 2 * i;
+            const int evenOffset = c4Offset(token, channelBase + ch, seqLen);
+            const int oddOffset = c4Offset(token, channelBase + ch + 1, seqLen);
+            float even = isQ ? float(uQ.data[evenOffset / 4][evenOffset & 3]) : float(uK.data[evenOffset / 4][evenOffset & 3]);
+            float odd = isQ ? float(uQ.data[oddOffset / 4][oddOffset & 3]) : float(uK.data[oddOffset / 4][oddOffset & 3]);
+            if (useNorm) {
+                even *= scale;
+                odd *= scale;
+                if (hasGamma) {
+                    even *= isQ ? float(uQGamma.data[ch]) : float(uKGamma.data[ch]);
+                    odd *= isQ ? float(uQGamma.data[ch + 1]) : float(uKGamma.data[ch + 1]);
+                }
+            }
+            const float c = float(uCos.data[trigBase + ch]);
+            const float s = float(uSin.data[trigBase + ch]);
+            if (isQ) {
+                uQOut.data[outputBase + ch] = FLOAT(even * c - odd * s);
+                uQOut.data[outputBase + ch + 1] = FLOAT(even * s + odd * c);
+            } else {
+                uKOut.data[outputBase + ch] = FLOAT(even * c - odd * s);
+                uKOut.data[outputBase + ch + 1] = FLOAT(even * s + odd * c);
+            }
+        }
+    } else {
+        for (int d = int(tid); d < ropeHalfDim; d += 32) {
+            const int evenOffset = c4Offset(token, channelBase + d, seqLen);
+            const int oddOffset = c4Offset(token, channelBase + d + ropeHalfDim, seqLen);
+            float even = isQ ? float(uQ.data[evenOffset / 4][evenOffset & 3]) : float(uK.data[evenOffset / 4][evenOffset & 3]);
+            float odd = isQ ? float(uQ.data[oddOffset / 4][oddOffset & 3]) : float(uK.data[oddOffset / 4][oddOffset & 3]);
+            if (useNorm) {
+                even *= scale;
+                odd *= scale;
+                if (hasGamma) {
+                    even *= isQ ? float(uQGamma.data[d]) : float(uKGamma.data[d]);
+                    odd *= isQ ? float(uQGamma.data[d + ropeHalfDim]) : float(uKGamma.data[d + ropeHalfDim]);
+                }
+            }
+            const float cEven = float(uCos.data[trigBase + d]);
+            const float cOdd = float(uCos.data[trigBase + d + ropeHalfDim]);
+            const float sEven = float(uSin.data[trigBase + d]);
+            const float sOdd = float(uSin.data[trigBase + d + ropeHalfDim]);
+            if (isQ) {
+                uQOut.data[outputBase + d] = FLOAT(even * cEven - odd * sEven);
+                uQOut.data[outputBase + d + ropeHalfDim] = FLOAT(odd * cOdd + even * sOdd);
+            } else {
+                uKOut.data[outputBase + d] = FLOAT(even * cEven - odd * sEven);
+                uKOut.data[outputBase + d + ropeHalfDim] = FLOAT(odd * cOdd + even * sOdd);
+            }
         }
     }
-    for (int d = ropeDim + int(tid); d < headDim; d += 64) {
+    for (int d = ropeDim + int(tid); d < headDim; d += 32) {
         const int offset = c4Offset(token, channelBase + d, seqLen);
-        float value = isQ ? float(uQ.data[offset]) : float(uK.data[offset]);
+        float value = isQ ? float(uQ.data[offset / 4][offset & 3]) : float(uK.data[offset / 4][offset & 3]);
         if (useNorm) {
-            value *= scale * (isQ ? float(uQGamma.data[d]) : float(uKGamma.data[d]));
+            value *= scale;
+            if (hasGamma) {
+                value *= isQ ? float(uQGamma.data[d]) : float(uKGamma.data[d]);
+            }
         }
         if (isQ) {
             uQOut.data[outputBase + d] = FLOAT(value);

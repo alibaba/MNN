@@ -168,6 +168,7 @@ table TopKV2 {
     T:DataType=DT_FLOAT;
     sorted:bool=false;
     largest:bool=true;
+    routeSigmoid:bool=false;
 }
 enum CropAndResizeMethod : byte{
     BILINEAR=0,

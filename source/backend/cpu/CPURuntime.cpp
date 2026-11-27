@@ -186,7 +186,7 @@ cpu_mask_t MNNGetCPUMask(const std::vector<int>& cpuIds) {
 
 // cpuinfo
 // Reference from: https://github.com/pytorch/cpuinfo
-#if (defined(ENABLE_ARMV82) && defined(__arm__)) || (defined(__ANDROID__) && defined(__aarch64__))
+#if defined(__ANDROID__) && defined(__aarch64__)
 
 /* As per include/sys/system_properties.h in Android NDK */
 #define CPUINFO_HARDWARE_VALUE_MAX 64
@@ -1764,7 +1764,7 @@ static void _fillInfo(MNNCPUInfo* cpuinfo_isa) {
 #endif
 
 
-#if (defined(ENABLE_ARMV82) && defined(__arm__)) || (defined(__ANDROID__) && defined(__aarch64__))
+#if defined(__ANDROID__) && defined(__aarch64__)
     _getInfoArm(cpuinfo_isa);
 #endif // #ifdef arm / arm64
 #endif // #ifdef __linux__
@@ -1779,7 +1779,5 @@ static void _fillInfo(MNNCPUInfo* cpuinfo_isa) {
     cpuinfo_isa->dot = true;
 #endif
 
-    MNN_PRINT("The device supports: i8sdot:%d, fp16:%d, i8mm: %d, sve2: %d, sme2: %d, perfCores: %d\n",
-            cpuinfo_isa->dot, cpuinfo_isa->fp16arith, cpuinfo_isa->i8mm, cpuinfo_isa->sve2, cpuinfo_isa->sme2, cpuinfo_isa->perfCoreNumber);
     return;
 }

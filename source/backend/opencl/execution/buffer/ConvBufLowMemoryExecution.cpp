@@ -1782,7 +1782,7 @@ ErrorCode ConvBufLowMemoryExecution::onExecute(const std::vector<Tensor*>& input
             res = runtime->commandQueue().enqueueNDRangeKernel(unit.kernel->get(), cl::NullRange, unit.globalWorkSize,
                                                                unit.localWorkSize);
 #endif
-            MNN_CHECK_CL_SUCCESS(res, EnumNameOpType(mOp->type()));
+            MNN_CHECK_CL_SUCCESS(res, EnumNameOpType(mOpType));
         }
         // call gemm execute
         mStrassenComputor->onExecute();
@@ -1799,7 +1799,7 @@ ErrorCode ConvBufLowMemoryExecution::onExecute(const std::vector<Tensor*>& input
             res = runtime->commandQueue().enqueueNDRangeKernel(unit.kernel->get(), cl::NullRange, unit.globalWorkSize,
                                                                unit.localWorkSize);
 #endif
-            MNN_CHECK_CL_SUCCESS(res, EnumNameOpType(mOp->type()));
+            MNN_CHECK_CL_SUCCESS(res, EnumNameOpType(mOpType));
         }
     } else {
         for (auto& unit : mUnits) {
@@ -1812,7 +1812,7 @@ ErrorCode ConvBufLowMemoryExecution::onExecute(const std::vector<Tensor*>& input
             res = runtime->commandQueue().enqueueNDRangeKernel(unit.kernel->get(), cl::NullRange, unit.globalWorkSize,
                                                                unit.localWorkSize);
 #endif
-            MNN_CHECK_CL_SUCCESS(res, EnumNameOpType(mOp->type()));
+            MNN_CHECK_CL_SUCCESS(res, EnumNameOpType(mOpType));
         }
     }
 #ifdef LOG_VERBOSE

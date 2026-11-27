@@ -103,22 +103,42 @@ private:
     std::vector<File> mFiles;
 };
 
+static bool _fileSize(const std::string& path, int64_t& size) {
+    std::ifstream f(path, std::ios::binary | std::ios::ate);
+    if (!f.is_open()) {
+        return false;
+    }
+    size = f.tellg();
+    return size >= 0;
+}
+
 static bool _postTreatOp(std::unique_ptr<OpT>& op, FileLoader* fl, const PostTreatContext& context,
-                         const modelConfig& config, std::ofstream& weightPath, int64_t& offset,
-                         bool needExternalWeight, bool indexedExpert = false) {
+                         const modelConfig& config, std::ofstream& weightPath, int64_t& offset, bool needExternalWeight,
+                         bool indexedExpert = false, bool keepExternalLayout = false) {
     if (op->main.type == OpParameter_IndexedLinearParam) {
         if (config.model == modelConfig::MNN) {
             bool hasExternal = false;
+            bool allExternal = true;
             bool hasFloatWeight = false;
             auto param = op->main.AsIndexedLinearParam();
             for (const auto& expert : param->linears) {
                 if (expert) {
                     hasExternal |= !expert->external.empty();
+                    allExternal &= !expert->external.empty();
                     hasFloatWeight |= !expert->quanParameter;
                 }
             }
             if (hasExternal && op->externalPath.empty()) {
                 op->externalPath = config.modelFile + ".weight";
+            }
+            if (keepExternalLayout && hasExternal && allExternal) {
+                if (!validateIndexedLinearExternal(op.get(), fl)) {
+                    return false;
+                }
+                if (op->externalPath == config.modelFile + ".weight") {
+                    op->externalPath.clear();
+                }
+                return true;
             }
             // Already quantized banks need no weight post-treatment. Preserve
             // their external storage during the exporter's in-place graph pass.
@@ -147,8 +167,63 @@ static bool _postTreatOp(std::unique_ptr<OpT>& op, FileLoader* fl, const PostTre
         }
         return !needExternalWeight || weightPath.good();
     }
+    bool routedExternal = false;
+    bool allExternal = false;
+    if (config.model == modelConfig::MNN && op->externalPath.empty()) {
+        bool hasExternal = false;
+        switch (op->main.type) {
+            case OpParameter_Convolution2D: {
+                auto param = op->main.AsConvolution2D();
+                hasExternal = param != nullptr && !param->external.empty();
+                break;
+            }
+            case OpParameter_Blob: {
+                auto param = op->main.AsBlob();
+                hasExternal = param != nullptr && !param->external.empty();
+                break;
+            }
+            case OpParameter_Scale: {
+                auto param = op->main.AsScale();
+                hasExternal = param != nullptr && !param->external.empty();
+                break;
+            }
+            case OpParameter_LayerNorm: {
+                auto param = op->main.AsLayerNorm();
+                hasExternal = param != nullptr && !param->external.empty();
+                break;
+            }
+            case OpParameter_FusedLinearParam: {
+                auto param = op->main.AsFusedLinearParam();
+                if (param != nullptr) {
+                    bool all = !param->convs.empty();
+                    for (const auto& conv : param->convs) {
+                        hasExternal = hasExternal || (conv != nullptr && !conv->external.empty());
+                        all = all && conv != nullptr && !conv->external.empty();
+                    }
+                    allExternal = hasExternal && all;
+                }
+                break;
+            }
+            default:
+                break;
+        }
+        if (op->main.type != OpParameter_FusedLinearParam) {
+            allExternal = hasExternal;
+        }
+        if (hasExternal) {
+            op->externalPath = config.modelFile + ".weight";
+            routedExternal = true;
+        }
+    }
+    if (keepExternalLayout && routedExternal && allExternal) {
+        op->externalPath.clear();
+        return true;
+    }
     if (!loadExternalParam(op, fl)) {
         return false;
+    }
+    if (routedExternal) {
+        op->externalPath.clear();
     }
     if (config.alignDenormalizedValue) {
         AlignDenormalizedValue(op);
@@ -168,8 +243,7 @@ static bool _postTreatOp(std::unique_ptr<OpT>& op, FileLoader* fl, const PostTre
 }
 static float _computeOpExternalSizeInMB(const MNN::OpT* op) {
     switch (op->main.type) {
-        case MNN::OpParameter_IndexedLinearParam:
-        {
+        case MNN::OpParameter_IndexedLinearParam: {
             double size = 0.0;
             auto param = op->main.AsIndexedLinearParam();
             for (const auto& expert : param->linears) {
@@ -182,16 +256,14 @@ static float _computeOpExternalSizeInMB(const MNN::OpT* op) {
             }
             return size / 1024.0 / 1024.0;
         }
-        case MNN::OpParameter_Convolution2D:
-        {
+        case MNN::OpParameter_Convolution2D: {
             auto conv2D = op->main.AsConvolution2D();
             if (conv2D->external.empty()) {
                 return 0.0f;
             }
             return ((float)conv2D->external[1] + (float)conv2D->external[2]) / 1024.0f / 1024.0f;
         }
-        case MNN::OpParameter_Blob:
-        {
+        case MNN::OpParameter_Blob: {
             auto blob = op->main.AsBlob();
             if (blob->external.empty()) {
                 return 0.0f;
@@ -207,7 +279,7 @@ static float _computeOpExternalSizeInMB(const MNN::OpT* op) {
 static bool _largeModel(const MNN::NetT* netT) {
     float summer = 0.0f;
     for (auto& op : netT->oplists) {
-        summer+= _computeOpExternalSizeInMB(op.get());
+        summer += _computeOpExternalSizeInMB(op.get());
         if (summer > 2000.0f) {
             MNN_PRINT("Model larger than 2GB\n");
             return true;
@@ -215,7 +287,7 @@ static bool _largeModel(const MNN::NetT* netT) {
     }
     for (auto& subgraph : netT->subgraphs) {
         for (auto& op : subgraph->nodes) {
-            summer+= _computeOpExternalSizeInMB(op.get());
+            summer += _computeOpExternalSizeInMB(op.get());
             if (summer > 2000.0f) {
                 MNN_PRINT("Model larger than 2GB\n");
                 return true;
@@ -249,6 +321,8 @@ static int postTreat(std::unique_ptr<MNN::NetT>& netT, const modelConfig& config
         needExternalWeight = _largeModel(netT.get());
     }
     std::ofstream externalWeightOs;
+    bool keepExternalLayout = false;
+    int64_t seededWeightSize = 0;
     if (needExternalWeight) {
         auto weightName = config.MNNModel + ".weight";
         MNN_PRINT("Save Weight to %s\n", weightName.c_str());
@@ -261,11 +335,26 @@ static int postTreat(std::unique_ptr<MNN::NetT>& netT, const modelConfig& config
             MNN_ERROR("Failed to open external weights: %s\n", stagedWeight.c_str());
             return 1;
         }
+        const bool rewriteWeights = config.saveHalfFloat || config.weightQuantBits > 0 ||
+                                    config.detectSparseSpeedUp || !config.compressionParamsFile.empty();
+        if (config.model == modelConfig::MNN && !rewriteWeights) {
+            int64_t binSize = 0, inputSize = 0;
+            bool tempBinHasData = _fileSize(".__convert_external_data.bin", binSize) && binSize > 0;
+            if (!tempBinHasData && _fileSize(config.modelFile + ".weight", inputSize)) {
+                std::ifstream src(config.modelFile + ".weight", std::ios::binary);
+                externalWeightOs << src.rdbuf();
+                externalWeightOs.flush();
+                if (externalWeightOs.good()) {
+                    keepExternalLayout = true;
+                    seededWeightSize = inputSize;
+                }
+            }
+        }
     }
     {
         bool findQuant = false;
         auto& context = *config.compressInfo;
-        for (int i=0; i<proto.algo_size(); ++i) {
+        for (int i = 0; i < proto.algo_size(); ++i) {
             auto& algo = proto.algo(i);
             if (algo.type() != MNN::Compression::CompressionAlgo_CompressionType_QUANTIZE) {
                 continue;
@@ -274,7 +363,7 @@ static int postTreat(std::unique_ptr<MNN::NetT>& netT, const modelConfig& config
                 continue;
             }
             findQuant = true;
-            for (int j=0; j<algo.quant_params().layer_size(); ++j) {
+            for (int j = 0; j < algo.quant_params().layer_size(); ++j) {
                 const auto& quant = algo.quant_params().layer(j);
                 std::string opName;
                 if (!quant.has_op_name()) {
@@ -294,20 +383,22 @@ static int postTreat(std::unique_ptr<MNN::NetT>& netT, const modelConfig& config
             proto.set_version(MNN_VERSION);
             proto.set_for_guide(true);
             auto algo = proto.add_algo();
-            algo->set_type( MNN::Compression::CompressionAlgo_CompressionType_QUANTIZE);
+            algo->set_type(MNN::Compression::CompressionAlgo_CompressionType_QUANTIZE);
             context.quantMutableInfo = algo->mutable_quant_params();
         }
-        int64_t offset = 0;
+        int64_t offset = seededWeightSize;
         FileLoader fl(".__convert_external_data.bin");
         for (auto& op : netT->oplists) {
-            if (!_postTreatOp(op, &fl, context, config, externalWeightOs, offset, needExternalWeight)) {
+            if (!_postTreatOp(op, &fl, context, config, externalWeightOs, offset, needExternalWeight, false,
+                              keepExternalLayout)) {
                 return 1;
             }
         }
         for (auto& subgraph : netT->subgraphs) {
             context.subgraph = subgraph->name;
             for (auto& op : subgraph->nodes) {
-                if (!_postTreatOp(op, &fl, context, config, externalWeightOs, offset, needExternalWeight)) {
+                if (!_postTreatOp(op, &fl, context, config, externalWeightOs, offset, needExternalWeight, false,
+                                  keepExternalLayout)) {
                     return 1;
                 }
             }
@@ -355,9 +446,9 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const modelConfig& config, std::un
         netT->oplists.emplace_back(std::move(op));
     }
     std::set<std::string> notSupportOps;
-    
+
     // Detect unsupport op
-    auto CheckIfNotSupported = [&] (const std::unique_ptr<MNN::OpT>& op) {
+    auto CheckIfNotSupported = [&](const std::unique_ptr<MNN::OpT>& op) {
         if (op->type == MNN::OpType_Extra) {
             if (op->main.AsExtra()->engine != "MNN") {
                 notSupportOps.insert(op->main.AsExtra()->engine + "::" + op->main.AsExtra()->type);
@@ -398,7 +489,8 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const modelConfig& config, std::un
                 }
             }
         }
-        std::set_difference(outputIdx.begin(), outputIdx.end(), inputIdx.begin(), inputIdx.end(), std::inserter(realOutput, realOutput.begin()));
+        std::set_difference(outputIdx.begin(), outputIdx.end(), inputIdx.begin(), inputIdx.end(),
+                            std::inserter(realOutput, realOutput.begin()));
         std::cout << "inputTensors : [ ";
         for (int i : realInput) {
             std::cout << netT->tensorName[i] << ", ";
@@ -432,7 +524,7 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const modelConfig& config, std::un
     builderOutput.ForceDefaults(true);
     auto len = MNN::Net::Pack(builderOutput, netT.get());
     builderOutput.Finish(len);
-    int sizeOutput    = builderOutput.GetSize();
+    int sizeOutput = builderOutput.GetSize();
     auto bufferOutput = builderOutput.GetBufferPointer();
 
     const auto stagedModel = files.stage(config.MNNModel);
@@ -444,8 +536,8 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const modelConfig& config, std::un
         if (config.inputConfigFile.size() > 0) {
             ConfigFile conf(config.inputConfigFile);
             auto numOfInputs = conf.Read<int>("input_size");
-            auto inputNames  = splitNames(numOfInputs, conf.Read<std::string>("input_names"));
-            auto inputDims   = splitDims(numOfInputs, conf.Read<std::string>("input_dims"));
+            auto inputNames = splitNames(numOfInputs, conf.Read<std::string>("input_names"));
+            auto inputDims = splitDims(numOfInputs, conf.Read<std::string>("input_dims"));
             for (int i = 0; i < numOfInputs; i++) {
                 inputConfig.insert(std::make_pair(inputNames[i], inputDims[i]));
             }
@@ -493,8 +585,7 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const modelConfig& config, std::un
         int output_size = builder.GetSize();
         auto* output_ptr = builder.GetBufferPointer();
 
-        std::string filename =
-            MNNModelFile + "_subgraph_" + std::to_string(i) + ".mnn";
+        std::string filename = MNNModelFile + "_subgraph_" + std::to_string(i) + ".mnn";
         std::ofstream output(filename.c_str(), std::ofstream::binary);
         output.write((const char*)output_ptr, output_size);
     }

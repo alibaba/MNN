@@ -18,7 +18,10 @@ namespace OpenCL {
 IndexedLinearBufExecution::IndexedLinearBufExecution(const Op* op, Backend* backend)
     : CommonExecution(backend, op),
       mInputMode(op->main_as_IndexedLinearParam()->inputMode()),
-      mFuseSwiGLU(op->main_as_IndexedLinearParam()->fusedActivation() == UnaryOpOperation_SILU) {
+      mFuseSwiGLU(op->main_as_IndexedLinearParam()->fusedActivation() == UnaryOpOperation_SILU),
+      mRouteWeight(op->main_as_IndexedLinearParam()->routeWeight()),
+      mRouteEps(op->main_as_IndexedLinearParam()->routeEps()),
+      mRouteScale(op->main_as_IndexedLinearParam()->routeScale()) {
     mValid = initResource(op);
 }
 
@@ -26,7 +29,10 @@ IndexedLinearBufExecution::IndexedLinearBufExecution(const Op* op, Backend* back
     : CommonExecution(backend, op),
       mResource(std::move(resource)),
       mInputMode(op->main_as_IndexedLinearParam()->inputMode()),
-      mFuseSwiGLU(op->main_as_IndexedLinearParam()->fusedActivation() == UnaryOpOperation_SILU) {}
+      mFuseSwiGLU(op->main_as_IndexedLinearParam()->fusedActivation() == UnaryOpOperation_SILU),
+      mRouteWeight(op->main_as_IndexedLinearParam()->routeWeight()),
+      mRouteEps(op->main_as_IndexedLinearParam()->routeEps()),
+      mRouteScale(op->main_as_IndexedLinearParam()->routeScale()) {}
 
 bool IndexedLinearBufExecution::initResource(const Op* op) {
     mResource.reset(new Resource);
@@ -105,7 +111,10 @@ bool IndexedLinearBufExecution::onClone(Backend* backend, const Op* op, Executio
     if (!IndexedLinearCommon::dimensions(op, experts, channels, outputs) || experts != mResource->experts ||
         channels != mResource->inputChannels || outputs != mResource->outputChannels ||
         op->main_as_IndexedLinearParam()->inputMode() != mInputMode ||
-        (op->main_as_IndexedLinearParam()->fusedActivation() == UnaryOpOperation_SILU) != mFuseSwiGLU)
+        (op->main_as_IndexedLinearParam()->fusedActivation() == UnaryOpOperation_SILU) != mFuseSwiGLU ||
+        op->main_as_IndexedLinearParam()->routeWeight() != mRouteWeight ||
+        op->main_as_IndexedLinearParam()->routeEps() != mRouteEps ||
+        op->main_as_IndexedLinearParam()->routeScale() != mRouteScale)
         return false;
     if (!backend || backend->type() != MNN_FORWARD_OPENCL ||
         static_cast<OpenCLBackend*>(backend)->getOpenCLRuntime() !=
@@ -117,13 +126,26 @@ bool IndexedLinearBufExecution::onClone(Backend* backend, const Op* op, Executio
 }
 
 ErrorCode IndexedLinearBufExecution::onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    if (inputs.size() != 2 || outputs.size() != 1 || inputs[1]->dimensions() != 2 ||
+    if ((int)inputs.size() != (mRouteWeight ? 3 : 2) || outputs.size() != 1 || inputs[1]->dimensions() != 2 ||
         inputs[0]->getType() != halide_type_of<float>() || outputs[0]->getType() != halide_type_of<float>() ||
         inputs[1]->getType() != halide_type_of<int32_t>()) return NOT_SUPPORT;
     const auto& r = *mResource;
     const int tokens = inputs[1]->length(0), topk = inputs[1]->length(1);
     if (tokens <= 0 || topk <= 0 || (int64_t)tokens * topk > INT_MAX) return NOT_SUPPORT;
-    for (auto tensor : {inputs[0], inputs[1], outputs[0]}) {
+    auto x    = inputs[0];
+    auto xDes = TensorUtils::getDescribe(x);
+    int xChannels = 0;
+    if (xDes->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+        if (mInputMode != 0 || x->dimensions() != 4 || x->length(2) != 1 || x->length(3) != 1 ||
+            x->length(1) % 4 != 0) return NOT_SUPPORT;
+        xChannels = x->length(1);
+    } else {
+        if (xDes->dimensionFormat != MNN_DATA_FORMAT_NCHW || x->dimensions() != (mInputMode == 0 ? 2 : 3))
+            return NOT_SUPPORT;
+        xChannels = x->length(x->dimensions() - 1);
+    }
+    for (auto tensor : (mRouteWeight ? std::vector<const Tensor*>{inputs[1], inputs[2]}
+                                     : std::vector<const Tensor*>{inputs[1], outputs[0]})) {
         if (TensorUtils::getDescribe(tensor)->dimensionFormat != MNN_DATA_FORMAT_NCHW) return NOT_SUPPORT;
         int64_t stride = 1;
         for (int dimension = tensor->dimensions() - 1; dimension >= 0; --dimension) {
@@ -133,35 +155,53 @@ ErrorCode IndexedLinearBufExecution::onEncode(const std::vector<Tensor*>& inputs
         }
     }
     const int rows = tokens * topk;
-    if (inputs[0]->dimensions() != (mInputMode == 0 ? 2 : 3) || inputs[0]->length(0) != tokens ||
-        (mInputMode == 1 && inputs[0]->length(1) != topk) ||
-        inputs[0]->length(inputs[0]->dimensions() - 1) != r.inputChannels || outputs[0]->dimensions() != 3 ||
+    if (mRouteWeight) {
+        auto yDes = TensorUtils::getDescribe(outputs[0]);
+        const bool wOk =
+            mRouteWeight == 2
+                ? (inputs[2]->elementSize() == (int64_t)tokens * r.experts &&
+                   inputs[2]->length(inputs[2]->dimensions() - 1) == r.experts)
+                : (inputs[2]->length(0) == tokens && inputs[2]->length(1) == topk);
+        if (mInputMode != 1 || mFuseSwiGLU || yDes->dimensionFormat != MNN_DATA_FORMAT_NC4HW4 ||
+            outputs[0]->dimensions() != 4 || outputs[0]->length(0) != tokens ||
+            outputs[0]->length(1) != r.outputChannels || outputs[0]->length(1) % 4 != 0 ||
+            outputs[0]->length(2) != 1 || outputs[0]->length(3) != 1 || !wOk)
+            return INPUT_DATA_ERROR;
+    } else if (inputs[0]->length(0) != tokens || (mInputMode == 1 && inputs[0]->length(1) != topk) ||
+        xChannels != r.inputChannels || outputs[0]->dimensions() != 3 ||
         outputs[0]->length(0) != tokens || outputs[0]->length(1) != topk ||
         outputs[0]->length(2) != r.outputChannels / (mFuseSwiGLU ? 2 : 1))
+        return INPUT_DATA_ERROR;
+    if (mRouteWeight && (inputs[0]->length(0) != tokens || inputs[0]->length(1) != topk ||
+                         xChannels != r.inputChannels))
         return INPUT_DATA_ERROR;
     auto backend = static_cast<OpenCLBackend*>(this->backend());
     auto runtime = backend->getOpenCLRuntime();
     const auto maxItems = runtime->getMaxWorkItemSizes();
     if (maxItems.size() < 2 || maxItems[0] < 64 || maxItems[1] < 8) return NOT_SUPPORT;
-    // Both choices keep K=16. A larger routed-row tile reuses each decoded
-    // weight across more tokens; sparse workloads use the smaller tile.
-    int tileM = tokens > 4 && (int64_t)rows >= (int64_t)r.experts * 8 &&
-                runtime->MaxWorkGroupSize() >= 128 && runtime->getMaxLocalMem() >= 6208 ? 32 : 8;
+    int tileM = tokens > 4 && (int64_t)rows >= (int64_t)r.experts * 8 && runtime->MaxWorkGroupSize() >= 128 &&
+                        runtime->getMaxLocalMem() >= 6208
+                    ? 32
+                    : 8;
     int tileN = tileM == 32 ? 64 : 32;
     int localX = tileM == 32 ? 16 : 8;
+    bool vectorGemm = runtime->getGpuType() == MALI && tileM == 32 && (r.weightBits == 4 || r.weightBits == 8) &&
+                      r.inputChannels % 32 == 0 && r.outputChannels % 4 == 0 && r.groupSize % 4 == 0 &&
+                      runtime->getMaxLocalMem() >= 12288;
     auto buildOptions = [&]() {
-        return std::set<std::string>{"-DWEIGHT_BITS=" + std::to_string(r.weightBits),
-                                     "-DBANK_I=" + std::to_string(r.inputChannels),
-                                     "-DBANK_O=" + std::to_string(r.outputChannels),
-                                     "-DBANK_GROUPS=" + std::to_string(r.groups),
-                                     "-DBANK_GROUP_SIZE=" + std::to_string(r.groupSize),
-                                     "-DBANK_STRIDE=" + std::to_string(r.weightStride),
-                                     "-DBANK_TOPK=" + std::to_string(topk),
-                                     "-DBANK_INPUT_MODE=" + std::to_string(mInputMode),
-                                     "-DFUSE_SILU_MUL=" + std::to_string(mFuseSwiGLU ? 1 : 0),
-                                     "-DTILE_M=" + std::to_string(tileM),
-                                     "-DTILE_N=" + std::to_string(tileN),
-                                     "-DTILE_K=16"};
+        auto options = std::set<std::string>{
+            "-DWEIGHT_BITS=" + std::to_string(r.weightBits), "-DBANK_I=" + std::to_string(r.inputChannels),
+            "-DBANK_O=" + std::to_string(r.outputChannels), "-DBANK_GROUPS=" + std::to_string(r.groups),
+            "-DBANK_GROUP_SIZE=" + std::to_string(r.groupSize), "-DBANK_STRIDE=" + std::to_string(r.weightStride),
+            "-DBANK_TOPK=" + std::to_string(topk),
+            "-DBANK_TOKENS=" + std::to_string(tokens),
+            "-DBANK_XC4=" + std::to_string(xDes->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ? 1 : 0),
+            "-DBANK_INPUT_MODE=" + std::to_string(mInputMode), "-DFUSE_SILU_MUL=" + std::to_string(mFuseSwiGLU ? 1 : 0),
+            "-DRW_RAW=" + std::to_string(mRouteWeight == 2 ? 1 : 0), "-DTILE_M=" + std::to_string(tileM),
+            "-DTILE_N=" + std::to_string(tileN), "-DTILE_K=" + std::to_string(vectorGemm ? 32 : 16)};
+        if (vectorGemm)
+            options.insert("-DINDEXED_VECTOR_GEMM");
+        return options;
     };
     auto options = buildOptions();
     mUnits.clear();
@@ -179,6 +219,25 @@ ErrorCode IndexedLinearBufExecution::onEncode(const std::vector<Tensor*>& inputs
     // Small-M execution avoids sorting and shares each activation across four
     // output channels while one dispatch covers all selected experts.
     if (tokens <= 4) {
+        if (mRouteWeight) {
+            auto function = kernel("indexed_linear_gemv_rw");
+            if (!function || runtime->getMaxWorkGroupSize(function) < 64 || runtime->getMaxLocalMem() < 1024)
+                return NOT_SUPPORT;
+            uint32_t arg = 0;
+            cl_int error = function->get().setArg(arg++, openCLBuffer(inputs[0]));
+            error |= function->get().setArg(arg++, openCLBuffer(inputs[1]));
+            error |= function->get().setArg(arg++, *r.weights);
+            error |= function->get().setArg(arg++, *r.alpha);
+            error |= function->get().setArg(arg++, *r.bias);
+            error |= function->get().setArg(arg++, openCLBuffer(inputs[2]));
+            error |= function->get().setArg(arg++, openCLBuffer(outputs[0]));
+            error |= function->get().setArg(arg++, r.experts);
+            error |= function->get().setArg(arg++, mRouteEps);
+            error |= function->get().setArg(arg++, mRouteScale);
+            if (error != CL_SUCCESS) return NOT_SUPPORT;
+            record(function, {(uint32_t)UP_DIV(r.outputChannels, 4) * 64, (uint32_t)tokens, 1}, {64, 1, 1});
+            return NO_ERROR;
+        }
         auto function = kernel("indexed_linear_gemv");
         if (!function || runtime->getMaxWorkGroupSize(function) < 64 ||
             runtime->getMaxLocalMem() < (mFuseSwiGLU ? 2048 : 1024))
@@ -198,7 +257,12 @@ ErrorCode IndexedLinearBufExecution::onEncode(const std::vector<Tensor*>& inputs
                {64, 1, 1});
         return NO_ERROR;
     }
-    auto gemm = kernel("indexed_linear_gemm");
+    auto gemm = kernel(vectorGemm ? "indexed_linear_gemm_vec" : "indexed_linear_gemm");
+    if (vectorGemm && (!gemm || runtime->getMaxWorkGroupSize(gemm) < 128)) {
+        vectorGemm = false;
+        options = buildOptions();
+        gemm = kernel("indexed_linear_gemm");
+    }
     if (tileM == 32 && (!gemm || runtime->getMaxWorkGroupSize(gemm) < 128)) {
         tileM = 8;
         tileN = 32;
@@ -222,6 +286,10 @@ ErrorCode IndexedLinearBufExecution::onEncode(const std::vector<Tensor*>& inputs
         // Reserve for the smallest tile even when this resize selects M=32.
         // A later smaller input can select M=8 and need more tiles than before.
         allocate(mTiles, ((size_t)UP_DIV(rows, 8) + r.experts) * 2 * sizeof(int));
+        if (mRouteWeight) {
+            const int bytes = backend->getPrecision() == BackendConfig::Precision_Low ? 2 : 4;
+            allocate(mRouteTmp, (size_t)rows * r.outputChannels * bytes);
+        }
         if (error != CL_SUCCESS) return OUT_OF_MEMORY;
         mRowsCapacity = rows;
     }
@@ -253,7 +321,7 @@ ErrorCode IndexedLinearBufExecution::onEncode(const std::vector<Tensor*>& inputs
     error |= gemm->get().setArg(arg++, *r.weights);
     error |= gemm->get().setArg(arg++, *r.alpha);
     error |= gemm->get().setArg(arg++, *r.bias);
-    error |= gemm->get().setArg(arg++, openCLBuffer(outputs[0]));
+    error |= gemm->get().setArg(arg++, mRouteWeight ? *mRouteTmp : openCLBuffer(outputs[0]));
     error |= gemm->get().setArg(arg++, *mOffsets);
     error |= gemm->get().setArg(arg++, *mSortedRows);
     error |= gemm->get().setArg(arg++, *mTiles);
@@ -267,6 +335,27 @@ ErrorCode IndexedLinearBufExecution::onEncode(const std::vector<Tensor*>& inputs
     record(scatter, {(uint32_t)ROUND_UP(rows, 64), 1, 1}, {64, 1, 1});
     record(gemm, {(uint32_t)UP_DIV(r.outputChannels, tileN) * (uint32_t)localX, (uint32_t)maxTiles * 8, 1},
            {(uint32_t)localX, 8, 1});
+    if (mRouteWeight) {
+        auto reduce = kernel("indexed_linear_rw_reduce");
+        if (!reduce) return NOT_SUPPORT;
+        cl_int rerr = reduce->get().setArg(0, *mRouteTmp);
+        rerr |= reduce->get().setArg(1, openCLBuffer(inputs[2]));
+        rerr |= reduce->get().setArg(2, openCLBuffer(outputs[0]));
+        rerr |= reduce->get().setArg(3, openCLBuffer(inputs[1]));
+        rerr |= reduce->get().setArg(4, r.experts);
+        rerr |= reduce->get().setArg(5, mRouteEps);
+        rerr |= reduce->get().setArg(6, mRouteScale);
+        if (rerr != CL_SUCCESS) return NOT_SUPPORT;
+        uint32_t reduceLocal = 64;
+        const uint32_t reduceMax = (uint32_t)runtime->getMaxWorkGroupSize(reduce);
+        while (reduceLocal > 1 && (reduceLocal > reduceMax || reduceLocal > maxItems[0])) {
+            reduceLocal /= 2;
+        }
+        if (reduceLocal > reduceMax || reduceLocal > maxItems[0]) {
+            return NOT_SUPPORT;
+        }
+        record(reduce, {(uint32_t)r.outputChannels, (uint32_t)tokens, 1}, {reduceLocal, 1, 1});
+    }
     return NO_ERROR;
 }
 
@@ -274,6 +363,9 @@ class IndexedLinearBufCreator : public OpenCLBackend::Creator {
 public:
     Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                         const Op* op, Backend* backend) const override {
+        if (op->main_as_IndexedLinearParam()->routeWeight() == 3) {
+            return nullptr;
+        }
         // StaticModule preloads resources before shape/type inference. Validate
         // dynamic inputs in onEncode, otherwise the untyped ids force CPU fallback.
         for (auto tensor : inputs) TensorUtils::setTensorSupportPack(tensor, false);

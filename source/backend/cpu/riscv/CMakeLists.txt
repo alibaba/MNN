@@ -48,6 +48,9 @@ if (CMAKE_SYSTEM_PROCESSOR MATCHES "^riscv64" OR ARCHS STREQUAL "riscv64")
     target_include_directories(MNNRVV PRIVATE ${CMAKE_CURRENT_LIST_DIR}/rvv/)
     target_compile_definitions(MNNCPU PRIVATE MNN_USE_RVV)
     target_compile_definitions(MNNRVV PRIVATE MNN_USE_RVV)
+    if (TARGET MNNTransform)
+        target_compile_definitions(MNNTransform PRIVATE MNN_USE_RVV)
+    endif()
     target_compile_options(MNNRVV PRIVATE -march=${MNN_RVV_BASE_MARCH} -mabi=lp64d)
     if (MNN_RVV_MCPU)
         target_compile_options(MNNRVV PRIVATE -mcpu=${MNN_RVV_MCPU})
@@ -64,6 +67,7 @@ if (CMAKE_SYSTEM_PROCESSOR MATCHES "^riscv64" OR ARCHS STREQUAL "riscv64")
     if (MNN_RVV_SPACEMIT_IME2)
         set_property(SOURCE
             ${CMAKE_CURRENT_LIST_DIR}/rvv/MNNLinearAttentionKernels.cpp
+            ${CMAKE_CURRENT_LIST_DIR}/rvv/MNNNorm.cpp
             ${CMAKE_CURRENT_LIST_DIR}/rvv/RVVBackend.cpp
             APPEND PROPERTY COMPILE_DEFINITIONS MNN_USE_SPACEMIT_IME2)
         set(MNN_SPACEMIT_IME2_RUNTIME_SRC
@@ -82,6 +86,7 @@ if (CMAKE_SYSTEM_PROCESSOR MATCHES "^riscv64" OR ARCHS STREQUAL "riscv64")
             ${CMAKE_CURRENT_LIST_DIR}/spacemit_ime2/MNNSpacemitIme2HalfGemm.cpp
             ${CMAKE_CURRENT_LIST_DIR}/spacemit_ime2/MNNSpacemitIme2HalfAttention.cpp
             ${CMAKE_CURRENT_LIST_DIR}/spacemit_ime2/MNNSpacemitIme2HalfProjection.cpp
+            ${CMAKE_CURRENT_LIST_DIR}/spacemit_ime2/MNNSpacemitIme2TiedBit.cpp
         )
         set(MNN_SPACEMIT_IME2_MARCH "${MNN_RVV_BASE_MARCH}_xsmtvdotii")
 

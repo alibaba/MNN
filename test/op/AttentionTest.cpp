@@ -11,12 +11,18 @@
 #include <MNN/expr/Module.hpp>
 #include "core/OpCommonUtils.hpp"
 #include "core/MNNFileUtils.h"
-#include "core/AttentionMaskConvention.hpp"
+#include "core/AttentionCommon.hpp"
 #include "MNNTestSuite.h"
 #include "TestUtils.h"
 #include <stdlib.h>
 #include <vector>
+#include <algorithm>
 #include <MNN/AutoTime.hpp>
+#ifndef _WIN32
+#include <dirent.h>
+#include <sys/resource.h>
+#include <signal.h>
+#endif
 
 using namespace MNN::Express;
 using MNN::KVMeta;
@@ -838,10 +844,12 @@ namespace {
 const char* kAttentionPrefixCacheDir = "prefixcache";
 
 struct AttentionPrefixCacheFiles {
-    explicit AttentionPrefixCacheFiles(const std::string& cacheName) : name(cacheName) { clear(); }
+    explicit AttentionPrefixCacheFiles(const std::string& cacheName,
+                                       const std::string& cacheDir = kAttentionPrefixCacheDir)
+        : name(cacheName), dir(cacheDir) { clear(); }
     ~AttentionPrefixCacheFiles() { clear(); }
     std::string path(const char* suffix) const {
-        return MNNFilePathConcat(kAttentionPrefixCacheDir, name) + "_0" + suffix;
+        return MNNFilePathConcat(dir, name) + "_0" + suffix;
     }
     void clear() const {
         for (auto suffix : {".k", ".v", "_sync.k", "_sync.v"}) {
@@ -866,7 +874,11 @@ struct AttentionPrefixCacheFiles {
         MNNCloseFile(fd);
         return result;
     }
+    std::string baseName(const char* suffix) const {
+        return name + "_0" + suffix;
+    }
     std::string name;
+    std::string dir;
 };
 
 static bool readAttentionOutput(const std::shared_ptr<Module>& module, const VARPS& inputs,
@@ -907,11 +919,14 @@ static size_t prefixCacheBytesPerElement() {
 class AttentionPrefixCacheChunkedWriteTest : public AttentionTest {
 public:
     virtual bool run(int precision) {
-        if (MNNTestSuite::get()->pStaus.forwardType != MNN_FORWARD_OPENCL) {
+        auto forwardType = MNNTestSuite::get()->pStaus.forwardType;
+        if (forwardType != MNN_FORWARD_OPENCL && forwardType != MNN_FORWARD_METAL) {
             return true;
         }
         OpenCLBufferScope clBufferScope;
-        const int chunk = 8;
+        // Metal pre-reserves mExpandChunk rows, so growth jumps by the reserve; chunk must exceed it.
+        const bool isMetal = forwardType == MNN_FORWARD_METAL;
+        const int chunk = isMetal ? 128 : 8;
         AttentionPrefixCacheFiles files("attention_chunked_write");
         KVMeta meta;
         meta.file_name = files.name;
@@ -944,7 +959,9 @@ public:
         }
         size_t keyBytes = files.size(".k");
         size_t valueBytes = files.size(".v");
-        if (keyBytes != firstKeyBytes * 2 || valueBytes != firstValueBytes * 2) {
+        const bool sizeOk = isMetal ? (keyBytes > firstKeyBytes && valueBytes > firstValueBytes)
+                                    : (keyBytes == firstKeyBytes * 2 && valueBytes == firstValueBytes * 2);
+        if (!sizeOk) {
             MNN_ERROR("Chunked prefix cache size mismatch: first key=%zu, value=%zu; final key=%zu, value=%zu\n",
                       firstKeyBytes, firstValueBytes, keyBytes, valueBytes);
             return false;
@@ -1107,11 +1124,14 @@ MNNTestSuiteRegister(AttentionCapacityTest, "op/attention_capacity");
 class AttentionPrefixCachePartialLoadTest : public AttentionTest {
 public:
     virtual bool run(int precision) {
-        if (MNNTestSuite::get()->pStaus.forwardType != MNN_FORWARD_OPENCL) {
+        if (MNNTestSuite::get()->pStaus.forwardType != MNN_FORWARD_OPENCL &&
+            MNNTestSuite::get()->pStaus.forwardType != MNN_FORWARD_METAL) {
             return true;
         }
         OpenCLBufferScope clBufferScope;
         const int seqLen = 8;
+        // Claiming more rows than the file holds is a caller error, covered by attention_prefix_cache_failure.
+        const int diskLen = seqLen / 2;
         AttentionPrefixCacheFiles files("attention_partial_load");
         if (!MNNCreateDir(kAttentionPrefixCacheDir)) {
             return false;
@@ -1139,7 +1159,7 @@ public:
         meta.add = seqLen;
         meta.file_name = files.name;
         meta.file_flag = KVMeta::PendingRead;
-        meta.seqlen_in_disk = seqLen;
+        meta.seqlen_in_disk = diskLen;
         meta.layer_nums = 1;
         meta.prefix_session_id = 1;
         auto module = _makeAttentionModule(8, false, true, 1, &meta, kAttentionPrefixCacheDir);
@@ -1147,7 +1167,13 @@ public:
         if (!module || !readAttentionOutput(module, inputs, actual)) {
             return false;
         }
-        return compareAttentionOutputs(expected, actual, _opExprDiffThreshold(precision), "partial prefix load");
+        // Disk KV uses staged fp16-accumulator kernels, so it drifts more from the fused in-memory baseline.
+        float tolerance = _opExprDiffThreshold(precision);
+        if (MNNTestSuite::get()->pStaus.forwardType == MNN_FORWARD_METAL &&
+            precision != (int)MNN::BackendConfig::Precision_High) {
+            tolerance = 0.1f;
+        }
+        return compareAttentionOutputs(expected, actual, tolerance, "partial prefix load");
     }
 };
 MNNTestSuiteRegister(AttentionPrefixCachePartialLoadTest, "op/attention_prefix_cache_partial_load");
@@ -1155,7 +1181,8 @@ MNNTestSuiteRegister(AttentionPrefixCachePartialLoadTest, "op/attention_prefix_c
 class AttentionPrefixCacheContinuousSessionTest : public AttentionTest {
 public:
     virtual bool run(int precision) {
-        if (MNNTestSuite::get()->pStaus.forwardType != MNN_FORWARD_OPENCL) {
+        if (MNNTestSuite::get()->pStaus.forwardType != MNN_FORWARD_OPENCL &&
+            MNNTestSuite::get()->pStaus.forwardType != MNN_FORWARD_METAL) {
             return true;
         }
         OpenCLBufferScope clBufferScope;
@@ -1211,10 +1238,372 @@ public:
         if (!readAttentionOutput(module, suffixInputs, actual)) {
             return false;
         }
-        return compareAttentionOutputs(expected, actual, _opExprDiffThreshold(precision), "continuous prefix session");
+        float tolerance = _opExprDiffThreshold(precision);
+        if (MNNTestSuite::get()->pStaus.forwardType == MNN_FORWARD_METAL &&
+            precision != (int)MNN::BackendConfig::Precision_High) {
+            tolerance = 0.1f;
+        }
+        return compareAttentionOutputs(expected, actual, tolerance, "continuous prefix session");
     }
 };
 MNNTestSuiteRegister(AttentionPrefixCacheContinuousSessionTest, "op/attention_prefix_cache_continuous_session");
+
+// A prefix flag flip skips resize, so the plan key and K/V quant widths must follow the KV storage mode.
+// Otherwise int8 rows are written where the next reader decodes float.
+class AttentionPrefixCacheModeSwitchTest : public AttentionTest {
+    bool runMode(int attentionMode, int precision, float tolerance, bool startDisk) {
+        const int seqLen = 8;
+        const std::string suffix = std::to_string(attentionMode) + (startDisk ? "_d" : "_m");
+        AttentionPrefixCacheFiles files("attention_mode_switch_" + suffix);
+        AttentionPrefixCacheFiles refFiles("attention_mode_ref_" + suffix);
+        srand(2024);
+        generateInput(seqLen, precision);
+        generateMask(seqLen, seqLen);
+        VARPS inputs{Query, Key, Value, Mask};
+
+        std::vector<float> memRef;
+        {
+            KVMeta meta;
+            meta.add = seqLen;
+            auto module = _makeAttentionModule(attentionMode, false, true, 1, &meta);
+            if (!module || !readAttentionOutput(module, inputs, memRef)) {
+                return false;
+            }
+        }
+        // The continuation stays on disk so the readback reference shares its float layout.
+        std::vector<float> diskRef, diskSeqRef;
+        {
+            KVMeta meta;
+            meta.add = seqLen;
+            meta.file_name = refFiles.name;
+            meta.file_flag = KVMeta::PendingWrite;
+            meta.layer_nums = 1;
+            meta.prefix_session_id = 1;
+            auto module = _makeAttentionModule(attentionMode, false, true, 1, &meta, kAttentionPrefixCacheDir);
+            if (!module || !readAttentionOutput(module, inputs, diskRef)) {
+                return false;
+            }
+            meta.sync();
+            meta.add = seqLen;
+            meta.file_flag = KVMeta::NoChange;
+            if (!readAttentionOutput(module, inputs, diskSeqRef)) {
+                return false;
+            }
+        }
+
+        KVMeta meta;
+        meta.layer_nums = 1;
+        meta.prefix_session_id = 1;
+        auto module = _makeAttentionModule(attentionMode, false, true, 1, &meta, kAttentionPrefixCacheDir);
+        if (!module) {
+            return false;
+        }
+        std::vector<float> phaseOut[3];
+        for (int phase = 0; phase < 3; ++phase) {
+            const bool disk = (phase % 2 == 0) == startDisk;
+            // previous == remove forces a fresh alloc, so the storage mode is re-decided each phase.
+            meta.previous = phase == 0 ? 0 : seqLen;
+            meta.remove = phase == 0 ? 0 : seqLen;
+            meta.add = seqLen;
+            meta.file_name = disk ? files.name : "";
+            meta.file_flag = disk ? KVMeta::PendingWrite : KVMeta::NoChange;
+            if (!readAttentionOutput(module, inputs, phaseOut[phase])) {
+                MNN_ERROR("mode switch mode=%d phase %d forward failed\n", attentionMode, phase);
+                return false;
+            }
+            meta.sync();
+        }
+        for (int phase = 0; phase < 3; ++phase) {
+            const bool disk = (phase % 2 == 0) == startDisk;
+            // Memory phases must match exactly: that is what catches a quant flag left behind by the switch.
+            if (!compareAttentionOutputs(disk ? diskRef : memRef, phaseOut[phase],
+                                         disk ? tolerance : 1e-5f,
+                                         disk ? "mode switch disk" : "mode switch memory")) {
+                return false;
+            }
+        }
+        if (!compareAttentionOutputs(phaseOut[0], phaseOut[2], 1e-5f, "mode switch layout restored")) {
+            return false;
+        }
+
+        // Cross-instance readback only matches if the writer's row widths dropped quantization.
+        KVMeta readMeta;
+        readMeta.add = seqLen;
+        readMeta.file_name = files.name;
+        readMeta.file_flag = KVMeta::PendingRead;
+        readMeta.seqlen_in_disk = seqLen;
+        readMeta.layer_nums = 1;
+        readMeta.prefix_session_id = 2;
+        auto reader = _makeAttentionModule(attentionMode, false, true, 1, &readMeta, kAttentionPrefixCacheDir);
+        std::vector<float> readBack;
+        if (!reader || !readAttentionOutput(reader, inputs, readBack)) {
+            MNN_ERROR("mode switch mode=%d cross-instance read failed\n", attentionMode);
+            return false;
+        }
+        return compareAttentionOutputs(diskSeqRef, readBack, tolerance, "mode switch readback");
+    }
+
+public:
+    virtual bool run(int precision) {
+        auto forwardType = MNNTestSuite::get()->pStaus.forwardType;
+        if (forwardType != MNN_FORWARD_OPENCL && forwardType != MNN_FORWARD_METAL) {
+            return true;
+        }
+        OpenCLBufferScope clBufferScope;
+        if (!MNNCreateDir(kAttentionPrefixCacheDir)) {
+            return false;
+        }
+        float tolerance = _opExprDiffThreshold(precision);
+        if (forwardType == MNN_FORWARD_METAL && precision != (int)MNN::BackendConfig::Precision_High) {
+            tolerance = 0.1f;
+        }
+        // attentionOption % 8: 0 = float KV, 1 = int8 K, 2 = int8 K + V.
+        // Starting on disk is what exercises quantization being restored on the way back into memory.
+        for (int mode : {8, 9, 10}) {
+            for (bool startDisk : {false, true}) {
+                if (!runMode(mode, precision, tolerance, startDisk)) {
+                    MNN_ERROR("mode switch failed at attention mode %d, startDisk=%d\n", mode, (int)startDisk);
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(AttentionPrefixCacheModeSwitchTest, "op/attention_prefix_cache_mode_switch");
+
+#ifndef _WIN32
+static int countOpenFds() {
+    auto dir = opendir("/dev/fd");
+    if (dir == nullptr) {
+        return -1;
+    }
+    int count = 0;
+    while (auto entry = readdir(dir)) {
+        if (entry->d_name[0] != '.') {
+            ++count;
+        }
+    }
+    closedir(dir);
+    return count;
+}
+
+static std::vector<std::string> listDirEntries(const std::string& path) {
+    std::vector<std::string> names;
+    auto dir = opendir(path.c_str());
+    if (dir == nullptr) {
+        return names;
+    }
+    while (auto entry = readdir(dir)) {
+        if (entry->d_name[0] != '.') {
+            names.emplace_back(entry->d_name);
+        }
+    }
+    closedir(dir);
+    return names;
+}
+
+// Disk prefix failures must return an error, not crash, leak descriptors or leave temp files behind.
+static const char* const kAttentionFailureDir = "prefixcache_failure";
+
+class AttentionPrefixCacheFailureTest : public AttentionTest {
+    static bool expectForwardFailure(const std::shared_ptr<Module>& module, const VARPS& inputs, const char* tag) {
+        std::vector<float> output;
+        if (readAttentionOutput(module, inputs, output)) {
+            MNN_ERROR("%s: forward succeeded on an unusable prefix cache\n", tag);
+            return false;
+        }
+        return true;
+    }
+    // Temporary live-cache files are named after the manager address and must die with their owner.
+    static bool checkDirContents(const std::vector<std::string>& expected, const char* tag) {
+        for (const auto& name : listDirEntries(kAttentionFailureDir)) {
+            if (std::find(expected.begin(), expected.end(), name) == expected.end()) {
+                MNN_ERROR("%s: unexpected file left in prefix dir: %s\n", tag, name.c_str());
+                return false;
+            }
+        }
+        for (const auto& name : expected) {
+            if (!MNNFileExist(MNNFilePathConcat(kAttentionFailureDir, name).c_str())) {
+                MNN_ERROR("%s: retained prefix file was deleted: %s\n", tag, name.c_str());
+                return false;
+            }
+        }
+        return true;
+    }
+    static std::vector<std::string> prefixPair(const AttentionPrefixCacheFiles& files) {
+        return {files.baseName(".k"), files.baseName(".v")};
+    }
+
+public:
+    virtual bool run(int precision) {
+        if (MNNTestSuite::get()->pStaus.forwardType != MNN_FORWARD_METAL) {
+            return true;
+        }
+        if (!MNNCreateDir(kAttentionFailureDir)) {
+            return false;
+        }
+        for (const auto& name : listDirEntries(kAttentionFailureDir)) {
+            ::remove(MNNFilePathConcat(kAttentionFailureDir, name).c_str());
+        }
+        const int seqLen = 8;
+        srand(2024);
+        generateInput(seqLen, precision);
+        generateMask(seqLen, seqLen);
+        VARPS inputs{Query, Key, Value, Mask};
+
+        {
+            AttentionPrefixCacheFiles files("attention_missing", kAttentionFailureDir);
+            KVMeta meta;
+            meta.add = seqLen;
+            meta.file_name = files.name;
+            meta.file_flag = KVMeta::PendingRead;
+            meta.seqlen_in_disk = seqLen;
+            meta.layer_nums = 1;
+            {
+                auto module = _makeAttentionModule(8, false, true, 1, &meta, kAttentionFailureDir);
+                if (!module || !expectForwardFailure(module, inputs, "missing prefix")) {
+                    return false;
+                }
+            }
+            if (!checkDirContents({}, "missing prefix")) {
+                return false;
+            }
+        }
+        {
+            AttentionPrefixCacheFiles files("attention_truncated", kAttentionFailureDir);
+            size_t rowBytes = (size_t)KvNumHead * HeadDim * prefixCacheBytesPerElement();
+            if (!files.resize(".k", rowBytes * (seqLen / 2)) || !files.resize(".v", rowBytes * (seqLen / 2))) {
+                return false;
+            }
+            KVMeta meta;
+            meta.add = seqLen;
+            meta.file_name = files.name;
+            meta.file_flag = KVMeta::PendingRead;
+            meta.seqlen_in_disk = seqLen;
+            meta.layer_nums = 1;
+            {
+                auto module = _makeAttentionModule(8, false, true, 1, &meta, kAttentionFailureDir);
+                if (!module || !expectForwardFailure(module, inputs, "truncated prefix")) {
+                    return false;
+                }
+            }
+            if (!checkDirContents(prefixPair(files), "truncated prefix")) {
+                return false;
+            }
+        }
+        // The old mapping is already gone when expansion fails, so a pending reserve compaction must not run.
+        // RLIMIT_FSIZE forces the failure deterministically instead of waiting for OOM.
+        {
+            AttentionPrefixCacheFiles files("attention_expand_fail", kAttentionFailureDir);
+            KVMeta meta;
+            meta.add = seqLen;
+            meta.file_name = files.name;
+            meta.file_flag = KVMeta::PendingWrite;
+            meta.layer_nums = 1;
+            {
+                auto module = _makeAttentionModule(8, false, true, 1, &meta, kAttentionFailureDir);
+                std::vector<float> output;
+                if (!module || !readAttentionOutput(module, inputs, output)) {
+                    return false;
+                }
+                meta.sync();
+                const int growLen = 512;
+                srand(2025);
+                generateInput(growLen, precision);
+                generateMask(growLen, growLen);
+                VARPS growInputs{Query, Key, Value, Mask};
+                int reserve[] = {2, 4};
+                meta.add = growLen;
+                meta.reserve = reserve;
+                meta.n_reserve = 1;
+                meta.file_flag = KVMeta::NoChange;
+
+                struct rlimit oldLimit;
+                if (getrlimit(RLIMIT_FSIZE, &oldLimit) != 0) {
+                    return false;
+                }
+                auto oldHandler = signal(SIGXFSZ, SIG_IGN);
+                struct rlimit cap = oldLimit;
+                cap.rlim_cur = 64 * 1024; // above the live cache, below the expansion
+                bool capped = setrlimit(RLIMIT_FSIZE, &cap) == 0;
+                bool failed = capped && expectForwardFailure(module, growInputs, "failed expansion");
+                setrlimit(RLIMIT_FSIZE, &oldLimit);
+                signal(SIGXFSZ, oldHandler);
+                if (!failed) {
+                    MNN_ERROR("failed expansion: could not cap file size or forward survived\n");
+                    return false;
+                }
+            }
+            if (!checkDirContents(prefixPair(files), "failed expansion")) {
+                return false;
+            }
+        }
+        // A retain flag outliving its prefix cleanup keeps later reads' temp files and descriptors alive.
+        {
+            AttentionPrefixCacheFiles files("attention_cycles", kAttentionFailureDir);
+            KVMeta meta;
+            meta.layer_nums = 1;
+            {
+                auto module = _makeAttentionModule(8, false, true, 1, &meta, kAttentionFailureDir);
+                if (!module) {
+                    return false;
+                }
+                auto cycle = [&](int sessionId) -> bool {
+                    std::vector<float> output;
+                    meta.previous = 0;
+                    meta.remove = 0;
+                    meta.add = seqLen;
+                    meta.file_name = files.name;
+                    meta.file_flag = KVMeta::PendingWrite;
+                    meta.prefix_session_id = sessionId;
+                    if (!readAttentionOutput(module, inputs, output)) {
+                        return false;
+                    }
+                    meta.sync();
+                    meta.previous = 0;
+                    meta.remove = 0;
+                    meta.add = seqLen;
+                    meta.file_flag = KVMeta::PendingRead;
+                    meta.seqlen_in_disk = seqLen;
+                    meta.layer_index = 0;
+                    if (!readAttentionOutput(module, inputs, output)) {
+                        return false;
+                    }
+                    meta.sync();
+                    meta.remove = meta.previous;
+                    meta.add = seqLen;
+                    meta.file_name = "";
+                    meta.file_flag = KVMeta::NoChange;
+                    meta.seqlen_in_disk = 0;
+                    return readAttentionOutput(module, inputs, output);
+                };
+                if (!cycle(1)) { // warm-up: lazy pipeline / allocator init is not a leak
+                    MNN_ERROR("prefix cycle warm-up failed\n");
+                    return false;
+                }
+                const int fdBefore = countOpenFds();
+                for (int i = 0; i < 4; ++i) {
+                    if (!cycle(2 + i)) {
+                        MNN_ERROR("prefix cycle %d failed\n", i);
+                        return false;
+                    }
+                }
+                const int fdAfter = countOpenFds();
+                if (fdBefore < 0 || fdAfter > fdBefore) {
+                    MNN_ERROR("prefix cycles leaked descriptors: %d -> %d\n", fdBefore, fdAfter);
+                    return false;
+                }
+            }
+            if (!checkDirContents(prefixPair(files), "prefix cycles")) {
+                return false;
+            }
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(AttentionPrefixCacheFailureTest, "op/attention_prefix_cache_failure");
+#endif // !_WIN32
 
 // Non-causal attention with kv_cache=false driven by an explicit mask -- the shape a
 // ViT / vision-encoder export emits. AttentionTest's unit test 3 pairs kv_cache=false
@@ -1249,7 +1638,7 @@ public:
 
 private:
     // The first three are dense per-element masks; the last is the bidirectional
-    // sentinel (core/AttentionMaskConvention.hpp) that vision encoders use instead of
+    // sentinel (core/AttentionCommon.hpp) that vision encoders use instead of
     // materialising a seq*seq block of zeros.
     //   kAllVisibleDense       all-zero ADD mask, i.e. full bidirectional attention
     //   kCausalDense           causal ADD mask, which only matches if the kernel reads
@@ -1306,7 +1695,7 @@ private:
             VARP Mask;
             if (kBidirectionalSentinel == maskKind) {
                 // Rank-1 one-element sentinel; classified by shape, so the value is
-                // conventional only (core/AttentionMaskConvention.hpp).
+                // conventional only (core/AttentionCommon.hpp).
                 Mask = _Input({1}, NCHW, halide_type_of<float>());
                 Mask->writeMap<float>()[0] = MNN::kAttentionMaskBidirectional;
             } else {
@@ -1772,12 +2161,78 @@ private:
         return true;
     }
 
+    static void writeTensor3(VARP var, const Tensor3& src) {
+        float* ptr = var->writeMap<float>();
+        for (int i = 0; i < src.size(); ++i) {
+            for (int h = 0; h < src[i].size(); ++h) {
+                ::memcpy(ptr, src[i][h].data(), src[i][h].size() * sizeof(float));
+                ptr += src[i][h].size();
+            }
+        }
+        var->unMap();
+    }
+
+    bool runMetalSplitKvReplay(int prefill, int steps, const char* tag) {
+        const int total = prefill + steps;
+        auto key = genKeyRows(total);
+        auto value = genValueRows(total);
+        auto pq = genPrefillQuery(prefill);
+        auto prefillKey = sliceHead(key, prefill);
+        auto prefillValue = sliceHead(value, prefill);
+        std::shared_ptr<NaiveAttention> ref(new NaiveAttention);
+        ref->appendHistory(prefillKey, prefillValue, prefill);
+
+        KVMeta meta;
+        meta.previous = 0;
+        meta.remove = 0;
+        meta.add = prefill;
+        auto module = _makeAttentionModule(8, false, false, 1, &meta);
+        module->onForward({vector_to_var(pq), vector_to_var(prefillKey), vector_to_var(prefillValue), scalarMask()});
+        meta.sync();
+
+        auto q1 = genProbeQuery(key, prefill);
+        auto k1 = sliceRow(key, prefill);
+        auto v1 = sliceRow(value, prefill);
+        auto Q = vector_to_var(q1);
+        auto K = vector_to_var(k1);
+        auto V = vector_to_var(v1);
+        auto mask = scalarMask();
+        std::vector<std::vector<int>> noMask;
+        for (int s = 0; s < steps; ++s) {
+            const int row = prefill + s;
+            q1 = genProbeQuery(key, row);
+            k1 = sliceRow(key, row);
+            v1 = sliceRow(value, row);
+            expected_result = ref->onExecute(q1, k1, v1, noMask, 1);
+            writeTensor3(Q, q1);
+            writeTensor3(K, k1);
+            writeTensor3(V, v1);
+            meta.add = 1;
+            Output = nullptr;
+            Output = module->onForward({Q, K, V, mask})[0];
+            meta.sync();
+            if (!compareResult(1)) {
+                MNN_PRINT("Error: %s failed at decode step %d (kvLen=%d)\n", tag, s, row + 1);
+                return false;
+            }
+        }
+        return true;
+    }
+
 public:
     AttentionKvBlockBoundaryTest() = default;
     virtual ~AttentionKvBlockBoundaryTest() = default;
 
     virtual bool run(int precision) {
-        // The block/chunk tiering under test is CPU-only.
+        if (MNNTestSuite::get()->pStaus.forwardType == MNN_FORWARD_METAL) {
+            ShapeGuard guard;
+            NumHead = 2;
+            KvNumHead = 1;
+            HeadDim = 64;
+            return runMetalSplitKvReplay(2040, 20, "split-KV replay crossing 2048") &&
+                   runMetalSplitKvReplay(2550, 20, "split-KV replay partial growth");
+        }
+        // The remaining block/chunk tiering under test is CPU-only.
         if (MNNTestSuite::get()->pStaus.forwardType != MNN_FORWARD_CPU) {
             return true;
         }
@@ -2006,6 +2461,7 @@ public:
 class AttentionHeadDim256Test : public AttentionC4Test {
 public:
     virtual bool run(int precision) {
+        OpenCLBufferScope clBufferScope;
         const int originalNumHead = NumHead;
         const int originalKvNumHead = KvNumHead;
         const int originalHeadDim = HeadDim;
@@ -2019,14 +2475,21 @@ public:
             generateInput(seq_len, precision);
             generateMask(seq_len, seq_len);
             expected_result = naiveAttention->onExecute(query, key, value, mask, seq_len);
-            auto attn = _makeAttentionModule();
-            gMeta.previous = 0;
-            gMeta.add = seq_len;
-            Output = attn->onForward({Query, Key, Value, Mask})[0];
-            gMeta.sync();
-            if (!compareResult(seq_len)) {
-                printf("Error: head_dim 256 causal prefill (seq_len=%d) unit test failed!\n", seq_len);
-                pass = false;
+            for (bool outputC4 : {false, true}) {
+                auto attn = _makeAttentionModule(8, outputC4, true);
+                gMeta.previous = 0;
+                gMeta.add = seq_len;
+                auto output = attn->onForward({Query, Key, Value, Mask})[0];
+                Output = outputC4 ? _Convert(output, NCHW) : output;
+                gMeta.sync();
+                if (!compareResult(seq_len)) {
+                    printf("Error: head_dim 256 causal prefill (seq_len=%d, outputC4=%d) unit test failed!\n",
+                           seq_len, outputC4);
+                    pass = false;
+                    break;
+                }
+            }
+            if (!pass) {
                 break;
             }
         }
@@ -2458,12 +2921,7 @@ private:
     bool mOutputC4 = false;
 };
 
-// Prefill-path coverage: three-stage vs fused FA variants at the shapes the
-// path flags distinguish. hint=0 keeps the three-stage pipeline on every
-// backend; hint=8 enables the legacy FA kernel where eligible (M2+, fp16,
-// hd in {64,128,256}, group in {1,2,4,8}, seq>=128; M4-class devices demote
-// back to three-stage). FA-SG / FA-TC engage automatically at seq>=1024 on
-// their tiers, already covered by op/attention_prefill.
+// Routing is data-driven (seq / head_dim / group / KV quant / device), so tags name shapes, not kernels.
 class AttentionPrefillPathTest : public AttentionC4Test {
 public:
     virtual bool run(int precision) {
@@ -2473,24 +2931,25 @@ public:
         mPrecision = precision;
         srand(2024);
         bool pass = true;
-        // hint=8: FA eligible (group 1/2/4/8, hd 64/128/256). batch>1 is not
+        // Fused-prefill shapes (group 1/2/4/8, hd 64/128/256). batch>1 is not
         // covered: the KV cache is allocated per-token without a batch
         // dimension (MetalKVCacheManager::onAlloc), so batch>1 prefill writes
         // past the cache buffer; the engine itself only runs batch=1.
-        pass &= runPrefillCase(16, 8, 128, 1, 192, 8, false, 0.0f, 0.0f, "fa g2 hd128");
-        pass &= runPrefillCase(16, 8, 128, 1, 128, 8, false, 0.0f, 0.0f, "fa g2 seq128");
-        pass &= runPrefillCase(16, 8, 128, 1, 511, 8, false, 0.0f, 0.0f, "fa g2 seq511");
-        pass &= runPrefillCase(16, 4, 128, 1, 192, 8, false, 0.0f, 0.0f, "fa g4");
-        pass &= runPrefillCase(32, 4, 128, 1, 192, 8, false, 0.0f, 0.0f, "fa g8");
-        pass &= runPrefillCase(16, 16, 128, 1, 192, 8, false, 0.0f, 0.0f, "fa g1 mqa");
-        pass &= runPrefillCase(16, 8, 64, 1, 192, 8, false, 0.0f, 0.0f, "fa hd64");
-        pass &= runPrefillCase(8, 2, 256, 1, 192, 8, false, 0.0f, 0.0f, "fa hd256");
-        // hint=0: deterministic three-stage (hd 96 also falls back there).
-        pass &= runPrefillCase(16, 8, 128, 1, 192, 0, false, 0.0f, 0.0f, "three-stage seq192");
-        pass &= runPrefillCase(16, 8, 128, 1, 511, 0, false, 0.0f, 0.0f, "three-stage seq511");
+        pass &= runPrefillCase(16, 8, 128, 1, 192, 8, false, 0.0f, 0.0f, "g2 hd128 seq192");
+        pass &= runPrefillCase(16, 8, 128, 1, 128, 8, false, 0.0f, 0.0f, "g2 hd128 seq128");
+        pass &= runPrefillCase(16, 8, 128, 1, 511, 8, false, 0.0f, 0.0f, "g2 hd128 seq511");
+        pass &= runPrefillCase(16, 4, 128, 1, 192, 8, false, 0.0f, 0.0f, "g4 hd128");
+        pass &= runPrefillCase(32, 4, 128, 1, 192, 8, false, 0.0f, 0.0f, "g8 hd128");
+        pass &= runPrefillCase(16, 16, 128, 1, 192, 8, false, 0.0f, 0.0f, "g1 mqa hd128");
+        pass &= runPrefillCase(16, 8, 64, 1, 192, 8, false, 0.0f, 0.0f, "g2 hd64");
+        pass &= runPrefillCase(8, 2, 256, 1, 192, 8, false, 0.0f, 0.0f, "g4 hd256");
+        // hint=0: same routes on Metal, kept as a config-parsing control.
+        pass &= runPrefillCase(16, 8, 128, 1, 192, 0, false, 0.0f, 0.0f, "hint0 seq192");
+        pass &= runPrefillCase(16, 8, 128, 1, 511, 0, false, 0.0f, 0.0f, "hint0 seq511");
+        // hd 96 is in no fused kernel's support set -> three-stage.
         pass &= runPrefillCase(16, 8, 96, 1, 192, 8, false, 0.0f, 0.0f, "prefill hd96");
         // C4 output on the fused prefill.
-        pass &= runPrefillCase(16, 8, 128, 1, 192, 8, true, 0.0f, 0.0f, "fa out c4");
+        pass &= runPrefillCase(16, 8, 128, 1, 192, 8, true, 0.0f, 0.0f, "fused out c4");
         // KV quantization on prefill (relaxed tolerance).
         pass &= runPrefillCase(16, 8, 128, 1, 192, 9, false, 0.03f, 0.12f, "prefill quant k");
         pass &= runPrefillCase(16, 8, 128, 1, 192, 10, false, 0.03f, 0.12f, "prefill quant kv");
@@ -2577,4 +3036,227 @@ private:
 
 MNNTestSuiteRegister(AttentionDecodeTest, "op/attention_decode");
 MNNTestSuiteRegister(AttentionPrefillPathTest, "op/attention_prefill_paths");
+
+class AttentionKvCacheOOMTest : public MNNTestCase {
+    static VARP scalarMask() {
+        auto m = _Input({}, NCHW, halide_type_of<float>());
+        m->writeMap<float>()[0] = 0.0f;
+        return m;
+    }
+
+public:
+    AttentionKvCacheOOMTest() = default;
+    virtual ~AttentionKvCacheOOMTest() = default;
+
+    virtual bool run(int precision) {
+        auto status = MNNTestSuite::get()->pStaus;
+        if (MNN_FORWARD_METAL != (MNNForwardType)status.forwardType) {
+            MNNTestSuite::get()->skipped++;
+            MNN_PRINT("\tskip: Metal-only case, backend=%d\n", status.forwardType);
+            return true;
+        }
+        MNN::BackendConfig bnConfig;
+        bnConfig.memory = (MNN::BackendConfig::MemoryMode)status.memory;
+        bnConfig.precision = (MNN::BackendConfig::PrecisionMode)status.precision;
+        bnConfig.power = (MNN::BackendConfig::PowerMode)status.power;
+        auto exe = Executor::newExecutor((MNNForwardType)status.forwardType, bnConfig,
+                                         status.thread > 0 ? status.thread : 1);
+        std::shared_ptr<ExecutorScope> scope(new ExecutorScope(exe));
+
+        const int savedNumHead = NumHead, savedKvNumHead = KvNumHead, savedHeadDim = HeadDim;
+        NumHead = 8;
+        KvNumHead = 8;
+        HeadDim = 128;
+        const int kRealSeq = 8;
+        const size_t kClaimedSeq = 2000000000;
+
+        gMeta.previous = 0;
+        gMeta.remove = 0;
+        gMeta.add = kClaimedSeq;
+        auto module = _makeAttentionModule();
+        bool pass = true;
+        if (nullptr == module) {
+            MNN_PRINT("\tattention_kv_oom: module load reported failure\n");
+        } else {
+            auto q = generateRandTensor(kRealSeq, NumHead, HeadDim, precision);
+            auto k = generateRandTensor(kRealSeq, KvNumHead, HeadDim, precision);
+            auto v = generateRandTensor(kRealSeq, KvNumHead, HeadDim, precision);
+            auto outputs = module->onForward({vector_to_var(q), vector_to_var(k), vector_to_var(v), scalarMask()});
+            if (!outputs.empty()) {
+                MNN_PRINT("Error: attention_kv_oom produced %d output(s) after a failed kv alloc\n",
+                          (int)outputs.size());
+                pass = false;
+            }
+        }
+        module.reset();
+        gMeta.sync();
+        gMeta.previous = 0;
+        gMeta.remove = 0;
+        gMeta.add = 0;
+        NumHead = savedNumHead;
+        KvNumHead = savedKvNumHead;
+        HeadDim = savedHeadDim;
+        return pass;
+    }
+};
+MNNTestSuiteRegister(AttentionKvCacheOOMTest, "op/attention_kv_oom");
+
+class AttentionMetalDecodeEdgeTest : public AttentionDecodeTest {
+    static VARP rowsPerBatchToVar(const std::vector<Tensor3>& perBatch) {
+        const int batch = (int)perBatch.size();
+        const int seq = (int)perBatch[0].size();
+        const int heads = (int)perBatch[0][0].size();
+        const int hd = (int)perBatch[0][0][0].size();
+        auto var = _Input({batch, seq, heads, hd}, NCHW, halide_type_of<float>());
+        float* ptr = var->writeMap<float>();
+        for (int b = 0; b < batch; ++b) {
+            for (int s = 0; s < seq; ++s) {
+                for (int h = 0; h < heads; ++h) {
+                    ::memcpy(ptr + ((b * seq + s) * heads + h) * hd, perBatch[b][s][h].data(), hd * sizeof(float));
+                }
+            }
+        }
+        return var;
+    }
+
+    static Tensor3 genSeededRows(int seq, int heads, int hd, int seed, float amp) {
+        Tensor3 out(seq, std::vector<std::vector<float>>(heads, std::vector<float>(hd)));
+        for (int s = 0; s < seq; ++s) {
+            for (int h = 0; h < heads; ++h) {
+                for (int d = 0; d < hd; ++d) {
+                    int v = ((s * 37 + h * 17 + d * 13 + seed * 97) % 29) - 14;
+                    out[s][h][d] = amp * (float)v / 14.0f;
+                }
+            }
+        }
+        return out;
+    }
+
+    bool runMultiBatchOrOddCase(int numHead, int kvNumHead, int headDim, int batch, int prefill, int steps,
+                                int quantMode, bool outputC4, const char* tag) {
+        NumHead = numHead;
+        KvNumHead = kvNumHead;
+        HeadDim = headDim;
+        const int total = prefill + steps;
+        const float amp = (quantMode == 11) ? 0.5f : 0.8f;
+
+        std::vector<Tensor3> keys(batch), values(batch), pqs(batch), prefKeys(batch), prefVals(batch);
+        std::vector<std::shared_ptr<NaiveAttention>> refs(batch);
+        for (int b = 0; b < batch; ++b) {
+            keys[b] = genSeededRows(total, kvNumHead, headDim, 100 + b * 31, amp);
+            values[b] = genSeededRows(total, kvNumHead, headDim, 200 + b * 47, amp);
+            pqs[b] = genSeededRows(prefill, numHead, headDim, 300 + b * 53, amp);
+            prefKeys[b] = Tensor3(keys[b].begin(), keys[b].begin() + prefill);
+            prefVals[b] = Tensor3(values[b].begin(), values[b].begin() + prefill);
+            refs[b].reset(new NaiveAttention);
+            refs[b]->appendHistory(prefKeys[b], prefVals[b], prefill);
+        }
+
+        std::shared_ptr<Module> module;
+        if (quantMode == 11) {
+            module = _makeAttentionModuleQuant(8, outputC4, 1.0f, 1.0f / 127.0f, 1.0f, 1.0f / 127.0f);
+        } else {
+            module = _makeAttentionModule(quantMode, outputC4);
+        }
+        if (!module) {
+            MNN_PRINT("Error: %s failed to build module\n", tag);
+            return false;
+        }
+        gMeta.previous = 0;
+        gMeta.remove = 0;
+        if (prefill > 0) {
+            gMeta.add = prefill;
+            auto prefOut = module->onForward({rowsPerBatchToVar(pqs), rowsPerBatchToVar(prefKeys),
+                                              rowsPerBatchToVar(prefVals), _scalarMask()});
+            if (prefOut.empty()) {
+                MNN_PRINT("Error: %s prefill failed\n", tag);
+                return false;
+            }
+            gMeta.sync();
+        }
+
+        std::vector<std::vector<int>> noMask;
+        const float tolAbs = (quantMode != 0) ? 0.04f : 0.008f;
+        const float tolRel = (quantMode != 0) ? 0.15f : 0.05f;
+        for (int s = 0; s < steps; ++s) {
+            std::vector<Tensor3> q1(batch), k1(batch), v1(batch), exp(batch);
+            for (int b = 0; b < batch; ++b) {
+                q1[b] = genSeededRows(1, numHead, headDim, 400 + b * 71 + s * 19, amp);
+                k1[b] = Tensor3(keys[b].begin() + prefill + s, keys[b].begin() + prefill + s + 1);
+                v1[b] = Tensor3(values[b].begin() + prefill + s, values[b].begin() + prefill + s + 1);
+                exp[b] = refs[b]->onExecute(q1[b], k1[b], v1[b], noMask, 1);
+            }
+            gMeta.add = 1;
+            auto outs = module->onForward(
+                {rowsPerBatchToVar(q1), rowsPerBatchToVar(k1), rowsPerBatchToVar(v1), _scalarMask()});
+            gMeta.sync();
+            if (outs.empty()) {
+                MNN_PRINT("Error: %s decode step %d returned empty\n", tag, s);
+                return false;
+            }
+            const float* gotPtr = outs[0]->readMap<float>();
+            if (gotPtr == nullptr) {
+                MNN_PRINT("Error: %s decode step %d null map\n", tag, s);
+                return false;
+            }
+            const int totalC = numHead * headDim;
+            for (int b = 0; b < batch; ++b) {
+                for (int h = 0; h < numHead; ++h) {
+                    for (int d = 0; d < headDim; ++d) {
+                        float got = 0.0f;
+                        if (outputC4) {
+                            const int c = h * headDim + d;
+                            got = gotPtr[((c / 4) * batch + b) * 4 + (c % 4)];
+                        } else {
+                            got = gotPtr[(b * numHead + h) * headDim + d];
+                        }
+                        const float refVal = exp[b][0][h][d];
+                        const float diff = fabsf(got - refVal);
+                        if (!std::isfinite(got) || (diff > tolAbs && diff > tolRel * fabsf(refVal))) {
+                            MNN_PRINT("Error: %s step=%d b=%d h=%d d=%d got=%f exp=%f (totalC=%d)\n", tag, s, b, h, d,
+                                      got, refVal, totalC);
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
+public:
+    virtual ~AttentionMetalDecodeEdgeTest() = default;
+    virtual bool run(int precision) override {
+        auto status = MNNTestSuite::get()->pStaus;
+        if (MNN_FORWARD_METAL != (MNNForwardType)status.forwardType) {
+            MNNTestSuite::get()->skipped++;
+            MNN_PRINT("\tskip: Metal-only case, backend=%d\n", status.forwardType);
+            return true;
+        }
+        ShapeGuard guard;
+        bool pass = true;
+        // Multi-batch KV cache decode with distinct per-batch streams, including
+        // expansion across mExpandChunk (64) and dynamic/static KV quantization.
+        pass &= runMultiBatchOrOddCase(8, 4, 64, 2, 8, 4, 0, false, "b2 float");
+        pass &= runMultiBatchOrOddCase(8, 4, 64, 2, 8, 4, 0, true, "b2 float c4");
+        pass &= runMultiBatchOrOddCase(8, 4, 64, 2, 60, 8, 0, false, "b2 float grow");
+        pass &= runMultiBatchOrOddCase(8, 4, 64, 2, 60, 8, 10, false, "b2 dyn quant grow");
+        pass &= runMultiBatchOrOddCase(8, 4, 64, 2, 8, 4, 11, false, "b2 static quant");
+        // Odd / non-4-aligned head_dim exercising decode_qk scalar path and
+        // decode_qkv_c2 odd-tail guard with unaligned KV lengths.
+        pass &= runMultiBatchOrOddCase(4, 2, 5, 1, 3, 5, 0, false, "odd hd5");
+        pass &= runMultiBatchOrOddCase(4, 2, 5, 1, 3, 5, 0, true, "odd hd5 c4");
+        pass &= runMultiBatchOrOddCase(4, 2, 7, 1, 3, 5, 10, true, "odd hd7 dyn quant c4");
+        pass &= runMultiBatchOrOddCase(4, 2, 13, 2, 5, 4, 11, true, "odd hd13 b2 static quant c4");
+        // FA-TC FATC_WM=1 (BQ=16) and FATC_WM=2 (BQ=32) causal prefill paths
+        // (small tg64 < 16 and headDim=256 WN=2) followed by decode steps.
+        pass &= runMultiBatchOrOddCase(4, 2, 128, 1, 64, 2, 8, false, "fatc wm1 h4 d128");
+        pass &= runMultiBatchOrOddCase(4, 2, 128, 1, 64, 2, 8, true, "fatc wm1 h4 d128 c4");
+        pass &= runMultiBatchOrOddCase(8, 2, 128, 1, 64, 2, 8, false, "fatc wm2 h8 d128");
+        pass &= runMultiBatchOrOddCase(4, 2, 64,  1, 96, 2, 8, false, "fatc wm2 h4 seq96 d64");
+        pass &= runMultiBatchOrOddCase(8, 2, 256, 1, 64, 2, 8, false, "fatc wn2 wm1 d256");
+        return pass;
+    }
+};
+MNNTestSuiteRegister(AttentionMetalDecodeEdgeTest, "op/attention_decode_edge_metal");
 #endif

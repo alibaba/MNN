@@ -4,6 +4,7 @@
 //
 //  Created by wangzhaode on 2023/12/14.
 //
+#include <algorithm>
 #include <chrono>
 #include <functional>
 #include <fstream>
@@ -321,20 +322,17 @@ static void LogAnswerChunks(const std::string& answer) {
     NSLog(@"[MNN_FILE_ANSWER_B64_END]");
 }
 
-// cmd: "benchfiles <cpu|metal> [threads] [max_new_tokens] [file_index]"
-// Runs every benchprompt_*.txt bundled with the app (or only the file_index-th
-// when file_index >= 0), logging per-file perf and answer.
 - (void)runFileBench:(const std::string&)cmd output:(std::ostream&)os {
     std::istringstream iss(cmd);
-    std::string tag, backend;
-    int threads = 4, max_new = 1024, file_index = -1;
+    std::string tag, backend, file_token;
+    int threads = 4, max_new = 1024;
     iss >> tag >> backend;
     int v;
     if (iss >> v) threads = v;
     if (iss >> v) max_new = v;
-    if (iss >> v) file_index = v;
+    iss >> file_token;
     if (backend != "cpu" && backend != "metal") {
-        os << "usage: benchfiles <cpu|metal> [threads] [max_new_tokens]\n<eop>";
+        os << "usage: benchfiles <cpu|metal> [threads] [max_new_tokens] [file]\n<eop>";
         NSLog(@"[MNN_BENCH_ERROR] invalid benchfiles command: %s", cmd.c_str());
         return;
     }
@@ -353,13 +351,26 @@ static void LogAnswerChunks(const std::string& answer) {
         NSLog(@"[MNN_BENCH_ERROR] no benchprompt_*.txt files bundled");
         return;
     }
-    if (file_index >= 0) {
-        if (file_index >= (int)files.size()) {
-            os << "file_index out of range\n<eop>";
-            NSLog(@"[MNN_BENCH_ERROR] file_index %d out of range (%zu files)", file_index, files.size());
-            return;
+    if (!file_token.empty()) {
+        char* end = nullptr;
+        long index = strtol(file_token.c_str(), &end, 10);
+        bool numeric = end != nullptr && *end == '\0' && index >= 0;
+        if (numeric) {
+            if (index >= (long)files.size()) {
+                os << "file_index out of range\n<eop>";
+                NSLog(@"[MNN_BENCH_ERROR] file_index %ld out of range (%zu files)", index, files.size());
+                return;
+            }
+            files = {files[index]};
+        } else {
+            auto it = std::find(files.begin(), files.end(), file_token);
+            if (it == files.end()) {
+                os << "file not found\n<eop>";
+                NSLog(@"[MNN_BENCH_ERROR] file %s not found in bundle", file_token.c_str());
+                return;
+            }
+            files = {*it};
         }
-        files = {files[file_index]};
     }
     WaitForAppActive();
     llm.reset();
@@ -399,6 +410,7 @@ static void LogAnswerChunks(const std::string& answer) {
     llm->set_config("{\"async\":false}");
     llm->set_config("{\"sampler_type\":\"greedy\"}");
     llm->set_config("{\"max_new_tokens\":" + std::to_string(max_new) + "}");
+    llm->set_config("{\"jinja\":{\"context\":{\"enable_thinking\":false}}}");
     llm->load();
     auto context = llm->getContext();
     NSLog(@"[MNN_BENCH] filebench backend=%s threads=%d max_new=%d files=%zu",
@@ -626,7 +638,7 @@ static void LogAnswerChunks(const std::string& answer) {
         int gen_len = context->gen_seq_len;
         NSLog(@"[MNN_IPAD_STATE] run=%d thermal=%ld status=%d gen=%d",
               i, (long)[NSProcessInfo processInfo].thermalState, (int)context->status, gen_len);
-        if (context->status != LlmStatus::MAX_TOKENS_FINISHED || gen_len != decode_len) {
+        if (context->status != LlmStatus::MAX_TOKENS_FINISHED || gen_len < decode_len) {
             NSLog(@"[MNN_BENCH_ERROR] incomplete fixed-length generation");
             return;
         }

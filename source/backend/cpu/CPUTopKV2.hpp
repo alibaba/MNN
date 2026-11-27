@@ -20,7 +20,9 @@ public:
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
+    ErrorCode routeSigmoid(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
     bool mLargest = true;
+    bool mRouteSigmoid = false;
 };
 } // namespace MNN
 

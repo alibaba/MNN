@@ -868,4 +868,11 @@ extern const unsigned char glsl_COOP_to_C4_comp[];
 extern unsigned int glsl_COOP_to_C4_comp_len;
 extern const unsigned char glsl_COOP_to_C4_FP16_comp[];
 extern unsigned int glsl_COOP_to_C4_FP16_comp_len;
+
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+extern const unsigned char glsl_indexed_linear_rw_reduce_comp[];
+extern unsigned int glsl_indexed_linear_rw_reduce_comp_len;
+extern const unsigned char glsl_indexed_linear_rw_reduce_FP16_comp[];
+extern unsigned int glsl_indexed_linear_rw_reduce_FP16_comp_len;
+#endif
 #endif

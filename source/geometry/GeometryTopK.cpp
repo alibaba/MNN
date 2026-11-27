@@ -15,6 +15,19 @@ class GeometryTopK : public GeometryComputer {
 public:
     virtual bool onCompute(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                            Context& context, CommandBuffer& res) const override {
+        auto param = op->main_as_TopKV2();
+        if (nullptr != param && param->routeSigmoid()) {
+            if (outputs.size() != 2 || inputs.size() != 4) {
+                return false;
+            }
+            std::shared_ptr<Command> cmdP(new Command);
+            auto& cmd = *cmdP;
+            cmd.op      = op;
+            cmd.inputs  = inputs;
+            cmd.outputs = std::move(outputs);
+            res.command.emplace_back(std::move(cmdP));
+            return true;
+        }
         if (outputs.size() != 2 || inputs.size() < 2 || inputs.size() > 3) {
             MNN_ERROR("TopK should have 2 output and 2~3 input, get %lu in and %lu out\n", inputs.size(), outputs.size());
             return false;

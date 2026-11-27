@@ -3,6 +3,7 @@ import sys
 import subprocess
 import copy
 import json
+import subprocess
 import torch
 import numpy as np
 
@@ -73,7 +74,8 @@ class MNNConverter:
                     finally:
                         sys.argv = previous_argv
                 else:
-                    subprocess.run([self.mnnconvert, *convert_args[1:]], stdout=log_fp, check=True)
+                    subprocess.run([self.mnnconvert, *map(str, convert_args[1:])],
+                                   stdout=log_fp, stderr=subprocess.STDOUT, check=True)
             success = True
         finally:
             if sfd is not None:
@@ -151,7 +153,8 @@ class MNNConverter:
             str(mnn_path),
             '--MNNModel',
             str(mnn_path),
-            '--optimizeLevel=1'
+            '--optimizeLevel=1',
+            '--saveExternalData'
         ]
         convert_args += self.transformer_c4_args()
         self.convert(convert_args)
@@ -196,8 +199,6 @@ class MNNConverter:
             self.mnn2json(self.mnn_model_path, mnn_json)
             if self.args.gptq_path is not None:
                 self.apply_gptq(mnn_json)
-            if self.args.lora_path is not None and self.args.lora_split:
-                 self.export_lora(mnn_json)
             if self.args.omni:
                 self.export_omni_quant(mnn_json)
             if self.args.smooth:
@@ -210,6 +211,10 @@ class MNNConverter:
             self.json2mnn(mnn_json, self.mnn_model_path)
         if os.path.isfile(self.mnn_weight_path):
             register_file_region(self.args, self.mnn_weight_path)
+        if self.args.lora_path is not None and self.args.lora_split and self.mnn_name == 'llm.mnn':
+            mnn_json = os.path.join(getattr(self.args, 'work_path', self.args.dst_path), self.mnn_name + '.json')
+            self.mnn2json(self.mnn_model_path, mnn_json)
+            self.export_lora(mnn_json)
         return self.tie_embeddings_info
 
     @spinner_run(f'apply gptq to ')

@@ -69,7 +69,7 @@ ErrorCode CommonExecution::onExecute(const std::vector<Tensor *> &inputs, const 
                                                     unit.globalWorkSize,
                                                     unit.localWorkSize);
     #endif
-        MNN_CHECK_CL_SUCCESS(res, EnumNameOpType(mOp->type()));
+        MNN_CHECK_CL_SUCCESS(res, EnumNameOpType(mOpType));
     }
     return NO_ERROR;
 }

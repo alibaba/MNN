@@ -265,6 +265,8 @@ table RoPEParam {
     head_dim: int = 0;
     q_norm: LayerNorm;
     k_norm: LayerNorm;
+    interleaved: bool = false;
+    norm_after: bool = false;
 }
 
 // Indexed linear projections selected by int32 IDs[T,K].
@@ -275,6 +277,9 @@ table IndexedLinearParam {
     linears: [Convolution2D];
     inputMode: int = 0;
     fusedActivation: int = -1;
+    routeWeight: int = 0;
+    routeEps: float = 0;
+    routeScale: float = 1;
 }
 
 // Export-time fused projection group: N conv1x1 sharing one input, computed
@@ -293,6 +298,7 @@ table FusedLinearParam {
     // Export-time license (--fuse_ln_proj) for the C4 pass to fold a preceding
     // binary RMSNorm into this op (produces the has_ln variant).
     ln_fold: bool = false;
+    row_mul: bool = false;
 }
 
 table FmhaV2Param {

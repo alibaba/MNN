@@ -16,6 +16,8 @@
 #if MNN_METAL_ENABLED
 namespace MNN {
 
+class MetalConv1x1WQuant;
+
 class MetalExecution : public Execution {
 public:
     MetalExecution(Backend *backend);
@@ -23,8 +25,21 @@ public:
     virtual void invalidateReplay();
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual void onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) = 0;
+    // Query the packed-weight executor without RTTI or re-deriving weight
+    // residency from the Op.
+    virtual MetalConv1x1WQuant* asWQuant() { return nullptr; }
+    // FusedLinear may offer a per-token scale before resize. Unsupported paths
+    // leave it to the owner to encode a separate multiply.
+    virtual void requestRowScale(const Tensor* scale) {}
+    virtual bool rowScaleFused() const { return false; }
+    // An owner that encodes its children directly must still run their replay
+    // hook; this forwards to it rather than skipping the child's structure check.
+    bool replayCheckForOwner(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+        return onReplayUpdate(inputs, outputs);
+    }
 
 protected:
+    ErrorCode mEncodeStatus = NO_ERROR;
     // Encode-replay (see MetalReplay.hpp). Return false for ops whose encode
     // depends on per-token CPU state that buffer-binding replay can't capture
     // (e.g. attention's kv-length grids / param contents).

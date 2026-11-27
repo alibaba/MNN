@@ -13,6 +13,8 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <cerrno>
+#include <climits>
 
 namespace MNN {
 
@@ -33,6 +35,10 @@ struct MetalEnv {
     // MNN_METAL_LN_TOKENS_PER_TG: tokens per threadgroup in the C4 RMSNorm at
     // prefill. Default 8, auto-on at outside>=256.
     int lnRowParallel;
+    // Set MNN_METAL_ENABLE_TIED_BIT=1 to opt into candidate-filtered logits.
+    bool tiedBit;
+    // Global Top-M (inclusive FP16 threshold); default 512. Read once at startup.
+    int tiedBitTopM;
     // ---- fusion / misc ----
     // MNN_METAL_DECODE_SDPA_KVB: kv tokens per stream-loop iteration in the
     // decode SDPA kernel. 0=auto, 1=serial, 2/4=overlap form; 4 clamps to 2
@@ -42,7 +48,7 @@ struct MetalEnv {
     // split; block count stands in for how parallelism-starved the dispatch is.
     int qkvSplitKMaxBlocks;
     // MNN_METAL_FUSED_Q4_GATEUP_DUAL_MIN_AREA: minimum prefill area that
-    // enables the gate/up dual accumulator. Default 128.
+    // enables the gate/up dual accumulator. Default 2.
     int fusedQ4GateUpDualMinArea;
     // MNN_METAL_H2D_QUEUED=0: restore the legacy drain+direct-write upload path.
     bool h2dQueued;
@@ -64,13 +70,24 @@ struct MetalEnv {
     const char* opProfileTimeline;
     // MNN_METAL_OP_PROFILE_LEGACY=1: per-op command-buffer profile mode.
     bool opProfileLegacy;
-    // MNN_METAL_PIPELINE_INFO=1: log kernel name, occupancy limits, and
-    // specialization macros for every source-compiled pipeline.
+    // MNN_METAL_PIPELINE_INFO=1: log device identity (gen/tier/cores) plus kernel
+    // name, occupancy limits, and specialization macros for each compiled pipeline.
     bool pipelineInfo;
 
     static const MetalEnv& get() {
         static const MetalEnv env = []{
             MetalEnv e;
+            const char* tiedBit = getenv("MNN_METAL_ENABLE_TIED_BIT");
+            e.tiedBit = tiedBit != nullptr && strcmp(tiedBit, "1") == 0;
+            {
+                const char* value = getenv("MNN_METAL_TIED_BIT_TOP_M");
+                char* end = nullptr;
+                errno = 0;
+                const long n = value ? strtol(value, &end, 10) : 512;
+                e.tiedBitTopM = n >= 1 && n <= INT_MAX && errno != ERANGE && (!value || (end != value && *end == '\0'))
+                                     ? int(n)
+                                     : 512;
+            }
             {
                 const char* v = getenv("MNN_METAL_RESIZE_WAIT");
                 e.resizeWaitMode = (v != nullptr && strcmp(v, "global") == 0) ? 1
@@ -101,8 +118,8 @@ struct MetalEnv {
             }
             {
                 const char* v = getenv("MNN_METAL_FUSED_Q4_GATEUP_DUAL_MIN_AREA");
-                int n = (v != nullptr) ? atoi(v) : 128;
-                e.fusedQ4GateUpDualMinArea = (n >= 64) ? n : 128;
+                int n = (v != nullptr) ? atoi(v) : 5;
+                e.fusedQ4GateUpDualMinArea = (n >= 2) ? n : 5;
             }
             e.h2dQueued            = !envIs("MNN_METAL_H2D_QUEUED", '0');
             e.spinWait             = !envIs("MNN_METAL_SPIN_WAIT", '0');

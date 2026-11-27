@@ -35,6 +35,13 @@
 |---|---|---|---|
 | `MNN_METAL_QKV_SPLITK_MAX_BLOCKS` | 16 | `=N` 把融合 QKV decode GEMV plain split-K（2 quad/TG、4 simdgroup/128 线程）路由的适用范围限制到 quant block 数 ≤ N（设 0 或非法值回落 16） | 融合 QKV decode GEMV 的 plain split-K（`useOc8Sg4K2`）分支；oc16Sg8K2 与双流体（`oc16Sg2K1`）形态不受此门限制 |
 
+## TiedBit
+
+| Env 变量 | 默认 | 功能 | 生效条件 |
+|---|---|---|---|
+| `MNN_METAL_ENABLE_TIED_BIT` | 关 | 仅当值为字符串 `1` 时启用 Q1 粗筛、Q4 精算。首次读取 Metal 环境配置时生效。创建时不兼容则继续常规卷积选择 | 单向量 `lm_head`，FP16 或 FP32 存储，低内存模式，对称或非对称 INT4，量化组按 16 输入通道对齐，支持 SIMD-group reduce。需要完整 logits 时使用默认配置 |
+| `MNN_METAL_TIED_BIT_TOP_M` | 512 | 全局候选预算 M，正整数，最大为词表大小；非法值回退 512；包含当前存储精度下阈值处所有并列项，实际候选数可能大于 M | TiedBit 路径；进程启动时读取 |
+
 ## Prefill GEMM（量化权重）
 
 | Env 变量 | 默认 | 功能 | 生效条件 |
@@ -68,10 +75,11 @@
 
 ## 新增开关的规范
 
-1. 优先按"默认行为反义"命名：默认开的用 `MNN_METAL_DISABLE_*`，默认关的用 `MNN_METAL_ENABLE_*`。
-2. 多值开关用 named string（如 `local` / `global` / `none`）而非 0/1/2。
-3. 每个新增 env **必须**：
+1. **禁止新增仅为测试或 A/B 性能对比服务的开关**：生产路由只能由 shape 与设备能力决定；性能对比用不同版本的构建产物交替运行，不得用运行时开关切换路线。
+2. 优先按"默认行为反义"命名：默认开的用 `MNN_METAL_DISABLE_*`，默认关的用 `MNN_METAL_ENABLE_*`。
+3. 多值开关用 named string（如 `local` / `global` / `none`）而非 0/1/2。
+4. 每个新增 env **必须**：
    - 在 `source/backend/metal/MetalEnv.hpp` 加字段（禁止散落 `getenv`）；
    - 在本文件加一行（只写名称 / 默认值 / 功能 / 生效条件）；
    - 在 commit message 里写默认值与 A/B 用法。
-4. 开关**删除或改名时，本文件的对应行必须同步删除**，不保留旧名与删除线。
+5. 开关**删除或改名时，本文件的对应行必须同步删除**，不保留旧名与删除线。

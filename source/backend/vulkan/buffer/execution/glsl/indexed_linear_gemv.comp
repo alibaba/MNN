@@ -9,6 +9,8 @@
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 layout(constant_id = 3) const int WEIGHT_BITS = 4;
 layout(constant_id = 4) const bool FUSE_SILU_MUL = false;
+layout(constant_id = 5) const int ROUTE_WEIGHT = 0;
+layout(set=0, binding=6) readonly buffer RouteWeights { FLOAT data[]; } routeWeights;
 layout(set=0, binding=0) readonly buffer Input { FLOAT data[]; } inputData;
 layout(set=0, binding=1) readonly buffer Ids { int data[]; } ids;
 layout(set=0, binding=2) readonly buffer Weights { uint data[]; } weights;
@@ -19,6 +21,8 @@ layout(push_constant) uniform Params {
     int channels; int outputs; int experts; int topk;
     int inputMode; int groups; int groupSize; int weightStride;
     int rows; int maxTiles;
+    int tokens; int xC4;
+    float routeEps; float routeScale;
 } p;
 
 float weightValue(int expert, int outputChannel, int inputChannel) {
@@ -37,10 +41,56 @@ float weightValue(int expert, int outputChannel, int inputChannel) {
 
 shared vec4 partial[64];
 shared vec4 upPartial[64];
+void weightedGemv(int lane, int firstOutput, int token) {
+    vec4 acc = vec4(0);
+    float denominator = 0.0;
+    if (ROUTE_WEIGHT == 2 && lane == 0) {
+        for (int k = 0; k < p.topk; ++k) {
+            int e = ids.data[token * p.topk + k];
+            if (e >= 0 && e < p.experts) denominator += float(routeWeights.data[token * p.experts + e]);
+        }
+        denominator = float(FLOAT(FLOAT(denominator) + FLOAT(p.routeEps)));
+    }
+    for (int k = 0; k < p.topk; ++k) {
+        int row = token * p.topk + k;
+        int expert = ids.data[row];
+        if (expert < 0 || expert >= p.experts) continue;
+        vec4 sum = vec4(0);
+        for (int c = lane; c < p.channels; c += 64) {
+            float x = float(inputData.data[row * p.channels + c]);
+            for (int j = 0; j < 4; ++j) {
+                if (firstOutput + j < p.outputs) sum[j] = fma(x, weightValue(expert, firstOutput + j, c), sum[j]);
+            }
+        }
+        partial[lane] = sum;
+        barrier();
+        for (int stride = 32; stride > 0; stride >>= 1) {
+            if (lane < stride) partial[lane] += partial[lane + stride];
+            barrier();
+        }
+        if (lane == 0) {
+            float w = ROUTE_WEIGHT == 2 ? float(FLOAT(FLOAT(routeWeights.data[token * p.experts + expert] / FLOAT(denominator)) * FLOAT(p.routeScale))) : float(routeWeights.data[row]);
+            for (int j = 0; j < 4; ++j) {
+                if (firstOutput + j < p.outputs) acc[j] += w * (partial[0][j] + bias.data[expert * p.outputs + firstOutput + j]);
+            }
+        }
+        barrier();
+    }
+    if (lane == 0) {
+        for (int j = 0; j < 4; ++j) {
+            int c = firstOutput + j;
+            outputData.data[((c / 4) * p.tokens + token) * 4 + (c & 3)] = FLOAT(c < p.outputs ? acc[j] : 0.0);
+        }
+    }
+}
 void main() {
     int lane = int(gl_LocalInvocationID.x);
     int firstOutput = int(gl_WorkGroupID.x) * 4;
     int row = int(gl_WorkGroupID.y);
+    if (ROUTE_WEIGHT != 0) {
+        weightedGemv(lane, firstOutput, row);
+        return;
+    }
     int expert = ids.data[row];
     int resultChannels = p.outputs / (FUSE_SILU_MUL ? 2 : 1);
     if (expert < 0 || expert >= p.experts) {
@@ -52,7 +102,8 @@ void main() {
     int inputRow = p.inputMode != 0 ? row : row / p.topk;
     vec4 sum = vec4(0), upSum = vec4(0);
     for (int k = lane; k < p.channels; k += 64) {
-        float x = float(inputData.data[inputRow * p.channels + k]);
+        float x = float(inputData.data[p.xC4 != 0 ? ((k / 4) * p.tokens + inputRow) * 4 + (k & 3)
+                                                    : inputRow * p.channels + k]);
         for (int j = 0; j < 4; ++j) {
             if (firstOutput + j < resultChannels) {
                 int channel = (firstOutput + j) * (FUSE_SILU_MUL ? 2 : 1);

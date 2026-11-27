@@ -62,11 +62,16 @@ Python 侧（transformers.py）               ONNX 导出               C++ 侧�
 ```
 算子名：LlmExporter::FusedLinearAttention
 
-输入 Tensor（4 个，顺序固定）：
+gated_delta_rule 输入 Tensor（4 个，顺序固定）：
   [0] qkv          [B, D, L]   投影输出（conv 之前），D = 总维度
-  [1] gate         [B, L, H]   decay / gate（不需要时传 zeros）
-  [2] beta         [B, L, H]   learning rate（不需要时传 zeros）
+  [1] gate         [B, L, H]   decay / gate
+  [2] beta         [B, L, H]   learning rate
   [3] conv_weight  [C, 1, K]   depthwise conv 权重，C = conv 通道数
+
+short_conv 输入 Tensor（2 个）：
+  [0] qkv          [B, 3H, L] B / C / x 投影
+  [1] conv_weight  [H, 1, K]  depthwise conv 权重
+  新运行时兼容旧四输入 short_conv；新导出不生成 gate/beta 占位。
 
 属性（Attributes）：
   attn_type      string   算子子类型，如 "gated_delta_rule" / "short_conv"
@@ -268,8 +273,7 @@ class ShortConvAttention(torch.nn.Module):
         if torch.onnx.is_in_onnx_export():
             # ONNX 路径：调用 FusedLinearAttention 自定义算子
             # 输入：投影后的 tensor [B, D, L]
-            # 不需要的输入传 zeros
-            attn_out = self.fused_attn(bcx_t, gate_zeros, beta_zeros, self.conv.weight)
+            attn_out = self.fused_attn(bcx_t, conv_weight=self.conv.weight)
             return self.out_proj(attn_out.view(B, L, -1))
 
         # Test 路径：完整的 Python 计算（用于 hook 对齐验证）
@@ -375,7 +379,7 @@ echo "你好" > /tmp/prompt.txt
 2. **是否需要递归状态？** → 决定 `needRecurrentState`
 3. **conv 后是否有激活函数？** → gated_delta_rule 有 SiLU，short_conv 没有
 4. **qkv tensor 的语义是什么？** → 不同类型的 split 方式不同
-5. **gate / beta 输入是否使用？** → short_conv 传 zeros，gated_delta_rule 实际使用
+5. **gate / beta 输入是否使用？** → short_conv 省略，gated_delta_rule 实际使用。调整输入数量时，检查 shape、C4 matcher 和各后端分支前的公共访问，不能只改计算函数中的权重索引。
 
 ---
 

@@ -3067,8 +3067,164 @@ public:
         ok &= verifyBlock("verify-G (no pending)", 0, 0);
         ok &= verifyBlock("verify-H (full accept)", 0, specBlock);
         ok &= flushBlock("flush-I (commit all)", 0, specBlock);
+
+        // Cycle 4: replay vs spec_block=1 (seqLen stays 1, so mConvOut shape does not
+        // change; replay must bail out when spec_block > 0 or mPendingLen > 0).
+        {
+            MNN::KVMeta meta1;
+            auto mod1 = _makeLinearAttentionModuleWithMeta(numK, numV, dk, dv, true, &meta1);
+            if (!mod1) {
+                MNN_PRINT("SpecVerifyTest: failed to create spec_block=1 module\n");
+                return false;
+            }
+            NaiveSpecVerify naive1;
+            naive1.init(B, D, K_conv, numK, numV, dk, dv);
+            auto runStep1 = [&](const char* tag, int sb, int rem, int expCommit, bool lazy) -> bool {
+                meta1.spec_block = sb;
+                meta1.remove = rem;
+                auto in = makeInputs(1);
+                auto expected = lazy
+                    ? naive1.lazyForward(std::get<3>(in).data(), std::get<4>(in).data(), std::get<5>(in).data(),
+                                         convWVar->readMap<float>(), 1, expCommit)
+                    : naive1.flushForward(std::get<3>(in).data(), std::get<4>(in).data(), std::get<5>(in).data(),
+                                          convWVar->readMap<float>(), 1, expCommit);
+                auto outputs = mod1->onForward({std::get<0>(in), std::get<1>(in), std::get<2>(in), convWVar});
+                meta1.spec_block = 0;
+                if (outputs.empty()) {
+                    MNN_PRINT("SpecVerifyTest: %s empty\n", tag);
+                    return false;
+                }
+                const float* result = outputs[0]->readMap<float>();
+                for (int i = 0; i < B * numV * dv; ++i) {
+                    float diff = fabs(result[i] - expected[i]);
+                    if (diff > tol + 0.02f * fabs(expected[i])) {
+                        MNN_PRINT("SpecVerifyTest: %s mismatch at %d: expected=%f actual=%f\n", tag, i, expected[i],
+                                  result[i]);
+                        return false;
+                    }
+                }
+                meta1.sync();
+                return true;
+            };
+            meta1.previous = 0;
+            ok &= runStep1("sb1-decode-0", 0, 0, 0, false);
+            meta1.previous = 1;
+            ok &= runStep1("sb1-decode-1 (record)", 0, 0, 0, false);
+            meta1.previous = 2;
+            ok &= runStep1("sb1-verify (lazy L=1)", 1, 0, 0, true);
+            meta1.previous = 3;
+            ok &= runStep1("sb1-flush (commit 1)", 0, 0, 1, false);
+        }
+
+        // Cycle 5: runtime gate/beta chain fold + spec_block verify (tests that
+        // encodeVerifyFused binds gateSrc/betaSrc rather than raw inputs[1]/inputs[2]).
+        {
+            MNN::KVMeta metaFold;
+            const int foldBlock = 4;
+            std::vector<float> gCoef(numV), gBias(numV);
+            for (int h = 0; h < numV; ++h) {
+                gCoef[h] = -(0.4f + 0.1f * h);
+                gBias[h] = -0.3f + 0.15f * h;
+            }
+            auto qkvIn = _Input({B, D, 1}, NCHW, halide_type_of<float>());
+            auto rawAIn = _Input({B, 1, numV}, NCHW, halide_type_of<float>());
+            auto rawBIn = _Input({B, 1, numV}, NCHW, halide_type_of<float>());
+            auto wIn = _Input({D, 1, K_conv}, NCHW, halide_type_of<float>());
+            qkvIn->setName("qkv");
+            rawAIn->setName("raw_a");
+            rawBIn->setName("raw_b");
+            wIn->setName("conv_w");
+            auto biasConst = _Const(gBias.data(), {1, 1, numV}, NCHW);
+            auto coefConst = _Const(gCoef.data(), {1, 1, numV}, NCHW);
+            auto oneConst = _Scalar<float>(1.0f);
+            auto gateExpr = _Multiply(coefConst, _Log(_Add(_Exp(_Add(rawAIn, biasConst)), oneConst)));
+            auto betaExpr = _Sigmoid(rawBIn);
+            std::unique_ptr<MNN::OpT> op(new MNN::OpT);
+            op->type = MNN::OpType_LinearAttention;
+            op->main.type = MNN::OpParameter_LinearAttentionParam;
+            op->main.value = new MNN::LinearAttentionParamT;
+            auto* lp = op->main.AsLinearAttentionParam();
+            lp->attn_type = "gated_delta_rule";
+            lp->num_k_heads = numK;
+            lp->num_v_heads = numV;
+            lp->head_k_dim = dk;
+            lp->head_v_dim = dv;
+            lp->use_qk_l2norm = true;
+            auto outVar = Variable::create(Expr::create(op.get(), {qkvIn, gateExpr, betaExpr, wIn}));
+            outVar->setName("out");
+            auto buf = Variable::save({outVar});
+
+            auto status = MNNTestSuite::get()->pStaus;
+            MNN::ScheduleConfig sconfig;
+            sconfig.type = (MNNForwardType)status.forwardType;
+            sconfig.numThread = status.thread > 0 ? status.thread : 1;
+            MNN::BackendConfig bconfig;
+            bconfig.precision = (MNN::BackendConfig::PrecisionMode)status.precision;
+            bconfig.memory = (MNN::BackendConfig::MemoryMode)status.memory;
+            sconfig.backendConfig = &bconfig;
+            std::shared_ptr<Executor::RuntimeManager> rtmgr(Executor::RuntimeManager::createRuntimeManager(sconfig));
+            rtmgr->setHintPtr(MNN::Interpreter::KVCACHE_INFO, &metaFold);
+            Module::Config mconfig;
+            mconfig.rearrange = true;
+            std::shared_ptr<Module> modFold(
+                Module::load({"qkv", "raw_a", "raw_b", "conv_w"}, {"out"}, (const uint8_t*)buf.data(), buf.size(),
+                             rtmgr, &mconfig));
+            if (!modFold) {
+                MNN_PRINT("SpecVerifyTest: failed to load runtime-fold module\n");
+                return false;
+            }
+            NaiveSpecVerify naiveFold;
+            naiveFold.init(B, D, K_conv, numK, numV, dk, dv);
+            auto runFoldStep = [&](const char* tag, int L, int sb, int rem, int expCommit, bool lazy) -> bool {
+                metaFold.spec_block = sb;
+                metaFold.remove = rem;
+                auto qv = _Input({B, D, L}, NCHW, halide_type_of<float>());
+                auto av = _Input({B, L, numV}, NCHW, halide_type_of<float>());
+                auto bv = _Input({B, L, numV}, NCHW, halide_type_of<float>());
+                fillDeterministic(qv->writeMap<float>(), B * D * L, 0.08f, 0.03f * inputSeed);
+                fillDeterministic(av->writeMap<float>(), B * L * numV, 0.5f, 0.05f * inputSeed);
+                fillDeterministic(bv->writeMap<float>(), B * L * numV, 0.6f, -0.04f * inputSeed);
+                inputSeed++;
+                std::vector<float> qkv(B * D * L), gate(B * L * numV), beta(B * L * numV);
+                ::memcpy(qkv.data(), qv->readMap<float>(), qkv.size() * sizeof(float));
+                const float* ap = av->readMap<float>();
+                const float* bp = bv->readMap<float>();
+                for (int i = 0; i < B * L * numV; ++i) {
+                    const int h = i % numV;
+                    gate[i] = gCoef[h] * logf(1.0f + expf(ap[i] + gBias[h]));
+                    beta[i] = 1.0f / (1.0f + expf(-bp[i]));
+                }
+                auto expected = lazy
+                    ? naiveFold.lazyForward(qkv.data(), gate.data(), beta.data(), convWVar->readMap<float>(), L,
+                                            expCommit)
+                    : naiveFold.flushForward(qkv.data(), gate.data(), beta.data(), convWVar->readMap<float>(), L,
+                                             expCommit);
+                auto outputs = modFold->onForward({qv, av, bv, convWVar});
+                metaFold.spec_block = 0;
+                if (outputs.empty()) {
+                    MNN_PRINT("SpecVerifyTest: %s empty\n", tag);
+                    return false;
+                }
+                const float* result = outputs[0]->readMap<float>();
+                for (int i = 0; i < B * L * numV * dv; ++i) {
+                    float diff = fabs(result[i] - expected[i]);
+                    if (diff > tol + 0.02f * fabs(expected[i])) {
+                        MNN_PRINT("SpecVerifyTest: %s mismatch at %d: expected=%f actual=%f\n", tag, i, expected[i],
+                                  result[i]);
+                        return false;
+                    }
+                }
+                return true;
+            };
+            metaFold.previous = 0;
+            ok &= runFoldStep("fold-verify-A", foldBlock, foldBlock, 0, 0, true);
+            metaFold.previous = 10;
+            ok &= runFoldStep("fold-verify-B", foldBlock, foldBlock, 2, 2, true);
+            ok &= runFoldStep("fold-flush-C", 1, 0, 1, 3, false);
+        }
+
         if (ok) {
-            MNN_PRINT("LinearAttention spec-verify (commit 3 / reject-all / accept-all) PASSED\n");
+            MNN_PRINT("LinearAttention spec-verify (commit 3 / reject-all / accept-all / sb1 / runtime-fold) PASSED\n");
         }
         return ok;
     }

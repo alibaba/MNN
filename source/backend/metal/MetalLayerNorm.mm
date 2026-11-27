@@ -109,7 +109,6 @@ int MetalLayerNorm::rmsTokensPerGroup() const {
 }
 
 ErrorCode MetalLayerNorm::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    mIsFused = false;
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();
 
@@ -412,13 +411,6 @@ ErrorCode MetalLayerNorm::onResize(const std::vector<Tensor *> &inputs, const st
 }
 
 void MetalLayerNorm::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) {
-
-    if (mIsFused) {
-#if MNN_METAL_OP_PROFILE
-        static_cast<MetalBackend *>(this->backend())->profileDropCurrentSample();
-#endif
-        return;  // LN is fused into Conv1x1 GEMV kernel — skip dispatch
-    }
 
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();

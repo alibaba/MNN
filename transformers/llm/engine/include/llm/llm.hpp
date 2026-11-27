@@ -280,7 +280,7 @@ protected:
      */
     const int mPrefillKey = 100;
     std::map<std::pair<int, bool>, std::shared_ptr<Express::Module>> mModulePool;
-    const Express::Module* mBaseModule = nullptr;
+    std::shared_ptr<Express::Module> mBaseModule;
     Express::VARP inputsEmbeds, attentionMask, positionIds;
     std::vector<Express::VARP> mPositionIdsVarVec;
     MaskCache mMaskCache;  // reusable masks for the decode shapes

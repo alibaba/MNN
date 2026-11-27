@@ -16,7 +16,36 @@
 namespace MNN {
 
 bool IndexedLinearCommon::dimensions(const Op* op, int& experts, int& inputChannels, int& outputChannels) {
-    if (!op || op->main_type() != OpParameter_IndexedLinearParam) {
+    if (!op) {
+        return false;
+    }
+    if (op->main_type() == OpParameter_FusedLinearParam) {
+        auto param = op->main_as_FusedLinearParam();
+        if (!param || !param->act_silu_mul() || param->row_mul() || !param->convs() ||
+            param->convs()->size() != 2) {
+            return false;
+        }
+        inputChannels = outputChannels = 0;
+        for (auto conv : *param->convs()) {
+            auto c = conv ? conv->common() : nullptr;
+            if (!c || c->inputCount() <= 0 || c->outputCount() <= 0 || c->outputCount() > INT_MAX / 2 ||
+                c->kernelX() != 1 || c->kernelY() != 1 || c->strideX() != 1 || c->strideY() != 1 ||
+                c->dilateX() != 1 || c->dilateY() != 1 || c->padX() != 0 || c->padY() != 0 ||
+                (c->pads() && c->pads()->size()) || c->group() != 1 || c->relu() || c->relu6() ||
+                c->hasOutputShape() || conv->symmetricQuan() ||
+                (conv->quanParameter() && conv->quanParameter()->has_scaleInt())) {
+                return false;
+            }
+            if (inputChannels && (inputChannels != c->inputCount() || outputChannels != 2 * c->outputCount())) {
+                return false;
+            }
+            inputChannels = c->inputCount();
+            outputChannels = 2 * c->outputCount();
+        }
+        experts = 1;
+        return true;
+    }
+    if (op->main_type() != OpParameter_IndexedLinearParam) {
         return false;
     }
     auto param = op->main_as_IndexedLinearParam();
@@ -47,7 +76,7 @@ bool IndexedLinearCommon::dimensions(const Op* op, int& experts, int& inputChann
 
 namespace {
 std::shared_ptr<ConvolutionCommon::Int8Common> loadProjection(const Op* op, const Convolution2D* conv,
-                                                              bool forceFloat) {
+                                                              Backend* backend, bool forceFloat) {
     const int inputChannels = conv->common()->inputCount(), outputChannels = conv->common()->outputCount();
     if ((int64_t)inputChannels * outputChannels > INT_MAX) {
         return nullptr;
@@ -87,7 +116,10 @@ std::shared_ptr<ConvolutionCommon::Int8Common> loadProjection(const Op* op, cons
     auto result = ConvolutionCommon::load(flatbuffers::GetRoot<Op>(builder.GetBufferPointer()), nullptr, forceFloat,
                                           !forceFloat, nullptr, true);
     if (result && result->weightFloat.get() && result->weightFloat.size() != (int64_t)inputChannels * outputChannels) {
-        MNN_ERROR("IndexedLinear: invalid floating weight length\n");
+        if (backend != nullptr) {
+            MNN_ERROR("IndexedLinear: invalid floating weight length: %d, expected %d\n",
+                      result->weightFloat.size(), inputChannels * outputChannels);
+        }
         return nullptr;
     }
     if (result) {
@@ -135,26 +167,36 @@ std::shared_ptr<ConvolutionCommon::Int8Common> IndexedLinearCommon::loadLinear(c
         (int64_t)inputChannels * outputChannels > INT_MAX) {
         return nullptr;
     }
-    auto param = op->main_as_IndexedLinearParam();
-    auto gate = loadProjection(op, param->linears()->Get(expert), forceFloat);
-    if (!gate || param->fusedActivation() == -1) {
+    const bool dense = op->main_type() == OpParameter_FusedLinearParam;
+    auto param = dense ? nullptr : op->main_as_IndexedLinearParam();
+    auto gate = loadProjection(op, dense ? op->main_as_FusedLinearParam()->convs()->Get(0)
+                                        : param->linears()->Get(expert), backend, forceFloat);
+    if (!gate || (!dense && param->fusedActivation() == -1)) {
         return gate;
     }
     if (gate->canUseInt2 || gate->canUseInt3) {
         return nullptr;
     }
     const int channels = outputChannels / 2;
-    const int sourceOutputs = outputChannels;
+    auto up = dense ? loadProjection(op, op->main_as_FusedLinearParam()->convs()->Get(1), backend, forceFloat) : gate;
+    if (!up || up->canUseInt2 || up->canUseInt3 ||
+        bool(up->weightFloat.get()) != bool(gate->weightFloat.get()) ||
+        (!gate->weightFloat.get() && (up->canUseInt4 != gate->canUseInt4 ||
+         up->asymmetric != gate->asymmetric || up->alphaSize != gate->alphaSize))) {
+        return nullptr;
+    }
+    const int sourceOutputs = dense ? channels : outputChannels;
     const bool floating = gate->weightFloat.get() != nullptr;
-    const int components = gate->asymmetric ? 2 : 1;
+    const int components = !floating && gate->asymmetric ? 2 : 1;
     const int gateComponents = components;
     const int groups = floating ? 0 : gate->alphaSize / sourceOutputs / gateComponents;
-    const bool halfAlpha = !floating && gate->alphaIsFp16 && gate->alphaHalf.get() && !gate->alpha.get();
+    const bool halfAlpha = !floating && gate->alphaIsFp16 && gate->alphaHalf.get() && !gate->alpha.get() &&
+                          up->alphaIsFp16 && up->alphaHalf.get() && !up->alpha.get();
     if ((int64_t)outputChannels * groups * components > INT_MAX)
         return nullptr;
     if (!floating &&
         (groups <= 0 || inputChannels % groups || gate->alphaSize != sourceOutputs * groups * gateComponents ||
-         (!halfAlpha && !gate->getAlphaFloat()))) {
+         (!halfAlpha && (!gate->getAlphaFloat() || !up->getAlphaFloat())))) {
         return nullptr;
     }
     std::shared_ptr<ConvolutionCommon::Int8Common> result(new ConvolutionCommon::Int8Common);
@@ -170,7 +212,8 @@ std::shared_ptr<ConvolutionCommon::Int8Common> IndexedLinearCommon::loadLinear(c
             return nullptr;
     } else {
         const int64_t sourceBytes = ((int64_t)sourceOutputs * inputChannels * bits + 7) / 8;
-        if (!gate->weight.get() || gate->weight.size() < sourceBytes)
+        if (!gate->weight.get() || gate->weight.size() < sourceBytes ||
+            !up->weight.get() || up->weight.size() < sourceBytes)
             return nullptr;
         result->weight.reset(elements * (int64_t)bits / 8);
         result->alphaIsFp16 = halfAlpha;
@@ -188,8 +231,8 @@ std::shared_ptr<ConvolutionCommon::Int8Common> IndexedLinearCommon::loadLinear(c
     // not a new quantization. Pairs stay inside every backend's output tile.
     for (int channel = 0; channel < channels; ++channel) {
         for (int projection = 0; projection < 2; ++projection) {
-            const auto& source = gate;
-            const int sourceChannel = channel + projection * channels;
+            const auto& source = projection == 0 ? gate : up;
+            const int sourceChannel = dense ? channel : channel + projection * channels;
             const int targetChannel = channel * 2 + projection;
             if (floating) {
                 ::memcpy(result->weightFloat.get() + targetChannel * inputChannels,
@@ -231,18 +274,23 @@ bool IndexedLinearCommon::loadBias(const Op* op, int expert, std::vector<float>&
     int count, inputs, outputs;
     if (!dimensions(op, count, inputs, outputs) || expert < 0 || expert >= count)
         return false;
-    auto param = op->main_as_IndexedLinearParam();
+    const bool dense = op->main_type() == OpParameter_FusedLinearParam;
+    auto param = dense ? nullptr : op->main_as_IndexedLinearParam();
     std::vector<float> gate;
-    if (!loadProjectionBias(op, param->linears()->Get(expert), gate))
+    if (!loadProjectionBias(op, dense ? op->main_as_FusedLinearParam()->convs()->Get(0)
+                                     : param->linears()->Get(expert), gate))
         return false;
-    if (param->fusedActivation() == -1) {
+    if (!dense && param->fusedActivation() == -1) {
         bias = std::move(gate);
         return true;
     }
+    std::vector<float> up;
+    if (dense && !loadProjectionBias(op, op->main_as_FusedLinearParam()->convs()->Get(1), up))
+        return false;
     bias.resize(outputs);
     for (int channel = 0; channel < outputs / 2; ++channel) {
         bias[channel * 2] = gate[channel];
-        bias[channel * 2 + 1] = gate[channel + outputs / 2];
+        bias[channel * 2 + 1] = dense ? up[channel] : gate[channel + outputs / 2];
     }
     return true;
 }

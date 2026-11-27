@@ -8,6 +8,7 @@
 #include "shape/SizeComputer.hpp"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
+#include "core/AttentionCommon.hpp"
 
 namespace MNN {
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
@@ -101,9 +102,17 @@ class FmhcaSizeComputer : public SizeComputer {
 class AttentionSizeComputer : public SizeComputer {
     virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                const std::vector<Tensor*>& outputs) const override {
+        if (inputs.size() < 3 || inputs.size() > 5 || outputs.size() != 1) {
+            return false;
+        }
         auto input = inputs[0], output = outputs[0];
         auto param = op->main_as_AttentionParam();
         if (param == nullptr || input == nullptr || output == nullptr || input->buffer().dimensions != 4) {
+            return false;
+        }
+        if (inputs.size() == 5 && (inputs[4] == nullptr || inputs[4]->dimensions() != 1 ||
+            inputs[4]->length(0) != input->length(2) || inputs[4]->getType() != halide_type_of<float>() ||
+            TensorUtils::getDescribe(inputs[4])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4)) {
             return false;
         }
         if (param->output_c4()) {
@@ -146,17 +155,21 @@ class AttentionSizeComputer : public SizeComputer {
 class LinearAttentionSizeComputer : public SizeComputer {
     virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                const std::vector<Tensor*>& outputs) const override {
-        if (op == nullptr || inputs.size() < 4 || outputs.empty() || inputs[0] == nullptr || inputs[3] == nullptr ||
-            outputs[0] == nullptr) {
+        if (op == nullptr || outputs.empty() || outputs[0] == nullptr) {
+            return false;
+        }
+        auto param = op->main_as_LinearAttentionParam();
+        if (param == nullptr) {
+            return false;
+        }
+        const bool shortConv = param->attn_type() != nullptr && param->attn_type()->str() == "short_conv";
+        const int weightIndex = linearAttentionWeightIndex(shortConv, inputs.size());
+        if (weightIndex < 0 || inputs[0] == nullptr || inputs[weightIndex] == nullptr ||
+            (!shortConv && (inputs[1] == nullptr || inputs[2] == nullptr))) {
             return false;
         }
         auto input = inputs[0];
         auto output = outputs[0];
-        auto param = op->main_as_LinearAttentionParam();
-
-        if (param == nullptr) {
-            return false;
-        }
 
         auto inputFormat = TensorUtils::getDescribe(input)->dimensionFormat;
         if (inputFormat == MNN_DATA_FORMAT_NC4HW4) {
@@ -196,11 +209,16 @@ class LinearAttentionSizeComputer : public SizeComputer {
     }
     virtual float onComputeFlops(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                  const std::vector<Tensor*>& outputs) const override {
-        if (op == nullptr || inputs.size() < 4 || inputs[0] == nullptr || inputs[3] == nullptr) {
+        if (op == nullptr) {
             return 0.f;
         }
         auto param = op->main_as_LinearAttentionParam();
         if (param == nullptr) {
+            return 0.f;
+        }
+        const bool shortConv = param->attn_type() != nullptr && param->attn_type()->str() == "short_conv";
+        const int weightIndex = linearAttentionWeightIndex(shortConv, inputs.size());
+        if (weightIndex < 0 || inputs[0] == nullptr || inputs[weightIndex] == nullptr) {
             return 0.f;
         }
         auto input = inputs[0];
@@ -211,7 +229,7 @@ class LinearAttentionSizeComputer : public SizeComputer {
         int H = param->num_v_heads();
         int dk = param->head_k_dim();
         int dv = param->head_v_dim();
-        int K = inputs[3]->length(2);
+        int K = inputs[weightIndex]->length(2);
         float flops = 0.f;
         // Conv1D + SiLU: D * L * (2*K + 4)
         flops += D * L * (2.f * K + 4.f);

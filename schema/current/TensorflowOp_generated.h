@@ -1565,10 +1565,12 @@ struct TopKV2T : public flatbuffers::NativeTable {
   DataType T;
   bool sorted;
   bool largest;
+  bool routeSigmoid;
   TopKV2T()
       : T(DataType_DT_FLOAT),
         sorted(false),
-        largest(true) {
+        largest(true),
+        routeSigmoid(false) {
   }
 };
 
@@ -1586,11 +1588,15 @@ struct TopKV2 FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   bool largest() const {
     return GetField<uint8_t>(8, 1) != 0;
   }
+  bool routeSigmoid() const {
+    return GetField<uint8_t>(10, 0) != 0;
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<int32_t>(verifier, 4) &&
            VerifyField<uint8_t>(verifier, 6) &&
            VerifyField<uint8_t>(verifier, 8) &&
+           VerifyField<uint8_t>(verifier, 10) &&
            verifier.EndTable();
   }
   TopKV2T *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -1610,6 +1616,9 @@ struct TopKV2Builder {
   void add_largest(bool largest) {
     fbb_.AddElement<uint8_t>(8, static_cast<uint8_t>(largest), 1);
   }
+  void add_routeSigmoid(bool routeSigmoid) {
+    fbb_.AddElement<uint8_t>(10, static_cast<uint8_t>(routeSigmoid), 0);
+  }
   explicit TopKV2Builder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -1626,9 +1635,11 @@ inline flatbuffers::Offset<TopKV2> CreateTopKV2(
     flatbuffers::FlatBufferBuilder &_fbb,
     DataType T = DataType_DT_FLOAT,
     bool sorted = false,
-    bool largest = true) {
+    bool largest = true,
+    bool routeSigmoid = false) {
   TopKV2Builder builder_(_fbb);
   builder_.add_T(T);
+  builder_.add_routeSigmoid(routeSigmoid);
   builder_.add_largest(largest);
   builder_.add_sorted(sorted);
   return builder_.Finish();
@@ -4067,6 +4078,7 @@ inline void TopKV2::UnPackTo(TopKV2T *_o, const flatbuffers::resolver_function_t
   { auto _e = T(); _o->T = _e; };
   { auto _e = sorted(); _o->sorted = _e; };
   { auto _e = largest(); _o->largest = _e; };
+  { auto _e = routeSigmoid(); _o->routeSigmoid = _e; };
 }
 
 inline flatbuffers::Offset<TopKV2> TopKV2::Pack(flatbuffers::FlatBufferBuilder &_fbb, const TopKV2T* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -4080,11 +4092,13 @@ inline flatbuffers::Offset<TopKV2> CreateTopKV2(flatbuffers::FlatBufferBuilder &
   auto _T = _o->T;
   auto _sorted = _o->sorted;
   auto _largest = _o->largest;
+  auto _routeSigmoid = _o->routeSigmoid;
   return MNN::CreateTopKV2(
       _fbb,
       _T,
       _sorted,
-      _largest);
+      _largest,
+      _routeSigmoid);
 }
 
 inline CropAndResizeT *CropAndResize::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -5426,6 +5440,7 @@ inline const flatbuffers::TypeTable *TopKV2TypeTable() {
   static const flatbuffers::TypeCode type_codes[] = {
     { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_BOOL, 0, -1 },
+    { flatbuffers::ET_BOOL, 0, -1 },
     { flatbuffers::ET_BOOL, 0, -1 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
@@ -5434,10 +5449,11 @@ inline const flatbuffers::TypeTable *TopKV2TypeTable() {
   static const char * const names[] = {
     "T",
     "sorted",
-    "largest"
+    "largest",
+    "routeSigmoid"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 3, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 4, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

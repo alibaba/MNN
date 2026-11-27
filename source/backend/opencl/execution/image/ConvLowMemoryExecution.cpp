@@ -54,6 +54,10 @@ void ConvLowMemoryExecution::getInfoFromOpLowMemory(std::shared_ptr<ConvolutionC
                 for(int j = 0; j < mResource->mBlockSize; ++j){
                     float o = srcZ[2*j+0];
                     float s = srcZ[2*j+1];
+                    // Int4 kernels unpack unsigned nibbles, so fold the zero-point shift into the offset.
+                    if (mNumQuantBit == 4) {
+                        o -= 8.0f * s;
+                    }
                     ((float *)dequantScaleOffsetBufferMap)[(j * numAlphaPack + i) * 2] = s;
                     ((float *)dequantScaleOffsetBufferMap)[(j * numAlphaPack + i) * 2 + 1] = o;
                 }
@@ -63,7 +67,8 @@ void ConvLowMemoryExecution::getInfoFromOpLowMemory(std::shared_ptr<ConvolutionC
                 auto srcZ = dequantAlpha + i * mResource->mBlockSize;
                 for(int j = 0; j < mResource->mBlockSize; ++j){
                     ((float *)dequantScaleOffsetBufferMap)[(j * numAlphaPack + i) * 2] = srcZ[j];
-                    ((float *)dequantScaleOffsetBufferMap)[(j * numAlphaPack + i) * 2 + 1] = 0.0f;
+                    ((float*)dequantScaleOffsetBufferMap)[(j * numAlphaPack + i) * 2 + 1] =
+                        (mNumQuantBit == 4) ? -8.0f * srcZ[j] : 0.0f;
                 }
             }
         }

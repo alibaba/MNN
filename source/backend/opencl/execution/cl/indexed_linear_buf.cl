@@ -100,7 +100,11 @@ __kernel void indexed_linear_gemv(__global const FLOAT* input, __global const in
     float4 up_sum = (float4)(0);
 #endif
     for (int k = lane; k < BANK_I; k += 64) {
+#if BANK_XC4
+        const float x = (float)input[((size_t)(k / 4) * BANK_TOKENS + input_row) * 4 + (k & 3)];
+#else
         const float x = (float)input[(size_t)input_row * BANK_I + k];
+#endif
         // Some Adreno compilers reject vector subscripting, even in a fixed
         // four-iteration loop. Keep each output channel an explicit component.
         float4 weight = (float4)(0);
@@ -203,6 +207,106 @@ __kernel void indexed_linear_gemv(__global const FLOAT* input, __global const in
     }
 }
 
+#ifdef INDEXED_VECTOR_GEMM
+inline float4 indexed_weight4(__global const uchar* weights, __global const float2* alpha,
+                              int expert, int output, int input) {
+    const size_t base = (size_t)expert * BANK_STRIDE;
+    const int element = output * BANK_I + input;
+#if WEIGHT_BITS == 4
+    const uchar2 packed = vload2(0, weights + base + element / 2);
+    const float4 q = convert_float4((uchar4)(packed.x >> 4, packed.x & 15,
+                                            packed.y >> 4, packed.y & 15)) - 8.0f;
+#else
+    const float4 q = convert_float4(vload4(0, (__global const char*)(weights + base) + element));
+#endif
+    const float2 sa = alpha[((size_t)expert * BANK_O + output) * BANK_GROUPS + input / BANK_GROUP_SIZE];
+    return mad(q, (float4)sa.y, (float4)sa.x);
+}
+
+__kernel void indexed_linear_gemm_vec(__global const FLOAT* input, __global const int* ids,
+                                      __global const uchar* weights, __global const float2* alpha,
+                                      __global const float* bias, __global FLOAT* output,
+                                      __global const int* offsets, __global const int* sorted_rows,
+                                      __global const int2* tiles,
+                                      int unused_channels, int unused_outputs, int unused_topk, int unused_input_mode,
+                                      int unused_groups, int unused_group_size, int unused_weight_stride) {
+    const int2 tile = tiles[get_group_id(1)];
+    if (tile.x < 0) return;
+    const int lx = get_local_id(0), ly = get_local_id(1);
+    const int local_index = ly * 16 + lx;
+    const int first_output = get_group_id(0) * 64;
+    const int expert = tile.x, end = offsets[expert + 1];
+    __local float tile_input[32 * 32];
+    __local float tile_weight[32 * 64];
+    int row[4];
+    float4 sum[4];
+    for (int m = 0; m < 4; ++m) {
+        const int pos = tile.y + ly + m * 8;
+        row[m] = pos < end ? sorted_rows[pos] : -1;
+        sum[m] = (float4)0;
+    }
+    for (int base_k = 0; base_k < BANK_I; base_k += 32) {
+        for (int i = local_index; i < 32 * 32; i += 128) {
+            const int pos = tile.y + i / 32;
+            const int r = pos < end ? sorted_rows[pos] : -1;
+            const int k = base_k + i % 32;
+            const int input_row = BANK_INPUT_MODE ? r : r / BANK_TOPK;
+            float value = 0.0f;
+            if (r >= 0 && ids[r] == expert) {
+#if BANK_XC4
+                value = (float)input[((size_t)(k / 4) * BANK_TOKENS + input_row) * 4 + (k & 3)];
+#else
+                value = (float)input[(size_t)input_row * BANK_I + k];
+#endif
+            }
+            tile_input[i] = value;
+        }
+        for (int i = local_index; i < 64 * 8; i += 128) {
+            const int n = i / 8;
+            const int k = (i % 8) * 4;
+            float4 w = (float4)0;
+            if (first_output + n < BANK_O) {
+                w = indexed_weight4(weights, alpha, expert, first_output + n, base_k + k);
+            }
+            tile_weight[(k + 0) * 64 + n] = w.x;
+            tile_weight[(k + 1) * 64 + n] = w.y;
+            tile_weight[(k + 2) * 64 + n] = w.z;
+            tile_weight[(k + 3) * 64 + n] = w.w;
+        }
+        barrier(CLK_LOCAL_MEM_FENCE);
+#pragma unroll
+        for (int k = 0; k < 32; ++k) {
+            const float4 w = vload4(0, tile_weight + k * 64 + lx * 4);
+#pragma unroll
+            for (int m = 0; m < 4; ++m) {
+                const float x = tile_input[(ly + m * 8) * 32 + k];
+                sum[m] = mad((float4)x, w, sum[m]);
+            }
+        }
+        barrier(CLK_LOCAL_MEM_FENCE);
+    }
+    for (int m = 0; m < 4; ++m) {
+        if (row[m] < 0) continue;
+        const int n = first_output + lx * 4;
+        if (n >= BANK_O) continue;
+        const bool valid = ids[row[m]] == expert;
+        const float4 value = sum[m] + vload4(0, bias + (size_t)expert * BANK_O + n);
+#if FUSE_SILU_MUL
+        output[(size_t)row[m] * BANK_RESULT_O + n / 2] =
+            valid ? indexed_swiglu(value.x, value.y) : (FLOAT)0;
+        output[(size_t)row[m] * BANK_RESULT_O + n / 2 + 1] =
+            valid ? indexed_swiglu(value.z, value.w) : (FLOAT)0;
+#else
+        const size_t out = (size_t)row[m] * BANK_O + n;
+        output[out + 0] = valid ? (FLOAT)value.x : (FLOAT)0;
+        output[out + 1] = valid ? (FLOAT)value.y : (FLOAT)0;
+        output[out + 2] = valid ? (FLOAT)value.z : (FLOAT)0;
+        output[out + 3] = valid ? (FLOAT)value.w : (FLOAT)0;
+#endif
+    }
+}
+#endif
+
 // Prefill uses transposed, padded [K][N + 1] local weights to avoid
 // strided bank conflicts. Bank dimensions, quantization groups, input mode
 // and top-k are compile constants; accumulation and local storage stay FP32.
@@ -246,7 +350,11 @@ __kernel void indexed_linear_gemm(__global const FLOAT* input, __global const in
             const int k = base_k + index % 16;
             const int input_row = BANK_INPUT_MODE ? token_row : token_row / BANK_TOPK;
             tile_input[index] = token_row >= 0 && ids[token_row] == expert && k < BANK_I ?
+#if BANK_XC4
+                (float)input[((size_t)(k / 4) * BANK_TOKENS + input_row) * 4 + (k & 3)] : 0.0f;
+#else
                 (float)input[(size_t)input_row * BANK_I + k] : 0.0f;
+#endif
         }
         for (int index = local_index; index < 1024; index += 128) {
             const int n = first_output + index / 16;
@@ -444,7 +552,11 @@ __kernel void indexed_linear_gemm(__global const FLOAT* input, __global const in
             const int k = base_k + index % 16;
             const int input_row = BANK_INPUT_MODE ? token_row : token_row / BANK_TOPK;
             tile_input[index] = token_row >= 0 && ids[token_row] == expert && k < BANK_I ?
+#if BANK_XC4
+                (float)input[((size_t)(k / 4) * BANK_TOKENS + input_row) * 4 + (k & 3)] : 0.0f;
+#else
                 (float)input[(size_t)input_row * BANK_I + k] : 0.0f;
+#endif
         }
         for (int index = local_index; index < 512; index += 64) {
             const int n = first_output + index / 16;
@@ -507,3 +619,115 @@ __kernel void indexed_linear_gemm(__global const FLOAT* input, __global const in
 #endif
 }
 #endif
+
+__kernel void indexed_linear_gemv_rw(__global const FLOAT* input, __global const int* ids,
+                                     __global const uchar* weights, __global const float2* alpha,
+                                     __global const float* bias, __global const FLOAT* routeWeights,
+                                     __global FLOAT* output, int experts, float routeEps, float routeScale) {
+    const int lane = get_local_id(0);
+    const int first_output = get_group_id(0) * 4;
+    const int token = get_group_id(1);
+    __local float4 partial[64];
+    __local float accShare[4];
+#if RW_RAW
+    float rsum = routeEps;
+    for (int kk = 0; kk < BANK_TOPK; ++kk) {
+        const int e = ids[token * BANK_TOPK + kk];
+        if (e >= 0 && e < experts) {
+            rsum += (float)routeWeights[(size_t)token * experts + e];
+        }
+    }
+#endif
+    if (lane < 4) {
+        accShare[lane] = 0.0f;
+    }
+    barrier(CLK_LOCAL_MEM_FENCE);
+    for (int k = 0; k < BANK_TOPK; ++k) {
+        const int route = token * BANK_TOPK + k;
+        const int expert = ids[route];
+        const bool valid = expert >= 0 && expert < experts;
+#if RW_RAW
+        const float w = valid ? ((float)routeWeights[(size_t)token * experts + expert] / rsum * routeScale) : 0.0f;
+#else
+        const float w = valid ? (float)routeWeights[route] : 0.0f;
+#endif
+        float4 sum = (float4)(0);
+        if (valid) {
+            for (int k2 = lane; k2 < BANK_I; k2 += 64) {
+                const float x = (float)input[(size_t)route * BANK_I + k2];
+                float4 weight = (float4)(0);
+                if (first_output + 0 < BANK_RESULT_O)
+                    weight.s0 = indexed_weight(weights, alpha, expert, first_output + 0, k2,
+                        BANK_I, BANK_O, BANK_GROUPS, BANK_GROUP_SIZE, BANK_STRIDE);
+                if (first_output + 1 < BANK_RESULT_O)
+                    weight.s1 = indexed_weight(weights, alpha, expert, first_output + 1, k2,
+                        BANK_I, BANK_O, BANK_GROUPS, BANK_GROUP_SIZE, BANK_STRIDE);
+                if (first_output + 2 < BANK_RESULT_O)
+                    weight.s2 = indexed_weight(weights, alpha, expert, first_output + 2, k2,
+                        BANK_I, BANK_O, BANK_GROUPS, BANK_GROUP_SIZE, BANK_STRIDE);
+                if (first_output + 3 < BANK_RESULT_O)
+                    weight.s3 = indexed_weight(weights, alpha, expert, first_output + 3, k2,
+                        BANK_I, BANK_O, BANK_GROUPS, BANK_GROUP_SIZE, BANK_STRIDE);
+                sum = mad((float4)(x), weight, sum);
+            }
+        }
+        partial[lane] = sum;
+        barrier(CLK_LOCAL_MEM_FENCE);
+        for (int stride = 32; stride > 0; stride >>= 1) {
+            if (lane < stride) {
+                partial[lane] += partial[lane + stride];
+            }
+            barrier(CLK_LOCAL_MEM_FENCE);
+        }
+        if (lane == 0) {
+            const size_t bias_base = (size_t)expert * BANK_O + first_output;
+            if (valid) {
+                if (first_output + 0 < BANK_RESULT_O) accShare[0] += w * (partial[0].s0 + bias[bias_base + 0]);
+                if (first_output + 1 < BANK_RESULT_O) accShare[1] += w * (partial[0].s1 + bias[bias_base + 1]);
+                if (first_output + 2 < BANK_RESULT_O) accShare[2] += w * (partial[0].s2 + bias[bias_base + 2]);
+                if (first_output + 3 < BANK_RESULT_O) accShare[3] += w * (partial[0].s3 + bias[bias_base + 3]);
+            }
+        }
+        barrier(CLK_LOCAL_MEM_FENCE);
+    }
+    if (lane == 0) {
+        for (int j = 0; j < 4 && first_output + j < BANK_RESULT_O; ++j) {
+            const int c = first_output + j;
+            output[((size_t)(c / 4) * BANK_TOKENS + token) * 4 + (c & 3)] = (FLOAT)accShare[j];
+        }
+    }
+}
+
+__kernel void indexed_linear_rw_reduce(__global const FLOAT* tmp, __global const FLOAT* routeWeights,
+                                       __global FLOAT* output, __global const int* ids, int experts,
+                                       float routeEps, float routeScale) {
+    const int c = get_global_id(0);
+    const int token = get_global_id(1);
+    if (c >= BANK_RESULT_O || token >= BANK_TOKENS) {
+        return;
+    }
+#if RW_RAW
+    float rsum = routeEps;
+    for (int kk = 0; kk < BANK_TOPK; ++kk) {
+        const int e = ids[token * BANK_TOPK + kk];
+        if (e >= 0 && e < experts) {
+            rsum += (float)routeWeights[(size_t)token * experts + e];
+        }
+    }
+#endif
+    float acc = 0.0f;
+    for (int k = 0; k < BANK_TOPK; ++k) {
+#if RW_RAW
+        const int e = ids[token * BANK_TOPK + k];
+        if (e < 0 || e >= experts) {
+            continue;
+        }
+        const float w = (float)routeWeights[(size_t)token * experts + e] / rsum * routeScale;
+        acc = mad(w, (float)tmp[(size_t)(token * BANK_TOPK + k) * BANK_RESULT_O + c], acc);
+#else
+        acc = mad((float)routeWeights[token * BANK_TOPK + k],
+                  (float)tmp[(size_t)(token * BANK_TOPK + k) * BANK_RESULT_O + c], acc);
+#endif
+    }
+    output[((size_t)(c / 4) * BANK_TOKENS + token) * 4 + (c & 3)] = (FLOAT)acc;
+}

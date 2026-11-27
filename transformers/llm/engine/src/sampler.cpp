@@ -265,8 +265,115 @@ void Sampler::loadConfig() {
     mConfig.max_all_tokens = mLlmConfig->max_all_tokens();
     mConfig.max_new_tokens = mLlmConfig->max_new_tokens();
     mConfig.type = mLlmConfig->sampler_type();
+    mDeviceSampleCache.clear();
     mConfig.configSampler(mConfig.type, mLlmConfig);
     buildPipeline();
+}
+
+void Sampler::setRuntimeManager(std::shared_ptr<Express::Executor::RuntimeManager> runtimeManager) {
+    mRuntimeManager = std::move(runtimeManager);
+    mDeviceSampleCache.clear();
+    mDeviceArgMaxModule.reset();
+    mDeviceTopKModule.reset();
+    mDeviceTopKValue = 0;
+}
+
+bool Sampler::canUseDeviceSampling(Express::VARP logits) const {
+    if (nullptr == mRuntimeManager) {
+        return false;
+    }
+    if (nullptr == logits.get() || nullptr == logits->getInfo() || nullptr == logits->getTensor()) {
+        return false;
+    }
+    const auto* info = logits->getInfo();
+    if (info->order == Express::NC4HW4 || info->dim.empty()) {
+        return false;
+    }
+    const int lastDim = info->dim.back();
+    if (lastDim < 4096 || info->size != lastDim) {
+        return false;
+    }
+    if (logits->getTensor()->deviceId() == 0) {
+        return false;
+    }
+    if (mConfig.type == "greedy") {
+        return true;
+    }
+    return mTopKPrefilter && mConfig.topK > 0 && mConfig.topK <= 64 && mConfig.topK < lastDim;
+}
+
+bool Sampler::runDeviceSampling(Express::VARP logits) {
+    const int lastDim = logits->getInfo()->dim.back();
+    Express::Module::Config cfg;
+    cfg.shapeMutable = true;
+    cfg.rearrange = false;
+    if (mConfig.type == "greedy") {
+        if (nullptr == mDeviceArgMaxModule) {
+            auto x = Express::_Input({1, 1, 4096}, Express::NCHW, halide_type_of<float>());
+            x->setName("logits");
+            auto y = Express::_ArgMax(x, -1);
+            y->setName("token");
+            auto buf = Express::Variable::save({y});
+            mDeviceArgMaxModule.reset(Express::Module::load(
+                {"logits"}, {"token"}, (const uint8_t*)buf.data(), buf.size(), mRuntimeManager, &cfg));
+            if (nullptr == mDeviceArgMaxModule) {
+                return false;
+            }
+        }
+        auto res = mDeviceArgMaxModule->onForward({logits});
+        if (res.empty() || nullptr == res[0].get()) {
+            return false;
+        }
+        const int* tokenPtr = res[0]->readMap<int>();
+        if (nullptr == tokenPtr) {
+            return false;
+        }
+        mDeviceSampleCache.logitsPtr = logits.get();
+        mDeviceSampleCache.isGreedy = true;
+        mDeviceSampleCache.token = tokenPtr[0];
+        mDeviceSampleCache.vocabSize = lastDim;
+        return true;
+    }
+    const int k = mConfig.topK;
+    if (nullptr == mDeviceTopKModule || mDeviceTopKValue != k) {
+        mDeviceTopKModule.reset();
+        auto x = Express::_Input({1, 1, 4096}, Express::NCHW, halide_type_of<float>());
+        x->setName("logits");
+        auto kVar = Express::_Scalar<int>(k);
+        auto outs = Express::_TopKV2(x, kVar);
+        if (outs.size() != 2) {
+            return false;
+        }
+        outs[0]->setName("values");
+        outs[1]->setName("indices");
+        auto buf = Express::Variable::save(outs);
+        mDeviceTopKModule.reset(Express::Module::load(
+            {"logits"}, {"values", "indices"}, (const uint8_t*)buf.data(), buf.size(), mRuntimeManager, &cfg));
+        if (nullptr == mDeviceTopKModule) {
+            return false;
+        }
+        mDeviceTopKValue = k;
+    }
+    auto res = mDeviceTopKModule->onForward({logits});
+    if (res.size() != 2 || nullptr == res[0].get() || nullptr == res[1].get()) {
+        return false;
+    }
+    const float* vals = res[0]->readMap<float>();
+    const int* idxs = res[1]->readMap<int>();
+    if (nullptr == vals || nullptr == idxs) {
+        return false;
+    }
+    mDeviceSampleCache.logitsPtr = logits.get();
+    mDeviceSampleCache.isGreedy = false;
+    mDeviceSampleCache.vocabSize = lastDim;
+    mDeviceSampleCache.topValues.assign(vals, vals + k);
+    mDeviceSampleCache.topIndices.assign(idxs, idxs + k);
+    return true;
+}
+
+bool Sampler::prepareDeviceSample(Express::VARP logits) {
+    mDeviceSampleCache.clear();
+    return canUseDeviceSampling(logits) && runDeviceSampling(logits);
 }
 
 SamplerState Sampler::createState(Express::VARP logits) {
@@ -362,6 +469,22 @@ void Sampler::buildPipeline() {
 
 int Sampler::sample(Express::VARP logits) {
     Timer _t;
+    if (mDeviceSampleCache.logitsPtr == logits.get() ||
+        (canUseDeviceSampling(logits) && runDeviceSampling(logits))) {
+        int token = -1;
+        if (mDeviceSampleCache.isGreedy) {
+            token = mDeviceSampleCache.token;
+            mContext->sample_us += _t.durationInUs();
+        } else {
+            token = sampleFromTopK(mDeviceSampleCache.topValues.data(),
+                                   mDeviceSampleCache.topIndices.data(),
+                                   (int)mDeviceSampleCache.topIndices.size(),
+                                   mDeviceSampleCache.vocabSize);
+        }
+        mDeviceSampleCache.clear();
+        return token;
+    }
+    mDeviceSampleCache.clear();
     int lastDim = logits->getInfo()->dim.back();
     if (mConfig.type == "greedy") {
         // Direct two-pass first-max on the host-mapped logits. The previous
@@ -445,6 +568,24 @@ int Sampler::sample(Express::VARP logits, const std::vector<int>& indices) {
     if (state.logits.empty()) {
         return -1;
     }
+    for (auto& step : mPipeline) {
+        step(state);
+    }
+    mContext->sample_us += _t.durationInUs();
+    return state.selected_token;
+}
+
+int Sampler::sampleFromTopK(const float* values, const int* indices, int k, int vocabSize) {
+    Timer _t;
+    if (nullptr == values || nullptr == indices || k <= 0) {
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return -1;
+    }
+    SamplerState state;
+    state.logits.assign(values, values + k);
+    state.indices.assign(indices, indices + k);
+    state.vocab_size = vocabSize;
+    state.is_subset = true;
     for (auto& step : mPipeline) {
         step(state);
     }
