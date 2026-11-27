@@ -121,6 +121,10 @@ public:
                 auto shape = inputShape[temp_axis];
                 auto temp_value = begin->host<int>()[i];
                 temp_value = temp_value < 0 ? (temp_value + shape) : temp_value;
+                // A start still below zero is out of range; clamp it rather than wrapping it again.
+                if (temp_value < 0 && strides[temp_axis] > 0) {
+                    temp_value = 0;
+                }
                 begins[temp_axis] = temp_value;
                 
                 temp_value = end->host<int>()[i];
@@ -244,8 +248,7 @@ public:
                                                       std::min(inputDim, begins[i]);
             }
             if (beginShape[i] < 0) {
-                auto temp = -beginShape[i];
-                beginShape[i] = UP_DIV(temp, inputDim) * inputDim + beginShape[i];
+                beginShape[i] = std::max(0, beginShape[i] + inputDim);
             }
             if (endMasks[i] > 0) {
                 endShape[i] = stridedShape[i] < 0 ? -1 : inputDim;

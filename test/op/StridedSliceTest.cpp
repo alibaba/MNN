@@ -9,6 +9,7 @@
 #include <MNN/expr/Expr.hpp>
 #include <MNN/expr/ExprCreator.hpp>
 #include "MNNTestSuite.h"
+#include "MNN_generated.h"
 #include "TestUtils.h"
 
 using namespace MNN::Express;
@@ -187,6 +188,48 @@ public:
                                 0.01)) {
             MNN_ERROR("stridedslice negative stride, end > rank test failed!\n");
             return false;
+        }
+        // 13. begin below -dim clamps to 0, x[:, -13:3]
+        begin = _Input({2}, NCHW);
+        end = _Input({2}, NCHW);
+        strided = _Input({2}, NCHW);
+        const int begin_data13[] = {0, -13};
+        memcpy(begin->writeMap<int>(), begin_data13, 2 * sizeof(int));
+        const int end_data13[] = {2, 3};
+        memcpy(end->writeMap<int>(), end_data13, 2 * sizeof(int));
+        const int stride_data13[] = {1, 1};
+        memcpy(strided->writeMap<int>(), stride_data13, 2 * sizeof(int));
+        auto output_13 = _StridedSlice(input, begin, end, strided, 0, 0, 0, 0, 0);
+        const std::vector<int> expectedShape_13 = {2, 3};
+        const std::vector<float> expectedOutput_13 = {0, 1, 2, 10, 11, 12};
+        if (!checkVector<int>(output_13->getInfo()->dim.data(), expectedShape_13.data(), expectedShape_13.size(), 0) ||
+            !checkVector<float>(output_13->readMap<float>(), expectedOutput_13.data(), expectedOutput_13.size(),
+                                0.01)) {
+            MNN_ERROR("stridedslice begin < -dim test failed!\n");
+            return false;
+        }
+        // 14. same slice in the ONNX form (starts, ends, axes), which normalizes negative starts once already
+        {
+            auto starts = _Input({1}, NCHW, halide_type_of<int>());
+            auto ends = _Input({1}, NCHW, halide_type_of<int>());
+            auto axes = _Input({1}, NCHW, halide_type_of<int>());
+            starts->writeMap<int>()[0] = -13;
+            ends->writeMap<int>()[0] = 3;
+            axes->writeMap<int>()[0] = 1;
+            std::unique_ptr<MNN::OpT> sliceOp(new MNN::OpT);
+            sliceOp->type = MNN::OpType_StridedSlice;
+            sliceOp->main.type = MNN::OpParameter_StridedSliceParam;
+            auto param = new MNN::StridedSliceParamT;
+            param->fromType = 1;
+            sliceOp->main.value = param;
+            auto output_14 = Variable::create(Expr::create(sliceOp.get(), {input, starts, ends, axes}));
+            if (!checkVector<int>(output_14->getInfo()->dim.data(), expectedShape_13.data(), expectedShape_13.size(),
+                                  0) ||
+                !checkVector<float>(output_14->readMap<float>(), expectedOutput_13.data(), expectedOutput_13.size(),
+                                    0.01)) {
+                MNN_ERROR("stridedslice onnx start < -dim test failed!\n");
+                return false;
+            }
         }
         return true;
     }
