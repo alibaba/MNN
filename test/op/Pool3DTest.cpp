@@ -39,7 +39,7 @@ public:
 
 protected:
     static bool testOnBackend(MNNForwardType type, const std::string& deviceName, const std::string& test_op_name,
-                              PoolType poolType, int precision) {
+                              PoolType poolType, int precision, int batch = 1) {
         // 1, 2, 3, 4, 4 -> 1, 2, 3, 3, 3
         const int h = 4, w = 4, depth = 3;
         const int poolSize = 2, poolDepth = 3;
@@ -104,14 +104,25 @@ protected:
                 });
         }
 
-        auto input  = _Input({1, 2, depth, h, w}, NCHW, halide_type_of<float>());
+        std::vector<float> batchInputData = inputData;
+        std::vector<float> batchOutputData = outputData;
+        for (int b = 1; b < batch; ++b) {
+            for (auto value : inputData) {
+                batchInputData.emplace_back(value * (b + 1));
+            }
+            for (auto value : outputData) {
+                batchOutputData.emplace_back(value * (b + 1));
+            }
+        }
+
+        auto input  = _Input({batch, 2, depth, h, w}, NCHW, halide_type_of<float>());
         auto output = _Pool3D(_Convert(input, NC4HW4), {poolDepth, poolSize, poolSize}, {strideDepth, stride, stride},
                               poolType, PoolPadType_CAFFE, {padDepth, pad, pad});
         output      = _Convert(output, NCHW);
-        ::memcpy(input->writeMap<float>(), inputData.data(), inputData.size() * sizeof(float));
+        ::memcpy(input->writeMap<float>(), batchInputData.data(), batchInputData.size() * sizeof(float));
         float errorScale = precision <= MNN::BackendConfig::Precision_High ? 1 : 20;
-        if (!checkVectorByRelativeError<float>(output->readMap<float>(), outputData.data(), outputData.size(), 0.001 * errorScale)) {
-            MNN_ERROR("%s(%s) test failed!: errorScale:%f\n", test_op_name.c_str(), deviceName.c_str(), errorScale);
+        if (!checkVectorByRelativeError<float>(output->readMap<float>(), batchOutputData.data(), batchOutputData.size(), 0.001 * errorScale)) {
+            MNN_ERROR("%s(%s) test failed!: batch:%d errorScale:%f\n", test_op_name.c_str(), deviceName.c_str(), batch, errorScale);
             return false;
         }
 
@@ -123,7 +134,8 @@ class MaxPool3DTestOnCPU : public Pool3DCommonTest {
 public:
     virtual ~MaxPool3DTestOnCPU() = default;
     virtual bool run(int precision) {
-        return Pool3DCommonTest::testOnBackend(MNN_FORWARD_CPU, "CPU", "MaxPool3D", PoolType_MAXPOOL, precision);
+        return Pool3DCommonTest::testOnBackend(MNN_FORWARD_CPU, "CPU", "MaxPool3D", PoolType_MAXPOOL, precision) &&
+               Pool3DCommonTest::testOnBackend(MNN_FORWARD_CPU, "CPU", "MaxPool3D", PoolType_MAXPOOL, precision, 2);
     }
 };
 
@@ -133,7 +145,8 @@ public:
     virtual bool run(int precision) {
         // testOnBackend's MNN_FORWARD_CPU argument only labels the error message; the case runs on
         // the suite's executor, so it covers every backend.
-        return Pool3DCommonTest::testOnBackend(MNN_FORWARD_CPU, "CPU", "AvePool3D", PoolType_AVEPOOL, precision);
+        return Pool3DCommonTest::testOnBackend(MNN_FORWARD_CPU, "CPU", "AvePool3D", PoolType_AVEPOOL, precision) &&
+               Pool3DCommonTest::testOnBackend(MNN_FORWARD_CPU, "CPU", "AvePool3D", PoolType_AVEPOOL, precision, 2);
     }
 };
 

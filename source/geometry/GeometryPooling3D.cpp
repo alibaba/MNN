@@ -102,11 +102,11 @@ public:
                 region.size[0] = channel;
                 region.size[1] = inputDepth;
                 region.size[2] = outputArea;
-                region.src.offset = 0;
+                region.src.offset = offset;
                 region.src.stride[0] = outputArea;
                 region.src.stride[1] = outputArea * channel;
                 region.src.stride[2] = 1;
-                region.dst.offset = 0;
+                region.dst.offset = offset;
                 region.dst.stride[0] = outputArea * inputDepth;
                 region.dst.stride[1] = outputArea;
                 region.dst.stride[2] = 1;
