@@ -475,6 +475,9 @@ bool Llm::load() {
     }
     setChatTemplate();
     mSampler.reset(Sampler::createSampler(mContext, mConfig));
+    if (mConfig->backend_type() == "metal") {
+        mSampler->setRuntimeManager(mRuntimeManager);
+    }
     // 3. load model
     Module::Config module_config;
     if (mConfig->backend_type() == "opencl" || mConfig->backend_type() == "vulkan" ||
@@ -767,16 +770,23 @@ std::vector<Express::VARP> Llm::forwardRaw(Express::VARP hiddenState, Express::V
         mContext->status = LlmStatus::INTERNAL_ERROR;
         return outputs;
     }
-    // Validate output VARP and readMap
-    for (auto o : outputs) {
-        if(nullptr == o || nullptr == o->readMap<float>()) {
-            MNN_ERROR("[Error]: invalid output tensor from onForward. output_count=%zu\n", outputs.size());
-            mContext->status = LlmStatus::INTERNAL_ERROR;
-            return outputs;
-        }
+    if (mSampler) {
+        mSampler->clearDeviceSampleCache();
     }
-    if (!mAsync) {
-        ((MNN::Tensor*)(outputs[0]->getTensor()))->wait(Tensor::MAP_TENSOR_READ, true);
+    const bool deviceSampled = (mConfig->backend_type() == "metal" && outputs.size() == 1 && mSampler &&
+                                mSampler->prepareDeviceSample(outputs[0]));
+    if (!deviceSampled) {
+        // Validate output VARP and readMap
+        for (auto o : outputs) {
+            if(nullptr == o || nullptr == o->readMap<float>()) {
+                MNN_ERROR("[Error]: invalid output tensor from onForward. output_count=%zu\n", outputs.size());
+                mContext->status = LlmStatus::INTERNAL_ERROR;
+                return outputs;
+            }
+        }
+        if (!mAsync) {
+            ((MNN::Tensor*)(outputs[0]->getTensor()))->wait(Tensor::MAP_TENSOR_READ, true);
+        }
     }
     mGenerateParam->input_embeds = hiddenState;
     mGenerateParam->outputs = outputs;
@@ -1567,6 +1577,7 @@ Llm::~Llm() {
     }
 #endif
     mGenerateParam.reset();
+    mSampler.reset();
     mModulePool.clear();
     mModule.reset();
     mRuntimeManager.reset();

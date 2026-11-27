@@ -48,7 +48,7 @@ struct MetalEnv {
     // split; block count stands in for how parallelism-starved the dispatch is.
     int qkvSplitKMaxBlocks;
     // MNN_METAL_FUSED_Q4_GATEUP_DUAL_MIN_AREA: minimum prefill area that
-    // enables the gate/up dual accumulator. Default 128.
+    // enables the gate/up dual accumulator. Default 2.
     int fusedQ4GateUpDualMinArea;
     // MNN_METAL_H2D_QUEUED=0: restore the legacy drain+direct-write upload path.
     bool h2dQueued;
@@ -118,8 +118,8 @@ struct MetalEnv {
             }
             {
                 const char* v = getenv("MNN_METAL_FUSED_Q4_GATEUP_DUAL_MIN_AREA");
-                int n = (v != nullptr) ? atoi(v) : 128;
-                e.fusedQ4GateUpDualMinArea = (n >= 64) ? n : 128;
+                int n = (v != nullptr) ? atoi(v) : 5;
+                e.fusedQ4GateUpDualMinArea = (n >= 2) ? n : 5;
             }
             e.h2dQueued            = !envIs("MNN_METAL_H2D_QUEUED", '0');
             e.spinWait             = !envIs("MNN_METAL_SPIN_WAIT", '0');

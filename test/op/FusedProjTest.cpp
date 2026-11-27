@@ -784,7 +784,8 @@ static std::unique_ptr<Convolution2DT> makeQuantConv(int ic, int oc, int nbits, 
             alpha[2 * (o * blocknum + b)]     = mn;
             alpha[2 * (o * blocknum + b) + 1] = scale;
             for (int u = 0; u < blocksize; ++u) {
-                int q = (int)((w[u] - mn) * (threshold - clampMin) / (mx - mn) + clampMin);
+                int q = (int)std::round((w[u] - mn) / scale) + (int)clampMin;
+                q = std::max((int)clampMin, std::min((int)threshold, q));
                 recon[o * ic + b * blocksize + u] = (q - (int)clampMin) * scale + mn;
             }
         }
@@ -1100,7 +1101,7 @@ public:
 };
 MNNTestSuiteRegister(FusedQKVLNQuantMixedTest, "op/fused_qkv_ln_quant_mixed");
 
-// Uniform 4-bit 4-projection group + LN: the QKV_FUSED_P4 × LN_FUSED pipeline
+// Uniform 4-bit 4-projection group + LN: the QKV_FUSED_4PROJ × LN_FUSED pipeline
 // that Qwen3.5 linear-attention layers use (qkv/z/b/a share one LN input).
 // The 2/3-bit P4 variants are separate shader builds but have no case here:
 // makeQuantConv's reference dequantization only has 4 levels at 2 bits and
@@ -1175,5 +1176,44 @@ public:
     }
 };
 MNNTestSuiteRegister(FusedWidePrefillMergeTest, "op/fused_wide_prefill_merge");
+
+// Decode QKV (merged weights + split-K) and GateUp+SiLU (split-K) across W2/W3/W4/W8
+// in both FP16 and FP32.
+class FusedDecodeWQuantBitsMetalTest : public MNNTestCase {
+public:
+    bool run(int precision) override {
+        if ((MNNForwardType)MNNTestSuite::get()->pStaus.forwardType != MNN_FORWARD_METAL) {
+            MNNTestSuite::get()->skipped++;
+            return true;
+        }
+        for (int bits : {2, 3, 4, 8}) {
+            const float relTol = (bits <= 3) ? 0.08f : 0.05f;
+            const std::string tagPrefix = "decode_w" + std::to_string(bits);
+            if (!runQuantLNCase({bits, bits, bits}, {128, 64, 64}, (tagPrefix + "_qkv_b8").c_str(), 1, 512, 64,
+                                0.25f / 512, true, relTol)) {
+                return false;
+            }
+            if (!runQuantLNCase({bits, bits, bits}, {256, 128, 128}, (tagPrefix + "_qkv_b16_noln").c_str(), 1, 1024,
+                                64, 0.25f / 1024, false, relTol)) {
+                return false;
+            }
+            if (!runQuantLNCase({bits, bits}, {128, 128}, (tagPrefix + "_gateup_b8").c_str(), 1, 512, 64,
+                                0.25f / 512, true, relTol)) {
+                return false;
+            }
+            if (!runQuantLNCase({bits, bits}, {256, 256}, (tagPrefix + "_gateup_b16").c_str(), 1, 1024, 64,
+                                0.25f / 1024, true, relTol)) {
+                return false;
+            }
+            // Fresh-module GateUpDual prefill (verifies deferred mGate/mUp acquisition).
+            if (!runQuantLNCase({bits, bits}, {128, 128}, (tagPrefix + "_gateup_dual_prefill").c_str(), 64, 512, 64,
+                                0.25f / 512, true, relTol)) {
+                return false;
+            }
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(FusedDecodeWQuantBitsMetalTest, "op/fused_decode_wquant_bits_metal");
 
 #endif

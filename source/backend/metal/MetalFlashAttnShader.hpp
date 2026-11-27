@@ -49,37 +49,39 @@ static inline long fatc_mask_offset(constant FaParam& param, int b, int hn, int 
     return ((long(mask_b) * param.mask_head_num + mask_h) * param.mask_q_len + mask_q) * (long)param.mask_k_len + local_k;
 }
 
-#define FATC_WM    4
-#ifndef FATC_WN
-#define FATC_WN    1
+#ifndef FATC_QUERY_NSG
+#define FATC_QUERY_NSG    4
 #endif
-#define FATC_NSG   (FATC_WM * FATC_WN)
-#define FATC_BQ    64                   // queries per threadgroup (16 per simdgroup)
+#ifndef FATC_HEADDIM_NSG
+#define FATC_HEADDIM_NSG    1
+#endif
+#define FATC_NSG   (FATC_QUERY_NSG * FATC_HEADDIM_NSG)
+#define FATC_Q_SEQ_TILE_SIZE    (FATC_QUERY_NSG * 16)       // queries per threadgroup (16 per simdgroup)
 // kv columns per step (matmul2d N for QK). Widening N inflates s_acc; prefer
 // widening K (FATC_QK_K) instead, whose capacity is K-independent.
-#define FATC_BK    32
-#define FATC_TK    (FATC_BK / 16)      // kv frags
-#define FATC_TD    (FATC_DDIM / 16)     // head_dim frags
+#define FATC_KV_SEQ_TILE_SIZE    32
+#define FATC_TK    (FATC_KV_SEQ_TILE_SIZE / 16)      // kv frags
+#define FATC_HEADDIM_TILE16_COUNT    (FATC_HEADDIM_SIZE_PER_SG / 16)     // head_dim frags
 #define FATC_NEG   (-1.0e30f)
 
 // Scalar score capacity per lane; cooperative indices are converted at the MMA boundary.
-#define FATC_SCAP  (FATC_BK / 2)
+#define FATC_SCAP  (FATC_KV_SEQ_TILE_SIZE / 2)
 
-#define FATC_DDIM (HEAD_DIM / FATC_WN)
-#if FATC_WN > 1 && !defined(FATC_O_CT)
-#error "FATC_WN requires FATC_O_CT (only the persistent-CT PV path is d-sliced)"
+#define FATC_HEADDIM_SIZE_PER_SG (HEAD_DIM / FATC_HEADDIM_NSG)
+#if FATC_HEADDIM_NSG > 1 && !defined(FATC_O_CT)
+#error "FATC_HEADDIM_NSG requires FATC_O_CT (only the persistent-CT PV path is d-sliced)"
 #endif
 
 // 32-wide O tiles, one destination coop tensor each; expanded through
 // FATC_O_FOREACH since cooperative tensors are not default-constructible.
-#define FATC_TO (FATC_DDIM / 32)
-#if FATC_TO == 1
+#define FATC_HEADDIM_TILE32_COUNT (FATC_HEADDIM_SIZE_PER_SG / 32)
+#if FATC_HEADDIM_TILE32_COUNT == 1
 #define FATC_O_FOREACH(F) F(0, ct_o0)
-#elif FATC_TO == 2
+#elif FATC_HEADDIM_TILE32_COUNT == 2
 #define FATC_O_FOREACH(F) F(0, ct_o0) F(1, ct_o1)
-#elif FATC_TO == 4
+#elif FATC_HEADDIM_TILE32_COUNT == 4
 #define FATC_O_FOREACH(F) F(0, ct_o0) F(1, ct_o1) F(2, ct_o2) F(3, ct_o3)
-#elif FATC_TO == 8
+#elif FATC_HEADDIM_TILE32_COUNT == 8
 #define FATC_O_FOREACH(F) F(0, ct_o0) F(1, ct_o1) F(2, ct_o2) F(3, ct_o3) \
                            F(4, ct_o4) F(5, ct_o5) F(6, ct_o6) F(7, ct_o7)
 #else
@@ -94,7 +96,7 @@ static inline long fatc_mask_offset(constant FaParam& param, int b, int hn, int 
 #define FATC_QK_K 16
 #endif
 #define FATC_NH    (FATC_QK_K / 16)        // 16-K halves per QK call
-#define FATC_TDK   (FATC_DDIM / FATC_QK_K)  // QK accumulate steps
+#define FATC_TDK   (FATC_HEADDIM_SIZE_PER_SG / FATC_QK_K)  // QK accumulate steps
 
 // PV accumulate width. FATC_PV_K32 consumes the whole BK=32 kv tile in one
 // matmul2d, cutting PV call count. Layout matches QK's +16 upper-half K.
@@ -119,7 +121,7 @@ static inline long fatc_mask_offset(constant FaParam& param, int b, int hn, int 
 // QK uses transpose_b (K stored [kv][d], supplied as [n=kv][k=d]); PV uses
 // non-transposed B now that the V cache is row-major [kv][d] as well, so both
 // device reads stay contiguous along d (4 consecutive halves per lane).
-#define FATC_DESC_QK matmul2d_descriptor(16, FATC_BK, FATC_QK_K, false, true, true, \
+#define FATC_DESC_QK matmul2d_descriptor(16, FATC_KV_SEQ_TILE_SIZE, FATC_QK_K, false, true, true, \
                                        matmul2d_descriptor::mode::multiply_accumulate)
 #define FATC_DESC_PV matmul2d_descriptor(16, 32, FATC_PV_K, false, false, true, \
                                        matmul2d_descriptor::mode::multiply_accumulate)
@@ -176,16 +178,16 @@ kernel void prefill_flash_attn_tc(
     const int kv_heads = param.head_num / param.group;
     // Each row group owns 16 queries; its SIMD-groups split the head dimension.
 #ifdef FATC_QREV
-    const int q_tiles = (param.q_seq_piece_len + FATC_BQ - 1) / FATC_BQ;
+    const int q_tiles = (param.q_seq_piece_len + FATC_Q_SEQ_TILE_SIZE - 1) / FATC_Q_SEQ_TILE_SIZE;
     const int q_tile  = q_tiles - 1 - int(tgpig.x);
 #else
     const int q_tile  = int(tgpig.x);
 #endif
-    const int row_group = int(sgitg) / FATC_WN;
-    const int d_group   = int(sgitg) % FATC_WN;
-    const int q_block_base = q_tile * FATC_BQ + seq_idx * param.q_seq_piece_len;
+    const int row_group = int(sgitg) / FATC_HEADDIM_NSG;
+    const int d_group   = int(sgitg) % FATC_HEADDIM_NSG;
+    const int q_block_base = q_tile * FATC_Q_SEQ_TILE_SIZE + seq_idx * param.q_seq_piece_len;
     const int q_row_base = q_block_base + row_group * 16;
-    const int d_base = d_group * FATC_DDIM;
+    const int d_base = d_group * FATC_HEADDIM_SIZE_PER_SG;
 
     // Lanes own the same two rows, but pre-g17 packs pairs of columns instead of four consecutive columns.
     const ushort qid = tiisg >> 2;
@@ -238,8 +240,8 @@ kernel void prefill_flash_attn_tc(
 #undef FATC_ZERO_O
 #else
     // O accumulator: HEAD_DIM/32 destination tiles of 16x32, 16 floats each.
-    float o_acc[FATC_TO][16];
-    for (int t = 0; t < FATC_TO; t++) {
+    float o_acc[FATC_HEADDIM_TILE32_COUNT][16];
+    for (int t = 0; t < FATC_HEADDIM_TILE32_COUNT; t++) {
         for (int i = 0; i < 16; i++) {
             o_acc[t][i] = 0.0f;
         }
@@ -263,8 +265,8 @@ kernel void prefill_flash_attn_tc(
 
     // Tile-level causal bounds: blocks fully above the diagonal never run, and
     // blocks fully below it skip masking entirely.
-#if FATC_WN > 1
-    const int kv_lim = min(seq_k, q_block_base + FATC_BQ + kv_valid_offset);
+#if FATC_HEADDIM_NSG > 1
+    const int kv_lim = min(seq_k, q_block_base + FATC_Q_SEQ_TILE_SIZE + kv_valid_offset);
 #else
     const int kv_lim = min(seq_k, q_row_base + 16 + kv_valid_offset);
 #endif
@@ -273,7 +275,7 @@ kernel void prefill_flash_attn_tc(
 
 #if defined(FATC_Q_CT)
     // Build one QK left-input CT per K-step and reuse across tiles (Q is
-    // kv-invariant). FATC_Q_CT implies wide-K QK, so FATC_TDK = FATC_DDIM/32.
+    // kv-invariant). FATC_Q_CT implies wide-K QK, so FATC_TDK = FATC_HEADDIM_SIZE_PER_SG/32.
 #if FATC_TDK == 2
 #define FATC_Q_FOREACH(F) F(0, ct_q0) F(1, ct_q1)
 #elif FATC_TDK == 4
@@ -304,10 +306,10 @@ kernel void prefill_flash_attn_tc(
 #undef FATC_FILL_Q
 #elif defined(FATC_Q_REG) && !defined(MNN_METAL_COOP_PRE_G17)
     // Load and pre-scale Q for this q-tile once; reuse across every kv0 tile.
-    // Footprint per lane is FATC_TD*8 halves = HEAD_DIM/2 bytes: 128 B at
+    // Footprint per lane is FATC_HEADDIM_TILE16_COUNT*8 halves = HEAD_DIM/2 bytes: 128 B at
     // HEAD_DIM=128, 256 B at HEAD_DIM=256. Watch occupancy if HEAD_DIM grows.
-    ftype q_reg[FATC_TD][8];
-    for (int dd = 0; dd < FATC_TD; dd++) {
+    ftype q_reg[FATC_HEADDIM_TILE16_COUNT][8];
+    for (int dd = 0; dd < FATC_HEADDIM_TILE16_COUNT; dd++) {
         const device ftype* qp = q_lane + dd * 16;
         for (ushort g = 0; g < 2; g++) {
             const bool row_ok = (int(fm) + g * 8) < q_valid_rows;
@@ -319,12 +321,12 @@ kernel void prefill_flash_attn_tc(
     }
 #endif
 
-#if FATC_WN > 1
+#if FATC_HEADDIM_NSG > 1
     threadgroup float s_xchg[FATC_NSG][32 * FATC_SCAP];
 #endif
 
-    for (int kv0 = 0; kv0 < kv_lim; kv0 += FATC_BK) {
-        // ---- QK: S[16 q][FATC_BK kv], accumulated over head_dim ----
+    for (int kv0 = 0; kv0 < kv_lim; kv0 += FATC_KV_SEQ_TILE_SIZE) {
+        // ---- QK: S[16 q][FATC_KV_SEQ_TILE_SIZE kv], accumulated over head_dim ----
         float s_acc[FATC_SCAP];
         for (int i = 0; i < FATC_SCAP; i++) {
             s_acc[i] = 0.0f;
@@ -417,17 +419,17 @@ kernel void prefill_flash_attn_tc(
             }
         }
 
-#if FATC_WN > 1
+#if FATC_HEADDIM_NSG > 1
         {
             threadgroup float* slot = &s_xchg[sgitg][int(tiisg) * FATC_SCAP];
             for (ushort i = 0; i < FATC_SCAP; i++) {
                 slot[i] = s_acc[i];
             }
             threadgroup_barrier(mem_flags::mem_threadgroup);
-            const int rg = row_group * FATC_WN;
+            const int rg = row_group * FATC_HEADDIM_NSG;
             for (ushort i = 0; i < FATC_SCAP; i++) {
                 float v = s_xchg[rg][int(tiisg) * FATC_SCAP + i];
-                for (int p = 1; p < FATC_WN; p++) {
+                for (int p = 1; p < FATC_HEADDIM_NSG; p++) {
                     v += s_xchg[rg + p][int(tiisg) * FATC_SCAP + i];
                 }
                 s_acc[i] = v;
@@ -437,24 +439,24 @@ kernel void prefill_flash_attn_tc(
 #endif
 
         // ---- mask, in the scalar score layout ----
-        const bool tile_all_valid = (kv0 + FATC_BK - 1) <= kv_no_mask_end && (kv0 + FATC_BK) <= seq_k;
+        const bool tile_all_valid = (kv0 + FATC_KV_SEQ_TILE_SIZE - 1) <= kv_no_mask_end && (kv0 + FATC_KV_SEQ_TILE_SIZE) <= seq_k;
         if (!tile_all_valid) {
-        for (ushort i = 0; i < FATC_SCAP; i++) {
+            for (ushort i = 0; i < FATC_SCAP; i++) {
                 const int qr = q_row_base + int(fm) + ((i >> 2) & 1) * 8;
                 const int kv = kv0 + int(fn) + fatc_col(i & 3) + ((i >> 3) & 1) * 16;
                 const bool ok = (kv < seq_k) && (kv <= qr + kv_valid_offset);
                 s_acc[i] = ok ? s_acc[i] : FATC_NEG;
             }
+        }
 #ifdef HAS_MASK
         for (ushort i = 0; i < FATC_SCAP; i++) {
-                const int qr = q_row_base + int(fm) + ((i >> 2) & 1) * 8;
-                const int kv = kv0 + int(fn) + fatc_col(i & 3) + ((i >> 3) & 1) * 16;
-                if (s_acc[i] > FATC_NEG && kv < seq_k && qr < seq_q) {
-                    s_acc[i] += M_LOG2E_F * float(Mask[fatc_mask_offset(param, b, h, qr, kv)]);
-                }
+            const int qr = q_row_base + int(fm) + ((i >> 2) & 1) * 8;
+            const int kv = kv0 + int(fn) + fatc_col(i & 3) + ((i >> 3) & 1) * 16;
+            if (s_acc[i] > FATC_NEG && kv < seq_k && qr < seq_q) {
+                s_acc[i] += M_LOG2E_F * float(Mask[fatc_mask_offset(param, b, h, qr, kv)]);
             }
-#endif
         }
+#endif
 
         // ---- online softmax; element i belongs to row half (i>>2)&1 ----
         float m_new[2] = {run_max[0], run_max[1]};
@@ -490,7 +492,7 @@ kernel void prefill_flash_attn_tc(
         }
 #undef FATC_RESCALE_O
 #else
-    for (int t = 0; t < FATC_TO; t++) {
+    for (int t = 0; t < FATC_HEADDIM_TILE32_COUNT; t++) {
         for (ushort i = 0; i < 16; i++) {
                 o_acc[t][i] *= factor[(i >> 2) & 1];
             }
@@ -542,7 +544,7 @@ kernel void prefill_flash_attn_tc(
         // P needs no shuffling: the QK destination element carrying (m, kv) is
         // exactly the one the PV left operand wants at (m, k=kv).
         for (int ik = 0; ik < FATC_TK; ik++) {
-    for (int t = 0; t < FATC_TD / 2; t++) {
+    for (int t = 0; t < FATC_HEADDIM_TILE16_COUNT / 2; t++) {
                 auto ct_a = mm_pv.get_left_input_cooperative_tensor<float, ftype, float>();
                 auto ct_b = mm_pv.get_right_input_cooperative_tensor<float, ftype, float>();
                 auto ct_c = mm_pv.get_destination_cooperative_tensor<metal::remove_addrspace_t<decltype(ct_a)>, metal::remove_addrspace_t<decltype(ct_b)>, float>();
@@ -579,14 +581,14 @@ kernel void prefill_flash_attn_tc(
 #ifdef FATC_O_CT
     // Unpack the persistent destination CTs into a scalar array once, so the
     // existing store loop below stays generic.
-    float o_acc[FATC_TO][16];
+    float o_acc[FATC_HEADDIM_TILE32_COUNT][16];
 #define FATC_UNPACK_O(IDX, CT) o_acc[IDX][i] = CT[fatc_acc_index(i)];
     for (ushort i = 0; i < 16; i++) {
         FATC_O_FOREACH(FATC_UNPACK_O)
     }
 #undef FATC_UNPACK_O
 #endif
-    for (int t = 0; t < FATC_TO; t++) {
+    for (int t = 0; t < FATC_HEADDIM_TILE32_COUNT; t++) {
         for (ushort i = 0; i < 16; i++) {
             const ushort r = (i >> 2) & 1;
             const int qr = q_row_base + int(fm) + r * 8;

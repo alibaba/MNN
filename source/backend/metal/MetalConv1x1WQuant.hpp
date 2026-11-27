@@ -54,8 +54,10 @@ public:
         explicit operator bool() const { return params != nil; }
     };
     QuantMember decodeMember() const;
-    QuantMember widePrefillMember() const;
-    id<MTLComputePipelineState> widePrefillPipeline() const;
+    QuantMember shortPrefillMember(int* reduceRows = nullptr) const;
+    QuantMember multiProjPrefillMember() const;
+    int multiProjPrefillTileM() const;
+    id<MTLComputePipelineState> multiProjPrefillPipeline() const;
 
     // Call before onResize; read prefillSiluMulFused() back afterwards.
     void requestPrefillSiluMul(const Tensor* gateOutput) { mPrefillSilu.gateOffer = gateOutput; }

@@ -12,13 +12,8 @@ enum class PrefillSource { None, WfpMatrix, WqMatrix, WqReduce, Precompiled };
 // denotes a dimension decided by the plan or the backend. Shape-dependent macros
 // (quantization, fusion, tails, etc.) still belong to the pipeline description.
 #define MNN_CONV1X1_KERNELS(X) \
-    X(FusedQ4StageM8,        "conv1x1_fused_q4_gemm_stage_m8",          WfpMatrix,   8, 64, 128) \
-    X(FusedQ4StageKSplitM8,  "conv1x1_fused_q4_gemm_stage_ksplit_m8",   WfpMatrix,   8, 64, 128) \
-    X(FusedQ8StageM8,        "conv1x1_fused_q8_gemm_stage_m8",          WfpMatrix,   8, 64, 128) \
-    X(FusedQ4Stage,          "conv1x1_fused_q4_gemm_stage",             WfpMatrix,  32, 64, 128) \
-    X(FusedQ4StageKSplit,    "conv1x1_fused_q4_gemm_stage_ksplit",      WfpMatrix,  32, 64, 128) \
-    X(FusedQ4StageM64,       "conv1x1_fused_q4_gemm_stage_m64",         WfpMatrix,  64, 64, 128) \
-    X(GemmDeviceTensor,      "conv1x1_gemm_device_tensor",              WfpMatrix,  64, 64, 128) \
+    X(FusedQuantStageGemm,       "conv1x1_fused_q4_gemm_stage_m64",         WfpMatrix,  64, 64, 128) \
+    X(DirectDeviceTensorGemm, "conv1x1_gemm_device_tensor",             WfpMatrix,  64, 64, 128) \
     X(Gemm32x64SplitKSg,     "conv1x1_gemm_32x64_split_k_sg",           WfpMatrix,  32, 64, 128) \
     X(Gemm64x64SplitKSg,     "conv1x1_gemm_64x64_split_k_sg",           WfpMatrix,  64, 64, 128) \
     X(KSplitReduce,          "conv1x1_fused_q4_ksplit_reduce",          WfpMatrix,   0,  0, 128) \
@@ -28,6 +23,8 @@ enum class PrefillSource { None, WfpMatrix, WqMatrix, WqReduce, Precompiled };
     X(GemvG4m1_2sg,          "conv1x1_gemv_g4m1_2sg_wquant_sg",         WqReduce,    1,  0,   0) \
     X(GemvG8,                "conv1x1_gemv_g8_wquant_sg",               WqReduce,    1,  8, 128) \
     X(GemvG16,               "conv1x1_gemv_g16_wquant_sg",              WqReduce,    1, 16,  64) \
+    X(Gemm8x16WquantSplitKFp16, "conv1x1_gemm_8x16_split_k_wquant_sg",   WqMatrix,    8, 16, 192) \
+    X(Gemm8x16WquantSplitKFp32, "conv1x1_gemm_8x16_split_k_wquant_sg",   WqMatrix,    8, 32, 256) \
     X(Gemm8x16Wquant,        "conv1x1_gemm_8x16_wquant_sg",             WqMatrix,    8, 16,  32) \
     X(Gemm16x16Wquant,       "conv1x1_gemm_16x16_wquant_sg",            WqMatrix,   16, 16,  32) \
     X(Gemm16x32Wquant,       "conv1x1_gemm_16x32_wquant_sg",            WqMatrix,   16, 32,  32) \
@@ -67,8 +64,8 @@ inline const Conv1x1KernelRecord& conv1x1Kernel(Conv1x1Kernel kernel) {
 constexpr int kConv1x1GemvG4mMin = 2;
 constexpr int kConv1x1GemvG4mMax = 16;
 constexpr PrefillSource kConv1x1GemvG4mSource = PrefillSource::WqReduce;
-constexpr int kConv1x1GemvG4mTileN = 4;
-constexpr int kConv1x1GemvG4mThreads = 32;
+constexpr int kConv1x1GemvG4mTileN = 8;
+constexpr int kConv1x1GemvG4mThreads = 64;
 
 inline std::string conv1x1GemvG4mName(int rowsPerPiece) {
     return "conv1x1_gemv_g4m" + std::to_string(rowsPerPiece) + "_wquant_sg";

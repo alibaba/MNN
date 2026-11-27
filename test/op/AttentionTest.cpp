@@ -3100,4 +3100,163 @@ public:
     }
 };
 MNNTestSuiteRegister(AttentionKvCacheOOMTest, "op/attention_kv_oom");
+
+class AttentionMetalDecodeEdgeTest : public AttentionDecodeTest {
+    static VARP rowsPerBatchToVar(const std::vector<Tensor3>& perBatch) {
+        const int batch = (int)perBatch.size();
+        const int seq = (int)perBatch[0].size();
+        const int heads = (int)perBatch[0][0].size();
+        const int hd = (int)perBatch[0][0][0].size();
+        auto var = _Input({batch, seq, heads, hd}, NCHW, halide_type_of<float>());
+        float* ptr = var->writeMap<float>();
+        for (int b = 0; b < batch; ++b) {
+            for (int s = 0; s < seq; ++s) {
+                for (int h = 0; h < heads; ++h) {
+                    ::memcpy(ptr + ((b * seq + s) * heads + h) * hd, perBatch[b][s][h].data(), hd * sizeof(float));
+                }
+            }
+        }
+        return var;
+    }
+
+    static Tensor3 genSeededRows(int seq, int heads, int hd, int seed, float amp) {
+        Tensor3 out(seq, std::vector<std::vector<float>>(heads, std::vector<float>(hd)));
+        for (int s = 0; s < seq; ++s) {
+            for (int h = 0; h < heads; ++h) {
+                for (int d = 0; d < hd; ++d) {
+                    int v = ((s * 37 + h * 17 + d * 13 + seed * 97) % 29) - 14;
+                    out[s][h][d] = amp * (float)v / 14.0f;
+                }
+            }
+        }
+        return out;
+    }
+
+    bool runMultiBatchOrOddCase(int numHead, int kvNumHead, int headDim, int batch, int prefill, int steps,
+                                int quantMode, bool outputC4, const char* tag) {
+        NumHead = numHead;
+        KvNumHead = kvNumHead;
+        HeadDim = headDim;
+        const int total = prefill + steps;
+        const float amp = (quantMode == 11) ? 0.5f : 0.8f;
+
+        std::vector<Tensor3> keys(batch), values(batch), pqs(batch), prefKeys(batch), prefVals(batch);
+        std::vector<std::shared_ptr<NaiveAttention>> refs(batch);
+        for (int b = 0; b < batch; ++b) {
+            keys[b] = genSeededRows(total, kvNumHead, headDim, 100 + b * 31, amp);
+            values[b] = genSeededRows(total, kvNumHead, headDim, 200 + b * 47, amp);
+            pqs[b] = genSeededRows(prefill, numHead, headDim, 300 + b * 53, amp);
+            prefKeys[b] = Tensor3(keys[b].begin(), keys[b].begin() + prefill);
+            prefVals[b] = Tensor3(values[b].begin(), values[b].begin() + prefill);
+            refs[b].reset(new NaiveAttention);
+            refs[b]->appendHistory(prefKeys[b], prefVals[b], prefill);
+        }
+
+        std::shared_ptr<Module> module;
+        if (quantMode == 11) {
+            module = _makeAttentionModuleQuant(8, outputC4, 1.0f, 1.0f / 127.0f, 1.0f, 1.0f / 127.0f);
+        } else {
+            module = _makeAttentionModule(quantMode, outputC4);
+        }
+        if (!module) {
+            MNN_PRINT("Error: %s failed to build module\n", tag);
+            return false;
+        }
+        gMeta.previous = 0;
+        gMeta.remove = 0;
+        if (prefill > 0) {
+            gMeta.add = prefill;
+            auto prefOut = module->onForward({rowsPerBatchToVar(pqs), rowsPerBatchToVar(prefKeys),
+                                              rowsPerBatchToVar(prefVals), _scalarMask()});
+            if (prefOut.empty()) {
+                MNN_PRINT("Error: %s prefill failed\n", tag);
+                return false;
+            }
+            gMeta.sync();
+        }
+
+        std::vector<std::vector<int>> noMask;
+        const float tolAbs = (quantMode != 0) ? 0.04f : 0.008f;
+        const float tolRel = (quantMode != 0) ? 0.15f : 0.05f;
+        for (int s = 0; s < steps; ++s) {
+            std::vector<Tensor3> q1(batch), k1(batch), v1(batch), exp(batch);
+            for (int b = 0; b < batch; ++b) {
+                q1[b] = genSeededRows(1, numHead, headDim, 400 + b * 71 + s * 19, amp);
+                k1[b] = Tensor3(keys[b].begin() + prefill + s, keys[b].begin() + prefill + s + 1);
+                v1[b] = Tensor3(values[b].begin() + prefill + s, values[b].begin() + prefill + s + 1);
+                exp[b] = refs[b]->onExecute(q1[b], k1[b], v1[b], noMask, 1);
+            }
+            gMeta.add = 1;
+            auto outs = module->onForward(
+                {rowsPerBatchToVar(q1), rowsPerBatchToVar(k1), rowsPerBatchToVar(v1), _scalarMask()});
+            gMeta.sync();
+            if (outs.empty()) {
+                MNN_PRINT("Error: %s decode step %d returned empty\n", tag, s);
+                return false;
+            }
+            const float* gotPtr = outs[0]->readMap<float>();
+            if (gotPtr == nullptr) {
+                MNN_PRINT("Error: %s decode step %d null map\n", tag, s);
+                return false;
+            }
+            const int totalC = numHead * headDim;
+            for (int b = 0; b < batch; ++b) {
+                for (int h = 0; h < numHead; ++h) {
+                    for (int d = 0; d < headDim; ++d) {
+                        float got = 0.0f;
+                        if (outputC4) {
+                            const int c = h * headDim + d;
+                            got = gotPtr[((c / 4) * batch + b) * 4 + (c % 4)];
+                        } else {
+                            got = gotPtr[(b * numHead + h) * headDim + d];
+                        }
+                        const float refVal = exp[b][0][h][d];
+                        const float diff = fabsf(got - refVal);
+                        if (!std::isfinite(got) || (diff > tolAbs && diff > tolRel * fabsf(refVal))) {
+                            MNN_PRINT("Error: %s step=%d b=%d h=%d d=%d got=%f exp=%f (totalC=%d)\n", tag, s, b, h, d,
+                                      got, refVal, totalC);
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
+public:
+    virtual ~AttentionMetalDecodeEdgeTest() = default;
+    virtual bool run(int precision) override {
+        auto status = MNNTestSuite::get()->pStaus;
+        if (MNN_FORWARD_METAL != (MNNForwardType)status.forwardType) {
+            MNNTestSuite::get()->skipped++;
+            MNN_PRINT("\tskip: Metal-only case, backend=%d\n", status.forwardType);
+            return true;
+        }
+        ShapeGuard guard;
+        bool pass = true;
+        // Multi-batch KV cache decode with distinct per-batch streams, including
+        // expansion across mExpandChunk (64) and dynamic/static KV quantization.
+        pass &= runMultiBatchOrOddCase(8, 4, 64, 2, 8, 4, 0, false, "b2 float");
+        pass &= runMultiBatchOrOddCase(8, 4, 64, 2, 8, 4, 0, true, "b2 float c4");
+        pass &= runMultiBatchOrOddCase(8, 4, 64, 2, 60, 8, 0, false, "b2 float grow");
+        pass &= runMultiBatchOrOddCase(8, 4, 64, 2, 60, 8, 10, false, "b2 dyn quant grow");
+        pass &= runMultiBatchOrOddCase(8, 4, 64, 2, 8, 4, 11, false, "b2 static quant");
+        // Odd / non-4-aligned head_dim exercising decode_qk scalar path and
+        // decode_qkv_c2 odd-tail guard with unaligned KV lengths.
+        pass &= runMultiBatchOrOddCase(4, 2, 5, 1, 3, 5, 0, false, "odd hd5");
+        pass &= runMultiBatchOrOddCase(4, 2, 5, 1, 3, 5, 0, true, "odd hd5 c4");
+        pass &= runMultiBatchOrOddCase(4, 2, 7, 1, 3, 5, 10, true, "odd hd7 dyn quant c4");
+        pass &= runMultiBatchOrOddCase(4, 2, 13, 2, 5, 4, 11, true, "odd hd13 b2 static quant c4");
+        // FA-TC FATC_WM=1 (BQ=16) and FATC_WM=2 (BQ=32) causal prefill paths
+        // (small tg64 < 16 and headDim=256 WN=2) followed by decode steps.
+        pass &= runMultiBatchOrOddCase(4, 2, 128, 1, 64, 2, 8, false, "fatc wm1 h4 d128");
+        pass &= runMultiBatchOrOddCase(4, 2, 128, 1, 64, 2, 8, true, "fatc wm1 h4 d128 c4");
+        pass &= runMultiBatchOrOddCase(8, 2, 128, 1, 64, 2, 8, false, "fatc wm2 h8 d128");
+        pass &= runMultiBatchOrOddCase(4, 2, 64,  1, 96, 2, 8, false, "fatc wm2 h4 seq96 d64");
+        pass &= runMultiBatchOrOddCase(8, 2, 256, 1, 64, 2, 8, false, "fatc wn2 wm1 d256");
+        return pass;
+    }
+};
+MNNTestSuiteRegister(AttentionMetalDecodeEdgeTest, "op/attention_decode_edge_metal");
 #endif

@@ -26,8 +26,8 @@ struct AttentionCopyParam {
     int head_count;
     int kv_seq_len;
     int max_kv_len;
-    int dst_k_offset;
-    int dst_v_offset;
+    int past_kv_len;
+    int reserved;
     int batch;
     int value_c4;
     float v_scale;
@@ -139,17 +139,18 @@ private:
         }
         bool qkSimdReduce = false, qkSimdMatrix = false, qkTensorMatrix = false;
         bool qkvSimdReduce = false, qkvSimdMatrix = false;
-        bool sftmSimdReduce = false, copySimdReduce = false;
+        bool softmaxSimdReduce = false, copySimdReduce = false;
         // Staged prefill: QK dispatches the causal trapezoid, softmax/AV only the valid row prefix.
         bool causalTri = false, causalBound = false;
         // Power of two; bounds mTempQK + mTempSoftMax bytes, changes dispatch only.
-        int qseqSplit = 1;
+        int seqLenSplitCount = 1;
         // sdpaNsg/sdpaTwoPass are compile outcomes, so they stay out of the route key.
-        int sdpaNsg = 8, sdpaKvb = 1, sdpaQhPerTg = 1, sdpaKvBlocks = 0;
+        int sdpaNsg = 8, sdpaKvTokensPerIter = 1, sdpaQHeadsPerTg = 1, sdpaKvBlocks = 0;
         bool sdpaTwoPass = false;
         bool qkQsplit = false;
-        int faTcWN = 1; // Head-dimension SIMD-groups per query tile.
-        int faSgBq = 64, faSgNsg = 8;
+        int faTcQueryNsg = 4; // Query row-groups per threadgroup (BQ = faTcQueryNsg * 16).
+        int faTcHeadDimNsg = 1; // Head-dimension SIMD-groups per query tile.
+        int faSgSeqLenPerTg = 64, faSgNsg = 8;
     };
 
     void _init();
@@ -184,8 +185,8 @@ private:
     // Structural fingerprint of the current encode path; replay is only valid
     // while it matches the value captured at the end of the last onEncode.
     // forReplay=false drops fields that only affect recorded event layout or dispatch.
-    uint32_t _pathSignature(bool forReplay) const;
-    uint32_t mLastEncodeSig = 0;
+    uint64_t _pathSignature(bool forReplay) const;
+    uint64_t mLastEncodeSig = 0;
     id<MTLBuffer> mLastKScaleBuffer = nil;
     id<MTLBuffer> mLastVScaleBuffer = nil;
     // K/V cache tensor identities at last encode; onReplayUpdate detects a

@@ -336,18 +336,368 @@ kernel void topkv2(device T* outValue [[buffer(0)]],
 )metal";
 
 
+static const char* gTopKV2FastTemplate = R"metal(
+#include <metal_stdlib>
+#include <simd/simd.h>
+using namespace metal;
+
+struct FastTopKParam {
+    int rowSize;
+    int k;
+    int numBlocks;
+    int blockSize;
+    int vecAligned;
+    int pad0;
+    int pad1;
+    int pad2;
+};
+
+inline T topk_init_worst() {
+#ifdef IS_INT
+#ifdef SORT_DESC
+    return (T)(-2147483648);
+#else
+    return (T)(2147483647);
+#endif
+#else
+#ifdef SORT_DESC
+    return (T)(-INFINITY);
+#else
+    return (T)(INFINITY);
+#endif
+#endif
+}
+
+inline bool topk_better(T aValue, int aIndex, T bValue, int bIndex) {
+    if (bIndex < 0) return true;
+    if (aIndex < 0) return false;
+#ifdef SORT_DESC
+    if (aValue > bValue) return true;
+    if (aValue < bValue) return false;
+#else
+    if (aValue < bValue) return true;
+    if (aValue > bValue) return false;
+#endif
+    return aIndex < bIndex;
+}
+
+inline void topk_sg_reduce(T bestVal, int bestIdx, uint tiisg, uint sgitg,
+                           threadgroup T* shVal, threadgroup int* shIdx) {
+    const T initWorst = topk_init_worst();
+    const T vReduce = (bestIdx >= 0) ? bestVal : initWorst;
+#ifdef SORT_DESC
+    const T sgBest = simd_max(vReduce);
+#else
+    const T sgBest = simd_min(vReduce);
+#endif
+    const int INF_IDX = 2147483647;
+    const int cand = (bestIdx >= 0 && bestVal == sgBest) ? bestIdx : INF_IDX;
+    const int sgIdx = simd_min(cand);
+    if (tiisg == 0) {
+        shVal[sgitg] = sgBest;
+        shIdx[sgitg] = (sgIdx == INF_IDX) ? -1 : sgIdx;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+}
+
+inline void topk_pick_tg_winner(const threadgroup T* shVal, const threadgroup int* shIdx,
+                                thread T& winVal, thread int& winIdx) {
+    winVal = topk_init_worst();
+    winIdx = -1;
+    for (int s = 0; s < 8; ++s) {
+        const int idx = shIdx[s];
+        if (idx >= 0) {
+            const T v = shVal[s];
+            if (topk_better(v, idx, winVal, winIdx)) {
+                winVal = v;
+                winIdx = idx;
+            }
+        }
+    }
+}
+
+kernel void topk1_stage1(device T* partialVal [[buffer(0)]],
+                         device int* partialIdx [[buffer(1)]],
+                         const device T* inValue [[buffer(2)]],
+                         constant FastTopKParam& p [[buffer(3)]],
+                         uint3 tgp [[threadgroup_position_in_grid]],
+                         uint tiisg [[thread_index_in_simdgroup]],
+                         uint sgitg [[simdgroup_index_in_threadgroup]]) {
+    const int blockId = int(tgp.x);
+    const int row = int(tgp.y);
+    const int tid = int(sgitg * 32 + tiisg);
+    const int start = blockId * p.blockSize;
+    const int end = min(start + p.blockSize, p.rowSize);
+    const device T* rowIn = inValue + (long)row * p.rowSize;
+
+    T bestVal = topk_init_worst();
+    int bestIdx = -1;
+    if (p.vecAligned != 0) {
+        const int vecEnd = end & ~3;
+        for (int i = start + tid * 4; i < vecEnd; i += 256 * 4) {
+            T4 v = *(const device T4*)(rowIn + i);
+            if (topk_better(v[0], i + 0, bestVal, bestIdx)) { bestVal = v[0]; bestIdx = i + 0; }
+            if (topk_better(v[1], i + 1, bestVal, bestIdx)) { bestVal = v[1]; bestIdx = i + 1; }
+            if (topk_better(v[2], i + 2, bestVal, bestIdx)) { bestVal = v[2]; bestIdx = i + 2; }
+            if (topk_better(v[3], i + 3, bestVal, bestIdx)) { bestVal = v[3]; bestIdx = i + 3; }
+        }
+        const int tailIdx = vecEnd + tid;
+        if (tailIdx >= start && tailIdx < end) {
+            T v = rowIn[tailIdx];
+            if (topk_better(v, tailIdx, bestVal, bestIdx)) { bestVal = v; bestIdx = tailIdx; }
+        }
+    } else {
+        for (int i = start + tid; i < end; i += 256) {
+            T v = rowIn[i];
+            if (topk_better(v, i, bestVal, bestIdx)) { bestVal = v; bestIdx = i; }
+        }
+    }
+
+    threadgroup T shVal[8];
+    threadgroup int shIdx[8];
+    topk_sg_reduce(bestVal, bestIdx, tiisg, sgitg, shVal, shIdx);
+    if (tid == 0) {
+        T winVal;
+        int winIdx;
+        topk_pick_tg_winner(shVal, shIdx, winVal, winIdx);
+        const int outPos = row * p.numBlocks + blockId;
+        partialVal[outPos] = winVal;
+        partialIdx[outPos] = winIdx;
+    }
+}
+
+kernel void topk1_stage2(device T* outValue [[buffer(0)]],
+                         device int* outIndex [[buffer(1)]],
+                         const device T* partialVal [[buffer(2)]],
+                         const device int* partialIdx [[buffer(3)]],
+                         constant FastTopKParam& p [[buffer(4)]],
+                         uint3 tgp [[threadgroup_position_in_grid]],
+                         uint tiisg [[thread_index_in_simdgroup]],
+                         uint sgitg [[simdgroup_index_in_threadgroup]]) {
+    const int row = int(tgp.x);
+    const int tid = int(sgitg * 32 + tiisg);
+    const int base = row * p.numBlocks;
+    T bestVal = topk_init_worst();
+    int bestIdx = -1;
+    for (int i = tid; i < p.numBlocks; i += 256) {
+        const int idx = partialIdx[base + i];
+        if (idx >= 0) {
+            const T v = partialVal[base + i];
+            if (topk_better(v, idx, bestVal, bestIdx)) { bestVal = v; bestIdx = idx; }
+        }
+    }
+    threadgroup T shVal[8];
+    threadgroup int shIdx[8];
+    topk_sg_reduce(bestVal, bestIdx, tiisg, sgitg, shVal, shIdx);
+    if (tid == 0) {
+        T winVal;
+        int winIdx;
+        topk_pick_tg_winner(shVal, shIdx, winVal, winIdx);
+        outValue[row] = winVal;
+        outIndex[row] = winIdx;
+    }
+}
+
+kernel void topk_peel_stage1(device T* partialVal [[buffer(0)]],
+                             device int* partialIdx [[buffer(1)]],
+                             const device T* inValue [[buffer(2)]],
+                             constant FastTopKParam& p [[buffer(3)]],
+                             uint3 tgp [[threadgroup_position_in_grid]],
+                             uint tiisg [[thread_index_in_simdgroup]],
+                             uint sgitg [[simdgroup_index_in_threadgroup]]) {
+    const int blockId = int(tgp.x);
+    const int row = int(tgp.y);
+    const int tid = int(sgitg * 32 + tiisg);
+    const int start = blockId * p.blockSize;
+    const int end = min(start + p.blockSize, p.rowSize);
+    const device T* rowIn = inValue + (long)row * p.rowSize;
+
+    thread T vals[16];
+    uint activeMask = 0u;
+    for (int j = 0; j < 16; ++j) {
+        const int idx = start + j * 256 + tid;
+        if (idx < end) {
+            vals[j] = rowIn[idx];
+            activeMask |= (1u << j);
+        }
+    }
+
+    threadgroup T shVal[8];
+    threadgroup int shIdx[8];
+    const int outBase = (row * p.numBlocks + blockId) * p.k;
+    for (int step = 0; step < p.k; ++step) {
+        T bestVal = topk_init_worst();
+        int bestIdx = -1;
+        int bestSlot = -1;
+        uint m = activeMask;
+        while (m != 0u) {
+            const uint j = ctz(m);
+            m &= m - 1u;
+            const int idx = start + int(j) * 256 + tid;
+            const T v = vals[j];
+            if (topk_better(v, idx, bestVal, bestIdx)) {
+                bestVal = v;
+                bestIdx = idx;
+                bestSlot = int(j);
+            }
+        }
+        topk_sg_reduce(bestVal, bestIdx, tiisg, sgitg, shVal, shIdx);
+        T winVal;
+        int winIdx;
+        topk_pick_tg_winner(shVal, shIdx, winVal, winIdx);
+        if (bestSlot >= 0 && bestIdx == winIdx) {
+            activeMask &= ~(1u << bestSlot);
+        }
+        if (tid == 0) {
+            partialVal[outBase + step] = winVal;
+            partialIdx[outBase + step] = winIdx;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+}
+
+kernel void topk_peel_stage2(device T* outValue [[buffer(0)]],
+                             device int* outIndex [[buffer(1)]],
+                             const device T* partialVal [[buffer(2)]],
+                             const device int* partialIdx [[buffer(3)]],
+                             constant FastTopKParam& p [[buffer(4)]],
+                             uint3 tgp [[threadgroup_position_in_grid]],
+                             uint tiisg [[thread_index_in_simdgroup]],
+                             uint sgitg [[simdgroup_index_in_threadgroup]]) {
+    const int row = int(tgp.x);
+    const int tid = int(sgitg * 32 + tiisg);
+    const int totalCand = p.numBlocks * p.k;
+    const device T* pVal = partialVal + (long)row * totalCand;
+    const device int* pIdx = partialIdx + (long)row * totalCand;
+
+    thread T vals[STAGE2_ELEMS];
+    thread int idxs[STAGE2_ELEMS];
+    uint activeMask = 0u;
+    for (int j = 0; j < STAGE2_ELEMS; ++j) {
+        const int c = j * 256 + tid;
+        if (c < totalCand) {
+            const int idx = pIdx[c];
+            if (idx >= 0) {
+                vals[j] = pVal[c];
+                idxs[j] = idx;
+                activeMask |= (1u << j);
+            }
+        }
+    }
+
+    threadgroup T shVal[8];
+    threadgroup int shIdx[8];
+    const int outBase = row * p.k;
+    for (int step = 0; step < p.k; ++step) {
+        T bestVal = topk_init_worst();
+        int bestIdx = -1;
+        int bestSlot = -1;
+        uint m = activeMask;
+        while (m != 0u) {
+            const uint j = ctz(m);
+            m &= m - 1u;
+            const T v = vals[j];
+            const int idx = idxs[j];
+            if (topk_better(v, idx, bestVal, bestIdx)) {
+                bestVal = v;
+                bestIdx = idx;
+                bestSlot = int(j);
+            }
+        }
+        topk_sg_reduce(bestVal, bestIdx, tiisg, sgitg, shVal, shIdx);
+        T winVal;
+        int winIdx;
+        topk_pick_tg_winner(shVal, shIdx, winVal, winIdx);
+        if (bestSlot >= 0 && bestIdx == winIdx) {
+            activeMask &= ~(1u << bestSlot);
+        }
+        if (tid == 0) {
+            outValue[outBase + step] = winVal;
+            outIndex[outBase + step] = winIdx;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+}
+)metal";
+
 class MetalTopKV2 : public MetalExecution {
 private:
     id<MTLBuffer> mParam = nil;
+    id<MTLBuffer> mFastParam = nil;
+    id<MTLBuffer> mPartialVal = nil;
+    id<MTLBuffer> mPartialIdx = nil;
     id<MTLComputePipelineState> mPipeline = nil;
+    id<MTLComputePipelineState> mFastStage1 = nil;
+    id<MTLComputePipelineState> mFastStage2 = nil;
     int mGroupNumber = 0;
     int mTopK = 0;
     bool mLargest;
     int mLocalThreadNumber = 0;
+    bool mUseFast = false;
+    int mFastRowSize = 0;
+    int mFastNumRows = 0;
+    int mFastNumBlocks = 0;
+    int mFastStage2Elems = 0;
+    int mRecordedFast = -1;
+    int mRecordedRowSize = 0;
+    int mRecordedNumRows = 0;
+    int mRecordedNumBlocks = 0;
+    int mRecordedTopK = 0;
+    int mRecordedGroupNumber = 0;
+
+    bool ensureFastPipelines(MetalBackend* mtbn, const Tensor* input, int k, int stage2Elems) {
+        const bool useFp16 = mtbn->useFp16InsteadFp32();
+        NSString* T = MetalCast::getScalarType(input->getType(), useFp16);
+        NSString* T4 = [T stringByAppendingString:@"4"];
+        const std::string tStr([T UTF8String]);
+        const std::string mode = (k == 1) ? "k1" : ("peel_" + std::to_string(stage2Elems));
+        std::vector<std::string> k1 = {"topkv2_fast_s1", tStr, mLargest ? "desc" : "asc", mode};
+        std::vector<std::string> k2 = {"topkv2_fast_s2", tStr, mLargest ? "desc" : "asc", mode};
+        auto rt = mtbn->runtime();
+        auto p1 = rt->findPipeline(k1);
+        auto p2 = rt->findPipeline(k2);
+        if (p1 == nil || p2 == nil) {
+            auto dic = [NSMutableDictionary dictionaryWithCapacity:6];
+            [dic setValue:T forKey:@"T"];
+            [dic setValue:T4 forKey:@"T4"];
+            [dic setValue:[NSString stringWithFormat:@"%d", stage2Elems] forKey:@"STAGE2_ELEMS"];
+            if (mLargest) {
+                [dic setValue:@"1" forKey:@"SORT_DESC"];
+            }
+            if (input->getType().code == halide_type_int && input->getType().bits == 32) {
+                [dic setValue:@"1" forKey:@"IS_INT"];
+            } else if (useFp16) {
+                [dic setValue:@"1" forKey:@"USE_FP16"];
+            }
+            MTLCompileOptions* opts = [[MTLCompileOptions alloc] init];
+            opts.preprocessorMacros = dic;
+            const char* entry1 = (k == 1) ? "topk1_stage1" : "topk_peel_stage1";
+            const char* entry2 = (k == 1) ? "topk1_stage2" : "topk_peel_stage2";
+            if (p1 == nil) {
+                p1 = mtbn->makeComputePipelineWithSourceOption(gTopKV2FastTemplate, entry1, opts);
+                if (p1 != nil) {
+                    rt->insertPipeline(k1, p1);
+                }
+            }
+            if (p2 == nil) {
+                p2 = mtbn->makeComputePipelineWithSourceOption(gTopKV2FastTemplate, entry2, opts);
+                if (p2 != nil) {
+                    rt->insertPipeline(k2, p2);
+                }
+            }
+        }
+        if (p1 == nil || p2 == nil || p1.maxTotalThreadsPerThreadgroup < 256 ||
+            p2.maxTotalThreadsPerThreadgroup < 256) {
+            return false;
+        }
+        mFastStage1 = p1;
+        mFastStage2 = p2;
+        return true;
+    }
+
 public:
     MetalTopKV2(Backend* backend, bool largest) : MetalExecution(backend), mLargest(largest) {
         auto mtbn = static_cast<MetalBackend*>(backend);
-        auto context = (__bridge MNNMetalContext*)mtbn->context();
         mParam = mtbn->getConstBuffer(sizeof(int) * 4);
         if (nil == mParam) {
             mValid = false;
@@ -364,19 +714,86 @@ public:
         const int rowSize = input->length(input->dimensions() - 1);
         if (rowSize <= 0) {
             mGroupNumber = 0;
+            mUseFast = false;
             return NO_ERROR;
         }
         auto mtbn = static_cast<MetalBackend*>(backend());
-        int kTopKThreadNumber = static_cast<MetalRuntime*>(mtbn->getRuntime())->maxThreadSize();
         const int numRows = input->elementSize() / rowSize;
         const int k = output->length(output->dimensions() - 1);
+        if (k <= 0 || k > rowSize) {
+            return NOT_SUPPORT;
+        }
+
+        const auto dtype = input->getType();
+        const bool typeOk = (dtype.code == halide_type_float) ||
+                            (dtype.code == halide_type_int && dtype.bits == 32);
+        mUseFast = false;
+        if (typeOk && mtbn->runtime()->supportSimdGroupReduce() &&
+            rowSize >= 4096 && rowSize <= 524288 && numRows >= 1 && numRows <= 16 && k <= 64) {
+            int numBlocks = 1;
+            int blockSize = rowSize;
+            int stage2Elems = 16;
+            if (k == 1) {
+                numBlocks = std::min(256, UP_DIV(rowSize, 1024));
+                blockSize = ((UP_DIV(rowSize, numBlocks) + 3) / 4) * 4;
+                numBlocks = UP_DIV(rowSize, blockSize);
+            } else {
+                numBlocks = UP_DIV(rowSize, 4096);
+                if (numBlocks < 32) {
+                    numBlocks = std::min(32, UP_DIV(rowSize, 256));
+                }
+                if (numBlocks > 128) {
+                    numBlocks = 128;
+                }
+                blockSize = UP_DIV(rowSize, numBlocks);
+                stage2Elems = (numBlocks * k <= 4096) ? 16 : 32;
+            }
+            if ((k == 1 || (blockSize <= 4096 && numBlocks * k <= 256 * stage2Elems)) &&
+                ensureFastPipelines(mtbn, input, k, stage2Elems)) {
+                auto ctx = (__bridge MNNMetalContext*)mtbn->context();
+                const size_t elemBytes = (dtype.code == halide_type_float && mtbn->useFp16InsteadFp32()) ? 2 : 4;
+                const size_t partialCount = (size_t)numRows * numBlocks * k;
+                const size_t valBytes = partialCount * elemBytes;
+                const size_t idxBytes = partialCount * sizeof(int);
+                if (mFastParam == nil) {
+                    mFastParam = [ctx newDeviceBuffer:sizeof(int) * 8 access:CPUWriteOnly];
+                }
+                if (mPartialVal == nil || mPartialVal.length < valBytes) {
+                    mPartialVal = [ctx newDeviceBuffer:valBytes access:CPUTransparent];
+                }
+                if (mPartialIdx == nil || mPartialIdx.length < idxBytes) {
+                    mPartialIdx = [ctx newDeviceBuffer:idxBytes access:CPUTransparent];
+                }
+                if (mFastParam != nil && mPartialVal != nil && mPartialIdx != nil) {
+                    const bool offsetAligned = (TensorUtils::getDescribeOrigin(input)->offset & 15) == 0;
+                    const int vecAligned = (offsetAligned && (numRows == 1 || (rowSize & 3) == 0)) ? 1 : 0;
+                    auto p = reinterpret_cast<int*>([mFastParam contents]);
+                    p[0] = rowSize;
+                    p[1] = k;
+                    p[2] = numBlocks;
+                    p[3] = blockSize;
+                    p[4] = vecAligned;
+                    p[5] = p[6] = p[7] = 0;
+                    mFastRowSize = rowSize;
+                    mFastNumRows = numRows;
+                    mFastNumBlocks = numBlocks;
+                    mFastStage2Elems = stage2Elems;
+                    mTopK = k;
+                    mGroupNumber = numRows;
+                    mUseFast = true;
+                    return NO_ERROR;
+                }
+            }
+        }
+
+        int kTopKThreadNumber = static_cast<MetalRuntime*>(mtbn->getRuntime())->maxThreadSize();
         if (k > 1) {
             kTopKThreadNumber = 32768 / kTopKLocalK / (2 * sizeof(float));
         }
 
         const int kTopKCandidateNumber = kTopKThreadNumber * kTopKLocalK;
 
-        if (k <= 0 || k > rowSize) {
+        if (k > kTopKLocalK) {
             return NOT_SUPPORT;
         }
         if (k > kTopKCandidateNumber) {
@@ -445,11 +862,48 @@ public:
         return NO_ERROR;
     }
 
+    bool onReplayUpdate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override {
+        if ((mUseFast ? 1 : 0) != mRecordedFast) {
+            return false;
+        }
+        if (mUseFast) {
+            return mFastRowSize == mRecordedRowSize && mFastNumRows == mRecordedNumRows &&
+                   mFastNumBlocks == mRecordedNumBlocks && mTopK == mRecordedTopK;
+        }
+        return mGroupNumber == mRecordedGroupNumber && mTopK == mRecordedTopK;
+    }
+
     void onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, id<MTLComputeCommandEncoder> encoder) override {
+        mRecordedFast = mUseFast ? 1 : 0;
+        mRecordedRowSize = mFastRowSize;
+        mRecordedNumRows = mFastNumRows;
+        mRecordedNumBlocks = mFastNumBlocks;
+        mRecordedTopK = mTopK;
+        mRecordedGroupNumber = mGroupNumber;
         if (mGroupNumber <= 0) {
             return;
         }
-        auto mtbn = static_cast<MetalBackend*>(backend());
+        if (mUseFast) {
+            [encoder setComputePipelineState:mFastStage1];
+            [encoder setBuffer:mPartialVal offset:0 atIndex:0];
+            [encoder setBuffer:mPartialIdx offset:0 atIndex:1];
+            MetalBackend::setTensor(inputs[0], encoder, 2);
+            [encoder setBuffer:mFastParam offset:0 atIndex:3];
+            [encoder dispatchThreadgroups:MTLSizeMake(mFastNumBlocks, mFastNumRows, 1)
+                    threadsPerThreadgroup:MTLSizeMake(256, 1, 1)];
+
+            [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
+
+            [encoder setComputePipelineState:mFastStage2];
+            MetalBackend::setTensor(outputs[0], encoder, 0);
+            MetalBackend::setTensor(outputs[1], encoder, 1);
+            [encoder setBuffer:mPartialVal offset:0 atIndex:2];
+            [encoder setBuffer:mPartialIdx offset:0 atIndex:3];
+            [encoder setBuffer:mFastParam offset:0 atIndex:4];
+            [encoder dispatchThreadgroups:MTLSizeMake(mFastNumRows, 1, 1)
+                    threadsPerThreadgroup:MTLSizeMake(256, 1, 1)];
+            return;
+        }
         [encoder setComputePipelineState:mPipeline];
         MetalBackend::setTensor(outputs[0], encoder, 0);
         MetalBackend::setTensor(outputs[1], encoder, 1);
@@ -617,8 +1071,11 @@ public:
             return MetalMoeRoute::create(inputs, outputs, backend);
         }
         auto output = outputs[0];
+        const int rowSize = inputs[0]->length(inputs[0]->dimensions() - 1);
+        const int numRows = rowSize > 0 ? (inputs[0]->elementSize() / rowSize) : 0;
         const int k = output->length(output->dimensions() - 1);
-        if (k > kTopKLocalK) {
+        const bool fastRange = (rowSize >= 4096 && rowSize <= 524288 && numRows >= 1 && numRows <= 16 && k <= 64);
+        if (k > kTopKLocalK && !fastRange) {
             return nullptr;
         }
         return new MetalTopKV2(backend, largest);

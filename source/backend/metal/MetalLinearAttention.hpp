@@ -60,13 +60,13 @@ public:
     virtual bool canRecordEncode() const override {
         return mLastSeqLen == 1 && mAttentionType == "gated_delta_rule" &&
                mStateCache->mPendingLen == 0 &&
-               (mMeta == nullptr || mMeta->file_flag != KVMeta::PendingWrite);
+               (mMeta == nullptr || (mMeta->spec_block == 0 && mMeta->file_flag != KVMeta::PendingWrite));
     }
     // onResize re-creates mConvOut (and may re-plan the allocator), leaving
     // dangling Tensor* in recorded bindings. Bail out of replay whenever a
-    // resize happened after the recording; the normal encode re-records.
+    // resize happened or speculative pending state became active.
     virtual bool onReplayUpdate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override {
-        return mRecordedGeneration == mResizeGeneration;
+        return mRecordedGeneration == mResizeGeneration && canRecordEncode();
     }
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
 

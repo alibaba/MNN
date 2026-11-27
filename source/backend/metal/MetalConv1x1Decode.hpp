@@ -27,8 +27,8 @@ inline bool conv1x1AtLeastPro(Conv1x1DieClass die) {
 
 struct Conv1x1GpuTier {
     Conv1x1DieClass dieClass = Conv1x1DieClass::Unknown;
-    bool prefersOc16Sg8K2;
-    bool hasOc8Sg4K2Budget;
+    bool prefersOc16Nsg8SplitK2;
+    bool hasOc8Nsg4SplitK2Budget;
     bool highBandwidth;
     bool belowGen16;
     bool decodeFp32Validated;
@@ -45,19 +45,19 @@ struct Conv1x1DeviceProfile {
     const char* name;
     Conv1x1GpuTier tier;
     int tgBudget;
-    int gateUpSkQuadsFloor;
-    bool gateUpSkDeviceClass;
+    int gateUpSplitKQuadsFloor;
+    bool supportsGateUpSplitK;
     Conv1x1ProfileSource source;
 };
 
 struct Conv1x1ProfileEntry {
     const char* name;
-    bool prefersOc16Sg8K2;
-    bool hasOc8Sg4K2Budget;
+    bool prefersOc16Nsg8SplitK2;
+    bool hasOc8Nsg4SplitK2Budget;
     bool belowGen16;
     bool decodeFp32Validated;
     int tgBudget;
-    int gateUpSkQuadsFloor;
+    int gateUpSplitKQuadsFloor;
 };
 
 enum Conv1x1ProfileRowId {
@@ -112,14 +112,14 @@ inline Conv1x1DeviceProfile conv1x1ProfileFrom(Conv1x1DieClass die, int gen) {
     Conv1x1DeviceProfile p;
     p.name = e.name;
     p.tier.dieClass = die;
-    p.tier.prefersOc16Sg8K2 = e.prefersOc16Sg8K2;
-    p.tier.hasOc8Sg4K2Budget = e.hasOc8Sg4K2Budget;
+    p.tier.prefersOc16Nsg8SplitK2 = e.prefersOc16Nsg8SplitK2;
+    p.tier.hasOc8Nsg4SplitK2Budget = e.hasOc8Nsg4SplitK2Budget;
     p.tier.highBandwidth = conv1x1AtLeastPro(die);
     p.tier.belowGen16 = e.belowGen16;
     p.tier.decodeFp32Validated = e.decodeFp32Validated;
     p.tgBudget = e.tgBudget;
-    p.gateUpSkQuadsFloor = e.gateUpSkQuadsFloor;
-    p.gateUpSkDeviceClass = e.hasOc8Sg4K2Budget;
+    p.gateUpSplitKQuadsFloor = e.gateUpSplitKQuadsFloor;
+    p.supportsGateUpSplitK = e.hasOc8Nsg4SplitK2Budget;
     p.source = source;
     return p;
 }
@@ -204,7 +204,7 @@ inline bool oc16EligibleVsPlain(int quadsPerBlock, bool belowGen16) {
     return quadsPerBlock >= 32 || belowGen16;
 }
 
-enum class DecodeGemvVariant { Oc8Sg4K2, Oc16Sg4K1, Plain };
+enum class DecodeGemvVariant { Oc8Nsg4SplitK2, Oc16Nsg4SplitK1, Plain };
 
 struct DecodeGemvPlan {
     DecodeGemvVariant variant;
@@ -236,14 +236,16 @@ inline DecodeGemvPlan selectDecodeGemv(const DecodeCaps& caps, const DecodeShape
     const bool splitKFitsBudget = tgBudgetRoute && 2 * oc16Threadgroups <= caps.tgBudget;
     const int oc16GridLimit = caps.tier.highBandwidth ? 2 * caps.tgBudget : caps.tgBudget;
     const bool oc16ExceedsLimit = tgBudgetRoute && oc16Threadgroups > oc16GridLimit;
+    const bool canUseOc16 = oc % 16 == 0;
     bool useOc8Sg4K2 = oc % 8 == 0 && blockCount % 2 == 0 &&
-        (splitKFitsBudget || oc16ExceedsLimit || (!oc16PreferredOverSplitK(quadsPerBlock) && !highBwTgBudgetRoute));
+        (!canUseOc16 || splitKFitsBudget || oc16ExceedsLimit ||
+         (!oc16PreferredOverSplitK(quadsPerBlock) && !highBwTgBudgetRoute));
     if (caps.tier.belowGen16 && oc % 16 == 0 && quadsPerBlock <= 96) {
         useOc8Sg4K2 = false;
     }
     DecodeGemvPlan plan;
     if (useOc8Sg4K2) {
-        plan.variant = DecodeGemvVariant::Oc8Sg4K2;
+        plan.variant = DecodeGemvVariant::Oc8Nsg4SplitK2;
         plan.tgQuads = 2;
         int lanesPerBlock = gemvLanesPerBlock(icDiv4, blockCount, true);
         if (splitKFitsBudget && oc16PreferredOverSplitK(quadsPerBlock) && 4 * oc16Threadgroups >= caps.tgBudget) {
@@ -254,7 +256,7 @@ inline DecodeGemvPlan selectDecodeGemv(const DecodeCaps& caps, const DecodeShape
         plan.lanesPerBlock = gemvCacheLineLanes(icDiv4, blockCount, shape.dequantBits, lanesPerBlock);
     } else {
         const bool useOc16 = (oc % 16 == 0) && oc16EligibleVsPlain(quadsPerBlock, caps.tier.belowGen16);
-        plan.variant = useOc16 ? DecodeGemvVariant::Oc16Sg4K1 : DecodeGemvVariant::Plain;
+        plan.variant = useOc16 ? DecodeGemvVariant::Oc16Nsg4SplitK1 : DecodeGemvVariant::Plain;
         plan.tgQuads = useOc16 ? 4 : 2;
         plan.lanesPerBlock = gemvPlainLanesPerBlock(icDiv4, blockCount, shape.dequantBits);
     }

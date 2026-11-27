@@ -232,7 +232,7 @@ ErrorCode AttentionBufExecution::compilePipelines(const std::vector<Tensor*>& in
     option.preprocessorMacros = dic;
     {
         std::vector<std::string> keys = {"softmax_sg_reduce", ftype};
-        keys.emplace_back(mPlan.sftmSimdReduce ? "softmax_plane_sg" : "softmax_plane");
+        keys.emplace_back(mPlan.softmaxSimdReduce ? "softmax_plane_sg" : "softmax_plane");
         if (mPlan.causalBound) {
             keys.emplace_back("CAUSAL_BOUND");
         }
@@ -241,7 +241,7 @@ ErrorCode AttentionBufExecution::compilePipelines(const std::vector<Tensor*>& in
         }
         auto pipeline = rt->findPipeline(keys);
         if (nil == pipeline) {
-            pipeline = mtbn->makeComputePipelineWithSourceOption(gSoftmaxSgReduce, mPlan.sftmSimdReduce ? "softmax_plane_sg" : "softmax_plane", option);
+            pipeline = mtbn->makeComputePipelineWithSourceOption(gSoftmaxSgReduce, mPlan.softmaxSimdReduce ? "softmax_plane_sg" : "softmax_plane", option);
             rt->insertPipeline(keys, pipeline);
         }
         mKernel_softmax = pipeline;
@@ -287,8 +287,8 @@ ErrorCode AttentionBufExecution::compilePipelines(const std::vector<Tensor*>& in
         auto buildSdpa = [&](int nsg, int kvb) -> id<MTLComputePipelineState> {
             std::vector<std::string> keys = {"decode_splitkv_sdpa", ftype, group_str,
                                              "HEAD_DIM_" + head_dim_str, "NSG_" + std::to_string(nsg)};
-            if (mPlan.sdpaQhPerTg > 1) {
-                keys.emplace_back("QHTG_" + std::to_string(mPlan.sdpaQhPerTg));
+            if (mPlan.sdpaQHeadsPerTg > 1) {
+                keys.emplace_back("QHTG_" + std::to_string(mPlan.sdpaQHeadsPerTg));
             }
             if (kvb > 1) {
                 keys.emplace_back("KVB_" + std::to_string(kvb));
@@ -321,12 +321,12 @@ ErrorCode AttentionBufExecution::compilePipelines(const std::vector<Tensor*>& in
                 // (they map to valued macros, not flags); the rest are plain
                 // =1 flags.
                 size_t flagStart = 5;
-                if (mPlan.sdpaQhPerTg > 1) {
-                    [dic setValue:@(std::to_string(mPlan.sdpaQhPerTg).c_str()) forKey:@"SDPA_QH_PER_TG"];
+                if (mPlan.sdpaQHeadsPerTg > 1) {
+                    [dic setValue:@(std::to_string(mPlan.sdpaQHeadsPerTg).c_str()) forKey:@"SDPA_QHEADS_PER_TG"];
                     flagStart = 6;
                 }
                 if (kvb > 1) {
-                    [dic setValue:@(std::to_string(kvb).c_str()) forKey:@"SDPA_KVB"];
+                    [dic setValue:@(std::to_string(kvb).c_str()) forKey:@"SDPA_KV_TOKENS_PER_ITER"];
                     flagStart += 1;
                 }
                 for (size_t j = flagStart; j < keys.size(); ++j) {
@@ -342,7 +342,7 @@ ErrorCode AttentionBufExecution::compilePipelines(const std::vector<Tensor*>& in
         int nsg = mPlan.sdpaNsg;
         id<MTLComputePipelineState> pipeline = nil;
         while (nsg >= 4) {
-            pipeline = buildSdpa(nsg, mPlan.sdpaKvb);
+            pipeline = buildSdpa(nsg, mPlan.sdpaKvTokensPerIter);
             if (nil != pipeline && (int)pipeline.maxTotalThreadsPerThreadgroup >= 32 * nsg &&
                 pipeline.staticThreadgroupMemoryLength <= context.device.maxThreadgroupMemoryLength) {
                 break;
@@ -366,8 +366,8 @@ ErrorCode AttentionBufExecution::compilePipelines(const std::vector<Tensor*>& in
         if (mFacts.kvLen >= kSdpaTwoPassMinKv) {
             std::vector<std::string> pkeys = {"decode_splitkv_partial", ftype, group_str,
                                               "HEAD_DIM_" + head_dim_str, "NSG_" + std::to_string(mPlan.sdpaNsg)};
-            if (mPlan.sdpaQhPerTg > 1) pkeys.emplace_back("QHTG_" + std::to_string(mPlan.sdpaQhPerTg));
-            if (mPlan.sdpaKvb > 1) pkeys.emplace_back("KVB_" + std::to_string(mPlan.sdpaKvb));
+            if (mPlan.sdpaQHeadsPerTg > 1) pkeys.emplace_back("QHTG_" + std::to_string(mPlan.sdpaQHeadsPerTg));
+            if (mPlan.sdpaKvTokensPerIter > 1) pkeys.emplace_back("KVB_" + std::to_string(mPlan.sdpaKvTokensPerIter));
             if (mQuantKey) { pkeys.emplace_back("QUANT_K"); if (dynamicQuantK) pkeys.emplace_back("DYNAMIC_QUANT_K"); }
             if (mQuantValue) { pkeys.emplace_back("QUANT_V"); if (dynamicQuantV) pkeys.emplace_back("DYNAMIC_QUANT_V"); }
             auto ppipeline = rt->findPipeline(pkeys);
@@ -379,8 +379,8 @@ ErrorCode AttentionBufExecution::compilePipelines(const std::vector<Tensor*>& in
                 [dic setValue:@(group_str.c_str()) forKey:@"GROUP_SIZE"];
                 [dic setValue:@(head_dim_str.c_str()) forKey:@"HEAD_DIM"];
                 [dic setValue:@(std::to_string(mPlan.sdpaNsg).c_str()) forKey:@"SPLITKV_NSG"];
-                [dic setValue:@(std::to_string(mPlan.sdpaQhPerTg).c_str()) forKey:@"SDPA_QH_PER_TG"];
-                [dic setValue:@(std::to_string(mPlan.sdpaKvb).c_str()) forKey:@"SDPA_KVB"];
+                [dic setValue:@(std::to_string(mPlan.sdpaQHeadsPerTg).c_str()) forKey:@"SDPA_QHEADS_PER_TG"];
+                [dic setValue:@(std::to_string(mPlan.sdpaKvTokensPerIter).c_str()) forKey:@"SDPA_KV_TOKENS_PER_ITER"];
                 [dic setValue:@(std::to_string(kSdpaKvBlock).c_str()) forKey:@"SPLITKV_BLK"];
                 [dic setValue:@"1" forKey:@"SPLITKV_PARTIAL"];
                 if (mQuantKey) { [dic setValue:@"1" forKey:@"QUANT_K"]; if (dynamicQuantK) [dic setValue:@"1" forKey:@"DYNAMIC_QUANT_K"]; }
@@ -436,11 +436,16 @@ ErrorCode AttentionBufExecution::compilePipelines(const std::vector<Tensor*>& in
         // Persistent QK left-input CTs replace the q_reg array.
         keys.emplace_back("FATC_Q_CT");
         keys.emplace_back("FATC_PV_K32");
-        // Must match the dispatch threadgroup width.
-        const int faTcWN = mPlan.faTcWN;
-        std::string wn_str = std::to_string(faTcWN);
-        if (faTcWN > 1) {
-            keys.emplace_back("FATC_WN_" + wn_str);
+        // Must match the dispatch threadgroup width (32 * faTcQueryNsg * faTcHeadDimNsg).
+        const int faTcQueryNsg = mPlan.faTcQueryNsg;
+        const int faTcHeadDimNsg = mPlan.faTcHeadDimNsg;
+        std::string wm_str = std::to_string(faTcQueryNsg);
+        std::string wn_str = std::to_string(faTcHeadDimNsg);
+        if (faTcQueryNsg != 4) {
+            keys.emplace_back("FATC_QUERY_NSG_" + wm_str);
+        }
+        if (faTcHeadDimNsg > 1) {
+            keys.emplace_back("FATC_HEADDIM_NSG_" + wn_str);
         }
         auto pipeline = rt->findPipeline(keys);
         if (nil == pipeline && !rt->pipelineCompileFailed(keys)) {
@@ -465,15 +470,18 @@ ErrorCode AttentionBufExecution::compilePipelines(const std::vector<Tensor*>& in
             [dic setValue:@"1" forKey:@"FATC_QREV"];
             [dic setValue:@"1" forKey:@"FATC_Q_CT"];
             [dic setValue:@"1" forKey:@"FATC_PV_K32"];
-            if (faTcWN > 1) {
-                [dic setValue:@(wn_str.c_str()) forKey:@"FATC_WN"];
+            if (faTcQueryNsg != 4) {
+                [dic setValue:@(wm_str.c_str()) forKey:@"FATC_QUERY_NSG"];
+            }
+            if (faTcHeadDimNsg > 1) {
+                [dic setValue:@(wn_str.c_str()) forKey:@"FATC_HEADDIM_NSG"];
             }
             option.preprocessorMacros = dic;
             pipeline = mtbn->makeComputePipelineWithSourceOption(
                 gPrefillFlashAttnTc, "prefill_flash_attn_tc", option, true);
             rt->insertPipeline(keys, pipeline);
         }
-        if (nil == pipeline || (int)pipeline.maxTotalThreadsPerThreadgroup < 128 * faTcWN ||
+        if (nil == pipeline || (int)pipeline.maxTotalThreadsPerThreadgroup < 32 * faTcQueryNsg * faTcHeadDimNsg ||
             pipeline.staticThreadgroupMemoryLength > context.device.maxThreadgroupMemoryLength) {
             MNN_ERROR("MNN::Metal FA-TC: pipeline unavailable (cap %d), falling back to three-stage prefill\n",
                       pipeline ? (int)pipeline.maxTotalThreadsPerThreadgroup : -1);
@@ -613,28 +621,30 @@ AttentionBufExecution::AttnFacts AttentionBufExecution::_collectFacts(const std:
 }
 
 bool AttentionBufExecution::_resolveSdpa(const AttnFacts& f, uint8_t veto, AttnPlan& p) {
-    p.sdpaQhPerTg = 1;
-    for (int cand = 2; cand <= f.groupSize; cand *= 2) {
+    const int kvMul = (f.kvLen >= kSdpaTwoPassMinKv) ? 4 : 1;
+    const int maxQh = (f.headDim >= 256) ? 2 : f.groupSize;
+    p.sdpaQHeadsPerTg = 1;
+    for (int cand = 2; cand <= ALIMIN(f.groupSize, maxQh); cand *= 2) {
         if (f.groupSize % cand != 0 || f.numHead % cand != 0) {
             continue;
         }
-        const int threadgroups = f.batch * f.numHead / cand;
+        const int threadgroups = kvMul * (f.batch * f.numHead / cand);
         if (threadgroups < 8) {
             break;
         }
         if (threadgroups < 16 && f.groupSize / cand < 2) {
             break;
         }
-        p.sdpaQhPerTg = cand;
+        p.sdpaQHeadsPerTg = cand;
     }
-    if (f.groupSize % p.sdpaQhPerTg != 0 || f.numHead % p.sdpaQhPerTg != 0) {
-        p.sdpaQhPerTg = 1;
+    if (f.groupSize % p.sdpaQHeadsPerTg != 0 || f.numHead % p.sdpaQHeadsPerTg != 0) {
+        p.sdpaQHeadsPerTg = 1;
     }
     // nsg widens each threadgroup to hold tgCount*nsg constant, so qh must be resolved first.
-    const int tgCount = ALIMAX(f.batch * f.numHead / p.sdpaQhPerTg, 1);
+    const int tgCount = ALIMAX(kvMul * (f.batch * f.numHead / p.sdpaQHeadsPerTg), 1);
     if (f.gpuGen >= 17) {
         // The tgCount*nsg rule does not hold on this generation.
-        p.sdpaNsg = 32;
+        p.sdpaNsg = (f.kvLen >= kSdpaTwoPassMinKv && p.sdpaQHeadsPerTg * f.headDim >= 512) ? 16 : 32;
     } else {
         const int product = f.highBandwidth ? 512 : 256;
         // NSG must divide SIMD_GROUP_WIDTH: the decode_splitkv reduce visits
@@ -644,16 +654,21 @@ bool AttentionBufExecution::_resolveSdpa(const AttnFacts& f, uint8_t veto, AttnP
         while (p.sdpaNsg * 2 <= nsgWant) {
             p.sdpaNsg *= 2;
         }
+        if (f.kvLen >= kSdpaTwoPassMinKv && p.sdpaQHeadsPerTg * f.headDim >= 512) {
+            // Keep two-pass split-KV at <=16 SGs/TG when per-thread O/Q state is wide
+            // so each SG amortizes the cross-SG epilogue over >=32 tokens without spilling.
+            p.sdpaNsg = ALIMIN(p.sdpaNsg, 16);
+        }
         const bool shortKvNeedsNarrow =
             (!f.highBandwidth && f.kvLen < 512 && tgCount < 16) ||
             (f.highBandwidth && f.kvLen < 256 && tgCount < 16 &&
-             p.sdpaQhPerTg * f.headDim > 256);
+             p.sdpaQHeadsPerTg * f.headDim > 256);
         if (shortKvNeedsNarrow) {
             p.sdpaNsg = ALIMIN(p.sdpaNsg, 16);
         }
     }
     // threadgroup floats: s_out[NSG*32] + s_sm[NSG*qh*2]
-    const int tgBytes = (p.sdpaNsg * 32 + p.sdpaNsg * p.sdpaQhPerTg * 2) * (int)sizeof(float);
+    const int tgBytes = (p.sdpaNsg * 32 + p.sdpaNsg * p.sdpaQHeadsPerTg * 2) * (int)sizeof(float);
     const bool chosen = !(veto & AttnVetoSdpa) && !f.sinks && f.kvCache && !f.kvInDisk &&
                         f.seqLen == 1 && f.kvLen >= kSdpaMinKv &&
                         (f.causal || f.trivialDecodeMask) && (f.headDim % 32) == 0 &&
@@ -668,7 +683,7 @@ bool AttentionBufExecution::_resolveSdpa(const AttnFacts& f, uint8_t veto, AttnP
     if (kvb > 2 && f.headDim > 128) {
         kvb = 2;
     }
-    p.sdpaKvb = kvb;
+    p.sdpaKvTokensPerIter = kvb;
     p.sdpaKvBlocks = UP_DIV(f.kvLen, kSdpaKvBlock);
     return chosen;
 }
@@ -692,7 +707,7 @@ AttentionBufExecution::AttnPlan AttentionBufExecution::_resolvePlan(const AttnFa
     p.qkTensorMatrix = tensorApi && f.seqLen >= 32 && f.headDim % 32 == 0;
     p.qkvSimdReduce = f.simdReduce && f.decode && f.headDim * f.numHead < f.kvLen * 32;
     p.qkvSimdMatrix = f.simdMatrix && f.seqLen >= 16;
-    p.sftmSimdReduce = f.simdReduce;
+    p.softmaxSimdReduce = f.simdReduce;
     p.copySimdReduce = f.kvCache && f.simdReduce && f.dynamicScaleBuffer;
 
     // Scores stay on-chip; kv >= q keeps the diagonal offset non-negative.
@@ -723,7 +738,19 @@ AttentionBufExecution::AttnPlan AttentionBufExecution::_resolvePlan(const AttnFa
         p.route = AttnRoute::PrefillFaTc;
         // Each SIMD-group computes one head-dimension slice; reduce partial QK before softmax.
         const int wn = (f.headDim == 256) ? 2 : 1;
-        p.faTcWN = (f.headDim % (32 * wn) == 0) ? wn : 1;
+        p.faTcHeadDimNsg = (f.headDim % (32 * wn) == 0) ? wn : 1;
+        int wm = 4;
+        if (p.faTcHeadDimNsg > 1 && f.seqLen <= 64) {
+            wm = 1;
+        } else if (p.faTcHeadDimNsg > 1 && f.seqLen <= 128) {
+            wm = 2;
+        } else {
+            const int tg64 = UP_DIV(f.seqLen, 64) * f.batch * f.numHead;
+            if (tg64 < 16) {
+                wm = (tg64 * 2 < 16) ? 1 : 2;
+            }
+        }
+        p.faTcQueryNsg = wm;
     } else if (faSgOk) {
         p.route = AttnRoute::PrefillFaSg;
     } else {
@@ -733,7 +760,7 @@ AttentionBufExecution::AttnPlan AttentionBufExecution::_resolvePlan(const AttnFa
         p.causalTri = causalUsable && (p.qkSimdMatrix || p.qkTensorMatrix);
         p.causalBound = causalUsable;
     }
-    p.qseqSplit = _resolveQseqSplit(f, p.route);
+    p.seqLenSplitCount = _resolveQseqSplit(f, p.route);
     return p;
 }
 
@@ -746,7 +773,7 @@ uint64_t AttentionBufExecution::pipelineSignature() const {
     uint64_t signature = _pathSignature(false);
     if (mPlan.route == AttnRoute::DecodeSdpa) {
         signature |= uint64_t(mPlan.sdpaNsg) << 32;
-        signature |= uint64_t(mPlan.sdpaKvb) << 40;
+        signature |= uint64_t(mPlan.sdpaKvTokensPerIter) << 40;
     }
     // A vetoed SDPA falls back to routes that flip at more kv boundaries.
     if (mPlan.isDecode()) {
@@ -956,7 +983,7 @@ ErrorCode AttentionBufExecution::handleKVAllocMemory() {
             mTempV.reset(Tensor::createDevice<float>({valueSize}));
         }
 
-        int qSeqLenPiece = UP_DIV(mSeqLen, mPlan.qseqSplit);
+        int qSeqLenPiece = UP_DIV(mSeqLen, mPlan.seqLenSplitCount);
         bool needMalloc = mTempQK->length(0) != mBatch * mNumHead;
         if (mTempQK->length(1) != qSeqLenPiece * scratchKvLen) {
             needMalloc = true;
@@ -1016,7 +1043,7 @@ ErrorCode AttentionBufExecution::handleKVAllocMemory() {
         return NO_ERROR;
     }
 
-    int qSeqLenPiece = UP_DIV(mSeqLen, mPlan.qseqSplit);
+    int qSeqLenPiece = UP_DIV(mSeqLen, mPlan.seqLenSplitCount);
     // decode_qk_softmax writes probabilities straight into mTempSoftMax.
     const bool needQkScratch = mPlan.route != AttnRoute::DecodeFusedQkSoftmax;
     bool needMalloc = mTempSoftMax->length(0) != mBatch * mNumHead ||
@@ -1084,26 +1111,28 @@ void AttentionBufExecution::_resolveKvFormat() {
     mQuantKey = mKVCache && !mKvInDisk &&
                 ((mKVQuantParameter != nullptr && mKVQuantParameter->kScale != 0.0f) || dynamicQuantK);
     if (mKVCache && !mIsKVShared) {
+        mKVCacheManager->setBatch(mBatch);
         mKVCacheManager->setKVQuantParameter(mKVQuantParameter);
         mKVCacheManager->setAttenQuantKeyValue(mQuantKey, mQuantValue);
         mKVCacheManager->onResize(mKvNumHead, mHeadDim);
     }
 }
-uint32_t AttentionBufExecution::_pathSignature(bool forReplay) const {
+uint64_t AttentionBufExecution::_pathSignature(bool forReplay) const {
     // Any field that changes kernels or dispatch must appear here, or replay runs an old kernel.
-    uint32_t sig = 0;
+    // Non-replay bits must stay below bit 32 so pipelineSignature() can pack SDPA metadata above.
+    uint64_t sig = 0;
     int bit = 0;
-    auto put = [&](uint32_t value, int width) {
-        sig |= (value & ((1u << width) - 1)) << bit;
+    auto put = [&](uint64_t value, int width) {
+        sig |= (value & ((1ull << width) - 1)) << bit;
         bit += width;
     };
-    put((uint32_t)mPlan.route, 3);
+    put((uint64_t)mPlan.route, 3);
     put(mPlan.qkSimdReduce, 1);
     put(mPlan.qkSimdMatrix, 1);
     put(mPlan.qkTensorMatrix, 1);
     put(mPlan.qkvSimdReduce, 1);
     put(mPlan.qkvSimdMatrix, 1);
-    put(mPlan.sftmSimdReduce, 1);
+    put(mPlan.softmaxSimdReduce, 1);
     put(mPlan.copySimdReduce, 1);
     put(mPlan.causalTri, 1);
     put(mPlan.causalBound, 1);
@@ -1119,19 +1148,28 @@ uint32_t AttentionBufExecution::_pathSignature(bool forReplay) const {
     // SHORT_KV_128 is a separately compiled variant; replay must not outlive it.
     put(mPlan.route == AttnRoute::DecodeFusedQkSoftmax && mFacts.kvLen <= 128, 1);
     put(mPlan.qkQsplit, 1);
-    put(mPlan.faTcWN > 1, 1); // FATC_WN changes the kernel and threadgroup width.
-    // SDPA_KVB and SDPA_QH_PER_TG each change both the kernel and the dispatch grid.
-    put(mPlan.sdpaKvb > 1, 1);
-    put(mPlan.sdpaQhPerTg == 8 ? 3 : (mPlan.sdpaQhPerTg == 4 ? 2 : (mPlan.sdpaQhPerTg == 2 ? 1 : 0)), 2);
+    put(mPlan.faTcHeadDimNsg > 1, 1); // FATC_HEADDIM_NSG changes the kernel and threadgroup width.
+    int wmLog2 = 0;
+    while ((1 << wmLog2) < mPlan.faTcQueryNsg && wmLog2 < 3) {
+        wmLog2++;
+    }
+    put((uint64_t)wmLog2, 2); // FATC_QUERY_NSG (1/2/4) changes BQ and threadgroup width.
+    // SDPA_KV_TOKENS_PER_ITER and SDPA_QHEADS_PER_TG each change both the kernel and the dispatch grid.
+    put(mPlan.sdpaKvTokensPerIter > 1, 1);
+    int qhLog2 = 0;
+    while ((1 << qhLog2) < mPlan.sdpaQHeadsPerTg && qhLog2 < 7) {
+        qhLog2++;
+    }
+    put((uint64_t)qhLog2, 3);
     if (forReplay) {
         // Changes event layout and is a compile outcome: replay key only.
         put(mPlan.sdpaTwoPass, 1);
         // log2 in 4 bits: scratch bounding needs split counts past 15.
         int qsplitLog2 = 0;
-        while ((1 << qsplitLog2) < mPlan.qseqSplit) {
+        while ((1 << qsplitLog2) < mPlan.seqLenSplitCount) {
             qsplitLog2++;
         }
-        put(qsplitLog2, 4);
+        put((uint64_t)qsplitLog2, 4);
     }
     return sig;
 }
@@ -1149,8 +1187,8 @@ AttentionCopyParam AttentionBufExecution::_makeCopyParam(const Tensor* key, cons
     p.kv_seq_len = key->shape()[1];
     p.max_kv_len = mKvMaxLen;
     int pastLength = mKVCache ? _pastKvLength() : 0;
-    p.dst_k_offset = pastLength * p.head_count;
-    p.dst_v_offset = pastLength * p.head_count;
+    p.past_kv_len = pastLength;
+    p.reserved = 0;
     p.batch = mBatch;
     p.value_c4 =
         TensorUtils::getDescribe(value)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ? 1 : 0;
@@ -1299,10 +1337,10 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
     }
 #endif
 
-    int seqLenPiece = UP_DIV(mSeqLen, mPlan.qseqSplit);
+    int seqLenPiece = UP_DIV(mSeqLen, mPlan.seqLenSplitCount);
     const AttentionQKVParam qkvParam = _makeQKVParam(inputs, seqLenPiece);
 
-    for (int seq_idx = 0; seq_idx < mPlan.qseqSplit; seq_idx++) {
+    for (int seq_idx = 0; seq_idx < mPlan.seqLenSplitCount; seq_idx++) {
         if (mPlan.route == AttnRoute::PrefillFaTc) {
             // Fused prefill on the tensor API: one dispatch, S and O in registers.
             [encoder setComputePipelineState:mKernel_faTc];
@@ -1315,8 +1353,9 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
             if (mHasTensorMask) {
                 MetalBackend::setTensor(inputs[3], encoder, 8);
             }
-            [encoder dispatchThreadgroups:MTLSizeMake(UP_DIV(seqLenPiece, 64), mBatch * mNumHead, 1)
-                    threadsPerThreadgroup:MTLSizeMake(128 * mPlan.faTcWN, 1, 1)];
+            const int faTcBQ = mPlan.faTcQueryNsg * 16;
+            [encoder dispatchThreadgroups:MTLSizeMake(UP_DIV(seqLenPiece, faTcBQ), mBatch * mNumHead, 1)
+                    threadsPerThreadgroup:MTLSizeMake(32 * mPlan.faTcQueryNsg * mPlan.faTcHeadDimNsg, 1, 1)];
 #if MNN_METAL_OP_PROFILE
             {
                 auto* mtbn2 = static_cast<MetalBackend*>(backend());
@@ -1340,7 +1379,7 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
             if (mHasTensorMask) {
                 MetalBackend::setTensor(inputs[3], encoder, 8);
             }
-            [encoder dispatchThreadgroups:MTLSizeMake(UP_DIV(seqLenPiece, mPlan.faSgBq), mBatch * mNumHead, 1)
+            [encoder dispatchThreadgroups:MTLSizeMake(UP_DIV(seqLenPiece, mPlan.faSgSeqLenPerTg), mBatch * mNumHead, 1)
                     threadsPerThreadgroup:MTLSizeMake(32, mPlan.faSgNsg, 1)];
 #if MNN_METAL_OP_PROFILE
             {
@@ -1364,7 +1403,7 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
             if (mQuantValue && mKVCacheManager->getVScaleBuffer() != nil) {
                 [encoder setBuffer:mKVCacheManager->getVScaleBuffer() offset:0 atIndex:9];
             }
-            const int gridGroups = mBatch * (mNumHead / mPlan.sdpaQhPerTg);
+            const int gridGroups = mBatch * (mNumHead / mPlan.sdpaQHeadsPerTg);
             [encoder dispatchThreadgroups:MTLSizeMake(mPlan.sdpaKvBlocks, gridGroups, 1)
                     threadsPerThreadgroup:MTLSizeMake(32 * mPlan.sdpaNsg, 1, 1)];
             [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
@@ -1393,7 +1432,7 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
             if (mQuantValue && mKVCacheManager->getVScaleBuffer() != nil) {
                 [encoder setBuffer:mKVCacheManager->getVScaleBuffer() offset:0 atIndex:9];
             }
-            const int gridGroups = mBatch * (mNumHead / mPlan.sdpaQhPerTg);
+            const int gridGroups = mBatch * (mNumHead / mPlan.sdpaQHeadsPerTg);
             [encoder dispatchThreadgroups:MTLSizeMake(1, gridGroups, 1)
                     threadsPerThreadgroup:MTLSizeMake(32 * mPlan.sdpaNsg, 1, 1)];
             // No trailing profileNextSubpass: "sdpa_fused" subtag was set after
@@ -1526,7 +1565,7 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
 
             int thread_group_size = 32;
             std::pair<MTLSize, MTLSize> softmaxGl;
-            if (mPlan.sftmSimdReduce) {
+            if (mPlan.softmaxSimdReduce) {
                 softmaxGl = std::make_pair(MTLSizeMake(inside, outside, 1), MTLSizeMake(thread_group_size, 1, 1));
             } else {
                 softmaxGl = [context computeBestGroupAndLocal:mKernel_softmax threads:MTLSizeMake(inside, outside, 1)];
@@ -1605,7 +1644,7 @@ bool AttentionBufExecution::onReplayUpdate(const std::vector<Tensor*>& inputs, c
     // Replay only for in-memory KV-cache decode with a single seq piece; anything
     // else (prefill, disk KV, split, shared layers) bails and re-encodes.
     // Checks here use last-encode state; the signature below is authoritative.
-    if (!mKVCache || mIsKVShared || mKvInDisk || mPlan.isFusedPrefill() || mPlan.qseqSplit != 1) {
+    if (!mKVCache || mIsKVShared || mKvInDisk || mPlan.isFusedPrefill() || mPlan.seqLenSplitCount != 1) {
         return false;
     }
     // Reserve compaction is not idempotent across replay fallback.
@@ -1668,7 +1707,7 @@ bool AttentionBufExecution::onReplayUpdate(const std::vector<Tensor*>& inputs, c
     auto mtbn = static_cast<MetalBackend*>(backend());
     auto context = (__bridge MNNMetalContext*)mtbn->context();
     int group_size = mNumHead / mKvNumHead;
-    int seqLenPiece = UP_DIV(mSeqLen, mPlan.qseqSplit);
+    int seqLenPiece = UP_DIV(mSeqLen, mPlan.seqLenSplitCount);
 
     // Patch per-token state inside recorded events. The three uniform structs
     // travel as setBytes args (see _makeCopyParam) and are keyed by (index, size);
@@ -1701,7 +1740,7 @@ bool AttentionBufExecution::onReplayUpdate(const std::vector<Tensor*>& inputs, c
     if (sdpaTwoPass) {
         // events[1] = partial, events[2] = buffer barrier, events[3] = reduce.
         auto& partial = mReplayEvents[1];
-        partial.grid = MTLSizeMake(mPlan.sdpaKvBlocks, mBatch * (mNumHead / mPlan.sdpaQhPerTg), 1);
+        partial.grid = MTLSizeMake(mPlan.sdpaKvBlocks, mBatch * (mNumHead / mPlan.sdpaQHeadsPerTg), 1);
         patchIntBytes(mReplayEvents[3], 11, mPlan.sdpaKvBlocks);
     } else if (mPlan.route == AttnRoute::DecodeSdpa) {
         // events[1] = fused sdpa: grid (1, B*head groups) is kv-length

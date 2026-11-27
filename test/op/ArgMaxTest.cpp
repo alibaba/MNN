@@ -73,6 +73,48 @@ public:
             MNN_ERROR("ArgMaxTest test axis_1_outVal failed!\n");
             return false;
         }
+        // Wide-row fast 2-pass path: non-multiple-of-4 rows with ties + LLM vocab size.
+        {
+            const int rows = 3, cols = 65537;
+            auto wide = _Input({rows, cols}, NCHW);
+            auto ptr = wide->writeMap<float>();
+            std::vector<int> expect = {0, 40961, cols - 1};
+            for (int r = 0; r < rows; ++r) {
+                for (int c = 0; c < cols; ++c) {
+                    ptr[r * cols + c] = -10.0f;
+                }
+            }
+            // Row 0: all equal -> first index (0) wins tie-break.
+            // Row 1: duplicate max -> smaller index (40961) wins over 65000.
+            ptr[1 * cols + 40961] = 12.5f;
+            ptr[1 * cols + 65000] = 12.5f;
+            // Row 2: max at tail index (cols - 1).
+            ptr[2 * cols + (cols - 1)] = 7.25f;
+            wide->unMap();
+            auto out = _ArgMax(wide, -1);
+            auto got = out->readMap<int>();
+            if (!checkVector<int>(got, expect.data(), rows, 0)) {
+                MNN_ERROR("ArgMaxTest wide non-div4 tie-break failed!\n");
+                return false;
+            }
+        }
+        {
+            const int cols = 248320;
+            auto vocab = _Input({1, 1, cols}, NCHW);
+            auto ptr = vocab->writeMap<float>();
+            for (int c = 0; c < cols; ++c) {
+                ptr[c] = -3.0f + float(c % 17) * 0.125f;
+            }
+            const int expect = 197321;
+            ptr[expect] = 19.5f;
+            vocab->unMap();
+            auto out = _ArgMax(vocab, -1);
+            auto got = out->readMap<int>();
+            if (!checkVector<int>(got, &expect, 1, 0)) {
+                MNN_ERROR("ArgMaxTest 248320 vocab failed!\n");
+                return false;
+            }
+        }
         return true;
     }
 };
@@ -102,6 +144,27 @@ public:
         if (!checkVector<int>(gotOutput_1, expectedOutput_1.data(), 4, 0)) {
             MNN_ERROR("ArgMinTest test axis_1 failed!\n");
             return false;
+        }
+        {
+            const int rows = 2, cols = 65537;
+            auto wide = _Input({rows, cols}, NCHW);
+            auto ptr = wide->writeMap<float>();
+            for (int r = 0; r < rows; ++r) {
+                for (int c = 0; c < cols; ++c) {
+                    ptr[r * cols + c] = 5.0f;
+                }
+            }
+            ptr[0 * cols + 12345] = -8.5f;
+            ptr[0 * cols + 54321] = -8.5f;
+            ptr[1 * cols + (cols - 1)] = -11.0f;
+            wide->unMap();
+            const std::vector<int> expect = {12345, cols - 1};
+            auto out = _ArgMin(wide, -1);
+            auto got = out->readMap<int>();
+            if (!checkVector<int>(got, expect.data(), rows, 0)) {
+                MNN_ERROR("ArgMinTest wide non-div4 tie-break failed!\n");
+                return false;
+            }
         }
         return true;
     }

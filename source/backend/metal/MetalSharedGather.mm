@@ -63,31 +63,42 @@ kernel void shared_gather_quant(
     }
 
     int idx_n = indices[gid.x]; // N
+    auto xy_wf = wf + ((long)ic * gid.x + (long)idx_k16 * 16) / 4;
+    if (idx_n < 0 || idx_n >= cst.outputChannel) {
+        for (int k = 0; k < 4; k++) {
+            xy_wf[k] = ftype4(0);
+        }
+        return;
+    }
 
-    int idx_n4 = idx_n/4;
-    int idx_nl = idx_n%4;
+    int idx_n4 = idx_n / 4;
+    int idx_nl = idx_n % 4;
 
     int quadsPerBlock = (cst.inputDepthQuad + cst.blockCount - 1) / cst.blockCount;
-
-
-    int bi = idx_k4 / quadsPerBlock;
-    // [N/4, cst.blockCount, 2/*scale_bias*/, N4]
-    FLOAT scale = FLOAT(((const device ftype *)dequantScale)[((idx_n4 * cst.blockCount + bi) * 2 + 0) * 4 + idx_nl]) / (FLOAT)cst.scaleCoef;
-    FLOAT dequant_bias = FLOAT(((const device ftype *)dequantScale)[((idx_n4 * cst.blockCount + bi) * 2 + 1) * 4 + idx_nl]) / (FLOAT)cst.scaleCoef;
+    int cur_bi = min(idx_k4 / quadsPerBlock, cst.blockCount - 1);
+    const long dqs_row_base = (long)idx_n4 * cst.blockCount;
+    const device ftype* dqs_scalar = (const device ftype*)dequantScale;
+    FLOAT scale = FLOAT(dqs_scalar[((dqs_row_base + cur_bi) * 2 + 0) * 4 + idx_nl]) / (FLOAT)cst.scaleCoef;
+    FLOAT dequant_bias = FLOAT(dqs_scalar[((dqs_row_base + cur_bi) * 2 + 1) * 4 + idx_nl]) / (FLOAT)cst.scaleCoef;
 
 #ifdef W_QUANT_3
-    auto wt_base = wi + (idx_n4 * cst.inputDepthQuad + idx_k4) * 6;
+    auto wt_base = wi + ((long)idx_n4 * cst.inputDepthQuad + idx_k4) * 6;
 #elif defined(W_QUANT_4_TIED_BIT)
-    const int planeBytes = cst.outputDepthQuad * cst.inputDepthQuad * 2;
-    const device uchar* q1 = wi + idx_n4 * cst.inputDepthQuad * 2;
-    const device uchar* q234 = wi + planeBytes + idx_n * (cst.inputDepthQuad / 2 * 3);
+    const long planeBytes = (long)cst.outputDepthQuad * cst.inputDepthQuad * 2;
+    const device uchar* q1 = wi + (long)idx_n4 * cst.inputDepthQuad * 2;
+    const device uchar* q234 = wi + planeBytes + (long)idx_n * (cst.inputDepthQuad / 2 * 3);
 #else
-    auto xy_wi = wi + (idx_n4 * cst.inputDepthQuad + idx_k4) * 4 + idx_nl;// [N/4, K/4, N4, K4]
+    auto xy_wi = wi + ((long)idx_n4 * cst.inputDepthQuad + idx_k4) * 4 + idx_nl;// [N/4, K/4, N4, K4]
 #endif
-    auto xy_wf = wf + (ic * gid.x + idx_k16 * 16) / 4;
 
     #ifdef W_QUANT_2
     for(int k = 0; k < 4; k++) {
+        int bi = min((idx_k4 + k) / quadsPerBlock, cst.blockCount - 1);
+        if (bi != cur_bi) {
+            cur_bi = bi;
+            scale = FLOAT(dqs_scalar[((dqs_row_base + cur_bi) * 2 + 0) * 4 + idx_nl]) / (FLOAT)cst.scaleCoef;
+            dequant_bias = FLOAT(dqs_scalar[((dqs_row_base + cur_bi) * 2 + 1) * 4 + idx_nl]) / (FLOAT)cst.scaleCoef;
+        }
         uchar b = xy_wi[4*k];
         FLOAT4 w4 = FLOAT4((float)((b >> 6) & 3) - 2, (float)((b >> 4) & 3) - 2,
                             (float)((b >> 2) & 3) - 2, (float)( b       & 3) - 2);
@@ -95,6 +106,12 @@ kernel void shared_gather_quant(
     }
     #elif defined(W_QUANT_3)
     for(int k = 0; k < 4; k++) {
+        int bi = min((idx_k4 + k) / quadsPerBlock, cst.blockCount - 1);
+        if (bi != cur_bi) {
+            cur_bi = bi;
+            scale = FLOAT(dqs_scalar[((dqs_row_base + cur_bi) * 2 + 0) * 4 + idx_nl]) / (FLOAT)cst.scaleCoef;
+            dequant_bias = FLOAT(dqs_scalar[((dqs_row_base + cur_bi) * 2 + 1) * 4 + idx_nl]) / (FLOAT)cst.scaleCoef;
+        }
         const device uchar* tilePtr = wt_base + 6 * k;
         uchar b = tilePtr[idx_nl];
         uchar h = (idx_nl < 2) ? tilePtr[4] : tilePtr[5];
@@ -108,6 +125,12 @@ kernel void shared_gather_quant(
     }
     #elif defined(W_QUANT_4_TIED_BIT)
     for (int k = 0; k < 4; ++k) {
+        int bi = min((idx_k4 + k) / quadsPerBlock, cst.blockCount - 1);
+        if (bi != cur_bi) {
+            cur_bi = bi;
+            scale = FLOAT(dqs_scalar[((dqs_row_base + cur_bi) * 2 + 0) * 4 + idx_nl]) / (FLOAT)cst.scaleCoef;
+            dequant_bias = FLOAT(dqs_scalar[((dqs_row_base + cur_bi) * 2 + 1) * 4 + idx_nl]) / (FLOAT)cst.scaleCoef;
+        }
         const int tile = idx_k4 + k;
         const int shift = (idx_nl & 1) == 0 ? 4 : 0;
         const uint a = (q1[tile * 2 + idx_nl / 2] >> shift) & 15;
@@ -123,6 +146,12 @@ kernel void shared_gather_quant(
     }
     #elif defined(W_QUANT_4)
     for(int k = 0; k < 4; k++) {
+        int bi = min((idx_k4 + k) / quadsPerBlock, cst.blockCount - 1);
+        if (bi != cur_bi) {
+            cur_bi = bi;
+            scale = FLOAT(dqs_scalar[((dqs_row_base + cur_bi) * 2 + 0) * 4 + idx_nl]) / (FLOAT)cst.scaleCoef;
+            dequant_bias = FLOAT(dqs_scalar[((dqs_row_base + cur_bi) * 2 + 1) * 4 + idx_nl]) / (FLOAT)cst.scaleCoef;
+        }
         uchar2 w_int4 = xy_wi[4*k]; // [N/4, K/4, N4, K4]
         FLOAT4 w4 = FLOAT4((float)(w_int4[0] >> 4) - 8, (float)(w_int4[0] & 15) - 8, (float)(w_int4[1] >> 4) - 8, (float)(w_int4[1] & 15) - 8);
         FLOAT4 res = w4 * scale + dequant_bias;
@@ -130,6 +159,12 @@ kernel void shared_gather_quant(
     }
     #elif defined(W_QUANT_8)
     for(int k = 0; k < 4; k++) {
+        int bi = min((idx_k4 + k) / quadsPerBlock, cst.blockCount - 1);
+        if (bi != cur_bi) {
+            cur_bi = bi;
+            scale = FLOAT(dqs_scalar[((dqs_row_base + cur_bi) * 2 + 0) * 4 + idx_nl]) / (FLOAT)cst.scaleCoef;
+            dequant_bias = FLOAT(dqs_scalar[((dqs_row_base + cur_bi) * 2 + 1) * 4 + idx_nl]) / (FLOAT)cst.scaleCoef;
+        }
         char4 w_int4 = xy_wi[4*k]; // [N/4, K/4, N4, K4]
         FLOAT4 w4 = FLOAT4((float)w_int4[0], (float)w_int4[1], (float)w_int4[2], (float)w_int4[3]);
         FLOAT4 res = w4 * scale + dequant_bias;

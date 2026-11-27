@@ -884,14 +884,15 @@ kernel void decode_qk(const device ftype* input0 [[buffer(0)]],
     const int offset = head_num * head_dim;
     const int offset_head = kv_hn * group * head_dim;
     const int offset_head_kv = kv_hn * head_dim;
+    const long key_stride = (long)kv_head_num * head_dim;
 
     // [mBatch, mSeqLen, mNumHead, mHeadDim]
-    const device ftype* A_offset = input0 + (b * param.query_seq_len + x) * offset + offset_head;
+    const device ftype* A_offset = input0 + ((long)b * param.query_seq_len + x) * offset + offset_head;
     // [mKvSeqLen, mBatch, mKvNumHead, mHeadDim]
 #ifdef QUANT_K
-    const device char* Pastkey_offset = (const device char*)past_key + ((z * param.batch + b) * offset / group + offset_head_kv);
+    const device char* Pastkey_offset = (const device char*)past_key + ((long)z * param.batch + b) * key_stride + offset_head_kv;
 #else
-    device ftype* Pastkey_offset = past_key + (z * param.batch + b) * offset / group + offset_head_kv;
+    device ftype* Pastkey_offset = past_key + ((long)z * param.batch + b) * key_stride + offset_head_kv;
 #endif
     float Vscale = (float)param.scale;
 
@@ -901,13 +902,13 @@ kernel void decode_qk(const device ftype* input0 [[buffer(0)]],
     // shift the numerics
     float out[GROUP_SIZE] = {0.0};
 #if defined(QUANT_K) && defined(DYNAMIC_QUANT_K)
-    int k_token_idx = z * param.batch + b;
+    long k_token_idx = (long)z * param.batch + b;
     float k_scale = k_scales[k_token_idx * 2];
     float k_bias = k_scales[k_token_idx * 2 + 1];
 #endif
 
 #ifdef SIMD_GROUP_REDUCE
-    {
+    if ((head_dim & 3) == 0) {
         int itN = head_dim / 8;
         for (int i = tiisg; i < itN; i+=SIMD_GROUP_WIDTH) {
 #ifdef QUANT_K
@@ -915,8 +916,8 @@ kernel void decode_qk(const device ftype* input0 [[buffer(0)]],
             float4 B0 = float4(((const device char4*)Pastkey_offset)[i * 2 + 0]) * k_scale + k_bias;
             float4 B1 = float4(((const device char4*)Pastkey_offset)[i * 2 + 1]) * k_scale + k_bias;
 #else
-            float4 B0 = GETK4(((const device char4*)Pastkey_offset)[i * 2 + 0], z * param.batch + b);
-            float4 B1 = GETK4(((const device char4*)Pastkey_offset)[i * 2 + 1], z * param.batch + b);
+            float4 B0 = GETK4(((const device char4*)Pastkey_offset)[i * 2 + 0], (long)z * param.batch + b);
+            float4 B1 = GETK4(((const device char4*)Pastkey_offset)[i * 2 + 1], (long)z * param.batch + b);
 #endif
 #else
             float4 B0 = float4(((const device ftype4*)Pastkey_offset)[i * 2 + 0]);
@@ -938,7 +939,7 @@ kernel void decode_qk(const device ftype* input0 [[buffer(0)]],
 #ifdef DYNAMIC_QUANT_K
             float4 B0 = float4(((const device char4*)Pastkey_offset)[tail_i4]) * k_scale + k_bias;
 #else
-            float4 B0 = GETK4(((const device char4*)Pastkey_offset)[tail_i4], z * param.batch + b);
+            float4 B0 = GETK4(((const device char4*)Pastkey_offset)[tail_i4], (long)z * param.batch + b);
 #endif
 #else
             float4 B0 = float4(((const device ftype4*)Pastkey_offset)[tail_i4]);
@@ -949,12 +950,27 @@ kernel void decode_qk(const device ftype* input0 [[buffer(0)]],
                 out[j] += dot(A0, B0);
             }
         }
+    } else {
+        for (int i = int(tiisg); i < head_dim; i += SIMD_GROUP_WIDTH) {
+#ifdef QUANT_K
+#ifdef DYNAMIC_QUANT_K
+            float B0 = float(Pastkey_offset[i]) * k_scale + k_bias;
+#else
+            float B0 = float(Pastkey_offset[i]) * param.k_scale;
+#endif
+#else
+            float B0 = float(Pastkey_offset[i]);
+#endif
+            for (int j = 0; j < group; j++) {
+                out[j] += float(A_offset[head_dim * j + i]) * B0;
+            }
+        }
     }
     for(int j = 0; j < group; j++) {
         out[j] = simd_sum(out[j]);
     }
 #else
-    {
+    if ((head_dim & 3) == 0) {
         // float4 vectorized dot throughout (QUANT_K goes through GETK4)
         int itN = head_dim / 8;
         for (int i = 0; i < itN; ++i) {
@@ -963,8 +979,8 @@ kernel void decode_qk(const device ftype* input0 [[buffer(0)]],
             float4 B0 = float4(((const device char4*)Pastkey_offset)[i * 2 + 0]) * k_scale + k_bias;
             float4 B1 = float4(((const device char4*)Pastkey_offset)[i * 2 + 1]) * k_scale + k_bias;
 #else
-            float4 B0 = GETK4(((const device char4*)Pastkey_offset)[i * 2 + 0], z * param.batch + b);
-            float4 B1 = GETK4(((const device char4*)Pastkey_offset)[i * 2 + 1], z * param.batch + b);
+            float4 B0 = GETK4(((const device char4*)Pastkey_offset)[i * 2 + 0], (long)z * param.batch + b);
+            float4 B1 = GETK4(((const device char4*)Pastkey_offset)[i * 2 + 1], (long)z * param.batch + b);
 #endif
 #else
             float4 B0 = float4(((const device ftype4*)Pastkey_offset)[i * 2 + 0]);
@@ -984,7 +1000,7 @@ kernel void decode_qk(const device ftype* input0 [[buffer(0)]],
 #ifdef DYNAMIC_QUANT_K
             float4 B0 = float4(((const device char4*)Pastkey_offset)[tail_i4]) * k_scale + k_bias;
 #else
-            float4 B0 = GETK4(((const device char4*)Pastkey_offset)[tail_i4], z * param.batch + b);
+            float4 B0 = GETK4(((const device char4*)Pastkey_offset)[tail_i4], (long)z * param.batch + b);
 #endif
 #else
             float4 B0 = float4(((const device ftype4*)Pastkey_offset)[tail_i4]);
@@ -993,6 +1009,21 @@ kernel void decode_qk(const device ftype* input0 [[buffer(0)]],
                 const device ftype4* Ajp = (const device ftype4*)(A_offset + head_dim * j);
                 float4 A0 = float4(Ajp[tail_i4]);
                 out[j] += dot(A0, B0);
+            }
+        }
+    } else {
+        for (int i = 0; i < head_dim; ++i) {
+#ifdef QUANT_K
+#ifdef DYNAMIC_QUANT_K
+            float B0 = float(Pastkey_offset[i]) * k_scale + k_bias;
+#else
+            float B0 = float(Pastkey_offset[i]) * param.k_scale;
+#endif
+#else
+            float B0 = float(Pastkey_offset[i]);
+#endif
+            for (int j = 0; j < group; j++) {
+                out[j] += float(A_offset[head_dim * j + i]) * B0;
             }
         }
     }
@@ -1023,7 +1054,7 @@ kernel void decode_qk(const device ftype* input0 [[buffer(0)]],
             }
         }
         #endif
-        output[((y * group + j) * param.query_seq_len + x) * key_seq_len + z] = (ftype)out[j];
+        output[(((long)y * group + j) * param.query_seq_len + x) * key_seq_len + z] = (ftype)out[j];
     }
 #ifdef SIMD_GROUP_REDUCE
     }
@@ -1039,8 +1070,8 @@ struct Param {
     int head_count;
     int kv_seq_len;
     int max_kv_len;
-    int dst_k_offset;
-    int dst_v_offset;
+    int past_kv_len;
+    int reserved;
     int batch;
     int value_c4;
     float v_scale;
@@ -1061,8 +1092,8 @@ struct Param {
 #define VOUT_TYPE ftype
 #endif
 
-static inline int value_c4_offset(int token, int channel, int seq_len) {
-    return (channel / 4) * seq_len * 4 + token * 4 + (channel % 4);
+static inline long value_c4_offset(int token, int channel, int seq_len) {
+    return (long)(channel / 4) * seq_len * 4 + (long)token * 4 + (channel % 4);
 }
 
 static inline ftype load_value(const device ftype* input, constant Param& param, int b, int y, int x) {
@@ -1070,7 +1101,7 @@ static inline ftype load_value(const device ftype* input, constant Param& param,
         int token = b * param.kv_seq_len + y;
         return input[value_c4_offset(token, x, param.kv_seq_len * param.batch)];
     }
-    return input[(b * param.kv_seq_len + y) * param.head_count + x];
+    return input[((long)b * param.kv_seq_len + y) * param.head_count + x];
 }
 
 static inline ftype4 load_value4(const device ftype* input, constant Param& param, int b, int y, int x) {
@@ -1078,7 +1109,7 @@ static inline ftype4 load_value4(const device ftype* input, constant Param& para
         int token = b * param.kv_seq_len + y;
         return ((const device ftype4*)(input + value_c4_offset(token, x, param.kv_seq_len * param.batch)))[0];
     }
-    return ((const device ftype4*)(input + (b * param.kv_seq_len + y) * param.head_count + x))[0];
+    return ((const device ftype4*)(input + ((long)b * param.kv_seq_len + y) * param.head_count + x))[0];
 }
 
 
@@ -1124,9 +1155,9 @@ kernel void copy(const device ftype* input0 [[buffer(0)]],
         float max_v = -1000000.0f;
 #endif
 
-        int vector_end = (param.head_count / 4) * 4;
+        int vector_end = ((param.head_count & 3) == 0) ? param.head_count : 0;
         for (int x = int(titg) * 4; x < vector_end; x += int(tptg) * 4) {
-            const int in_idx  = (b * param.kv_seq_len + y) * param.head_count + x;
+            const long in_idx  = ((long)b * param.kv_seq_len + y) * param.head_count + x;
 #ifdef KV_QUANT_K
             float4 k4 = float4(((const device ftype4*)(input0 + in_idx))[0]);
             float k_min = metal::min(metal::min(k4.x, k4.y), metal::min(k4.z, k4.w));
@@ -1143,7 +1174,7 @@ kernel void copy(const device ftype* input0 [[buffer(0)]],
 #endif
         }
         for (int x = vector_end + int(titg); x < param.head_count; x += int(tptg)) {
-            const int in_idx  = (b * param.kv_seq_len + y) * param.head_count + x;
+            const long in_idx  = ((long)b * param.kv_seq_len + y) * param.head_count + x;
 #ifdef KV_QUANT_K
             float k = (float)input0[in_idx];
             min_k = metal::min(min_k, k);
@@ -1229,12 +1260,12 @@ kernel void copy(const device ftype* input0 [[buffer(0)]],
 
         if (titg == 0) {
 #ifdef KV_QUANT_K
-            int k_tok_idx = param.dst_k_offset / param.head_count + (y * param.batch + b);
+            long k_tok_idx = (long)(param.past_kv_len + y) * param.batch + b;
             k_scales[k_tok_idx * 2 + 0] = k_scale;
             k_scales[k_tok_idx * 2 + 1] = k_bias;
 #endif
 #ifdef KV_QUANT_V
-            int v_tok_idx = b * param.max_kv_len + (param.dst_k_offset / param.head_count + y);
+            long v_tok_idx = (long)b * param.max_kv_len + (param.past_kv_len + y);
             v_scales[v_tok_idx * 2 + 0] = v_scale;
             v_scales[v_tok_idx * 2 + 1] = v_bias;
 #endif
@@ -1243,11 +1274,12 @@ kernel void copy(const device ftype* input0 [[buffer(0)]],
 #endif // DYNAMIC_QUANT
 #endif // KV_QUANT_K || KV_QUANT_V
 
-    int vector_end = (param.head_count / 4) * 4;
+    const long dst_row = ((long)(param.past_kv_len + y) * param.batch + b) * param.head_count;
+    int vector_end = ((param.head_count & 3) == 0) ? param.head_count : 0;
     for (int x = int(titg) * 4; x < vector_end; x += int(tptg) * 4) {
-        const int in_idx  = (b * param.kv_seq_len + y) * param.head_count + x;
+        const long in_idx  = ((long)b * param.kv_seq_len + y) * param.head_count + x;
 
-        int out_idx_k = param.dst_k_offset + (y * param.batch + b) * param.head_count + x;
+        long out_idx_k = dst_row + x;
 #ifdef KV_QUANT_K
         float4 k = float4(((const device ftype4*)(input0 + in_idx))[0]);
         if (k_scale == 0.0f) {
@@ -1262,7 +1294,7 @@ kernel void copy(const device ftype* input0 [[buffer(0)]],
 #endif
 
         // V: row-major, same layout as K
-        int out_idx_v = param.dst_v_offset + (y * param.batch + b) * param.head_count + x;
+        long out_idx_v = dst_row + x;
         ftype4 v4 = load_value4(input1, param, b, y, x);
 #ifdef KV_QUANT_V
         float4 v = float4(v4);
@@ -1278,9 +1310,9 @@ kernel void copy(const device ftype* input0 [[buffer(0)]],
 #endif
     }
     for (int x = vector_end + int(titg); x < param.head_count; x += int(tptg)) {
-        const int in_idx  = (b * param.kv_seq_len + y) * param.head_count + x;
+        const long in_idx  = ((long)b * param.kv_seq_len + y) * param.head_count + x;
 
-        int out_idx_k = param.dst_k_offset + (y * param.batch + b) * param.head_count + x;
+        long out_idx_k = dst_row + x;
 #ifdef KV_QUANT_K
         float k = (float)input0[in_idx];
         if (k_scale == 0.0f) {
@@ -1295,7 +1327,7 @@ kernel void copy(const device ftype* input0 [[buffer(0)]],
         output0[out_idx_k] = input0[in_idx];
 #endif
 
-        int out_idx_v = param.dst_v_offset + (y * param.batch + b) * param.head_count + x;
+        long out_idx_v = dst_row + x;
         ftype value = load_value(input1, param, b, y, x);
 #ifdef KV_QUANT_V
         float v = (float)value;
@@ -1318,9 +1350,9 @@ kernel void copy(const device ftype* input0 [[buffer(0)]],
     if (x >= param.head_count || y >= param.kv_seq_len || b >= param.batch) {
         return;
     }
-    const int in_idx  = (b * param.kv_seq_len + y) * param.head_count + x;
+    const long in_idx  = ((long)b * param.kv_seq_len + y) * param.head_count + x;
 
-    int out_idx_k = param.dst_k_offset + (y * param.batch + b) * param.head_count + x;
+    long out_idx_k = ((long)(param.past_kv_len + y) * param.batch + b) * param.head_count + x;
 #ifdef KV_QUANT_K
     float k = (float)input0[in_idx];
     if (param.k_scale == 0.0f) {
@@ -1335,7 +1367,7 @@ kernel void copy(const device ftype* input0 [[buffer(0)]],
     output0[out_idx_k] = input0[in_idx];
 #endif
 
-    int out_idx_v = param.dst_v_offset + (y * param.batch + b) * param.head_count + x;
+    long out_idx_v = out_idx_k;
     ftype value = load_value(input1, param, b, y, x);
 #ifdef KV_QUANT_V
     float v = (float)value;
@@ -1865,15 +1897,15 @@ kernel void decode_qkv(const device ftype* input0 [[buffer(0)]],
     int value_seq_len = param.key_seq_len;
     int align_value_len = ((value_seq_len + param.kv_align_len - 1) / param.kv_align_len) * param.kv_align_len;
 
-    device const ftype *A_offset = input0 + (y * q_seq_len + x) * align_value_len;
+    device const ftype *A_offset = input0 + ((long)y * q_seq_len + x) * align_value_len;
     float out = 0;
 
     // row-major V: per-token strided scalar read (d = z fixed)
 #ifdef SIMD_GROUP_REDUCE
-    for(int i = tiisg; i < align_value_len; i += SIMD_GROUP_WIDTH){
+    for(int i = tiisg; i < value_seq_len; i += SIMD_GROUP_WIDTH){
 #ifdef QUANT_V
         ftype B = GETV(((const device char*)past_value)[((long)i * param.batch + b) * kv_head_num * head_dim + kh * head_dim + z],
-                       b * param.max_kv_len + i);
+                       (long)b * param.max_kv_len + i);
 #else
         ftype B = past_value[((long)i * param.batch + b) * kv_head_num * head_dim + kh * head_dim + z];
 #endif
@@ -1895,10 +1927,10 @@ kernel void decode_qkv(const device ftype* input0 [[buffer(0)]],
 #endif
     }
 #else
-    for(int i = 0; i < align_value_len; ++i){
+    for(int i = 0; i < value_seq_len; ++i){
 #ifdef QUANT_V
         ftype B = GETV(((const device char*)past_value)[((long)i * param.batch + b) * kv_head_num * head_dim + kh * head_dim + z],
-                       b * param.max_kv_len + i);
+                       (long)b * param.max_kv_len + i);
 #else
         ftype B = past_value[((long)i * param.batch + b) * kv_head_num * head_dim + kh * head_dim + z];
 #endif
@@ -1946,30 +1978,32 @@ kernel void decode_qkv_c2(const device ftype* input0 [[buffer(0)]],
     int value_seq_len = param.key_seq_len;
     int align_value_len = ((value_seq_len + param.kv_align_len - 1) / param.kv_align_len) * param.kv_align_len;
 
-    device const ftype *A_offset = input0 + (y * q_seq_len + x) * align_value_len;
+    device const ftype *A_offset = input0 + ((long)y * q_seq_len + x) * align_value_len;
 
     // row-major V: per-token read of the adjacent d pair (z, z+1), contiguous in-row
+    const bool has_z1 = (z + 1 < head_dim);
     float out0 = 0;
     float out1 = 0;
-    for(int i = tiisg; i < align_value_len; i += SIMD_GROUP_WIDTH){
+    for(int i = tiisg; i < value_seq_len; i += SIMD_GROUP_WIDTH){
         float A = float(A_offset[i]);
         const long v_off = ((long)i * param.batch + b) * kv_head_num * head_dim + kh * head_dim + z;
 #ifdef QUANT_V
+        const device char* vp = (const device char*)past_value + v_off;
+        float v0 = float(vp[0]);
+        float v1 = has_z1 ? float(vp[1]) : 0.0f;
 #ifdef DYNAMIC_QUANT_V
-        int tok_idx = b * param.max_kv_len + i;
+        long tok_idx = (long)b * param.max_kv_len + i;
         float vs = float(v_scales[tok_idx * 2]);
         float vb = float(v_scales[tok_idx * 2 + 1]);
-        char2 raw = ((const device char2*)((const device char*)past_value + v_off))[0];
-        out0 += A * (float(raw.x) * vs + vb);
-        out1 += A * (float(raw.y) * vs + vb);
+        out0 += A * (v0 * vs + vb);
+        if (has_z1) out1 += A * (v1 * vs + vb);
 #else
-        char2 raw = ((const device char2*)((const device char*)past_value + v_off))[0];
-        out0 += A * (float(raw.x) * param.v_scale);
-        out1 += A * (float(raw.y) * param.v_scale);
+        out0 += A * (v0 * param.v_scale);
+        if (has_z1) out1 += A * (v1 * param.v_scale);
 #endif
 #else
         out0 += A * float(past_value[v_off]);
-        out1 += A * float(past_value[v_off + 1]);
+        if (has_z1) out1 += A * float(past_value[v_off + 1]);
 #endif
     }
     float r0 = out0;
@@ -2074,25 +2108,25 @@ kernel void decode_qk_softmax(const device ftype* input0 [[buffer(0)]],
     }
 
     const int head0 = kv_hn * GROUP_SIZE + int(gid.z);
-    const int query_offset = (b * param.query_seq_len + q_idx) * param.head_num * head_dim;
-    const device ftype* query0 = input0 + query_offset + head0 * head_dim;
+    const long query_offset = ((long)b * param.query_seq_len + q_idx) * param.head_num * head_dim;
+    const device ftype* query0 = input0 + query_offset + (long)head0 * head_dim;
     const int key_head_offset = kv_hn * head_dim;
-    const int key_stride = kv_head_num * head_dim;
+    const long key_stride = (long)kv_head_num * head_dim;
 
     float local_max0 = -FLT_MAX;
     const int kv_valid_limit = max(key_seq_len - param.query_seq_len, 0) + q_idx;
     for (int k = int(tid); k < key_seq_len; k += tptg) {
 #ifdef QUANT_K
-        const device char* key = (const device char*)past_key + (k * param.batch + b) * key_stride + key_head_offset;
+        const device char* key = (const device char*)past_key + ((long)k * param.batch + b) * key_stride + key_head_offset;
 #else
-        const device ftype* key = past_key + (k * param.batch + b) * key_stride + key_head_offset;
+        const device ftype* key = past_key + ((long)k * param.batch + b) * key_stride + key_head_offset;
 #endif
         float s0 = 0.0f;
         const device ftype4* q04 = (const device ftype4*)query0;
 #ifdef QUANT_K
         const device char4* k4 = (const device char4*)key;
 #ifdef DYNAMIC_QUANT_K
-        const int k_token_idx = k * param.batch + b;
+        const long k_token_idx = (long)k * param.batch + b;
         const float k_scale = float(k_scales[k_token_idx * 2]);
         const float k_bias = float(k_scales[k_token_idx * 2 + 1]);
 #endif
@@ -2210,20 +2244,20 @@ kernel void decode_qk_softmax(const device ftype* input0 [[buffer(0)]],
 
     const int head0 = kv_hn * GROUP_SIZE;
     const int head1 = head0 + 1;
-    const int query_offset = (b * param.query_seq_len + q_idx) * param.head_num * head_dim;
-    const device ftype* query0 = input0 + query_offset + head0 * head_dim;
-    const device ftype* query1 = input0 + query_offset + head1 * head_dim;
+    const long query_offset = ((long)b * param.query_seq_len + q_idx) * param.head_num * head_dim;
+    const device ftype* query0 = input0 + query_offset + (long)head0 * head_dim;
+    const device ftype* query1 = input0 + query_offset + (long)head1 * head_dim;
     const int key_head_offset = kv_hn * head_dim;
-    const int key_stride = kv_head_num * head_dim;
+    const long key_stride = (long)kv_head_num * head_dim;
 
     float local_max0 = -FLT_MAX;
     float local_max1 = -FLT_MAX;
     const int kv_valid_limit = max(key_seq_len - param.query_seq_len, 0) + q_idx;
     for (int k = int(tid); k < key_seq_len; k += tptg) {
 #ifdef QUANT_K
-        const device char* key = (const device char*)past_key + (k * param.batch + b) * key_stride + key_head_offset;
+        const device char* key = (const device char*)past_key + ((long)k * param.batch + b) * key_stride + key_head_offset;
 #else
-        const device ftype* key = past_key + (k * param.batch + b) * key_stride + key_head_offset;
+        const device ftype* key = past_key + ((long)k * param.batch + b) * key_stride + key_head_offset;
 #endif
         float s0 = 0.0f;
         float s1 = 0.0f;
@@ -2232,7 +2266,7 @@ kernel void decode_qk_softmax(const device ftype* input0 [[buffer(0)]],
 #ifdef QUANT_K
         const device char4* k4 = (const device char4*)key;
 #ifdef DYNAMIC_QUANT_K
-        const int k_token_idx = k * param.batch + b;
+        const long k_token_idx = (long)k * param.batch + b;
         const float k_scale = float(k_scales[k_token_idx * 2]);
         const float k_bias = float(k_scales[k_token_idx * 2 + 1]);
 #endif
@@ -2372,13 +2406,13 @@ kernel void decode_qk_softmax(const device ftype* input0 [[buffer(0)]],
     }
 
     const int head_base = kv_hn * GROUP_SIZE;
-    const int query_offset = (b * param.query_seq_len + q_idx) * param.head_num * head_dim;
+    const long query_offset = ((long)b * param.query_seq_len + q_idx) * param.head_num * head_dim;
     const int key_head_offset = kv_hn * head_dim;
-    const int key_stride = kv_head_num * head_dim;
+    const long key_stride = (long)kv_head_num * head_dim;
 
     const device ftype4* q4_ptrs[GROUP_SIZE];
     for (int g = 0; g < GROUP_SIZE; g++) {
-        q4_ptrs[g] = (const device ftype4*)(input0 + query_offset + (head_base + g) * head_dim);
+        q4_ptrs[g] = (const device ftype4*)(input0 + query_offset + (long)(head_base + g) * head_dim);
     }
 
     float local_max[GROUP_SIZE];
@@ -2389,15 +2423,15 @@ kernel void decode_qk_softmax(const device ftype* input0 [[buffer(0)]],
     const int kv_valid_limit = max(key_seq_len - param.query_seq_len, 0) + q_idx;
     for (int k = int(tid); k < key_seq_len; k += tptg) {
 #ifdef QUANT_K
-        const device char* key = (const device char*)past_key + (k * param.batch + b) * key_stride + key_head_offset;
+        const device char* key = (const device char*)past_key + ((long)k * param.batch + b) * key_stride + key_head_offset;
         const device char4* k4 = (const device char4*)key;
 #ifdef DYNAMIC_QUANT_K
-        const int k_token_idx = k * param.batch + b;
+        const long k_token_idx = (long)k * param.batch + b;
         const float k_scale = float(k_scales[k_token_idx * 2]);
         const float k_bias = float(k_scales[k_token_idx * 2 + 1]);
 #endif
 #else
-        const device ftype* key = past_key + (k * param.batch + b) * key_stride + key_head_offset;
+        const device ftype* key = past_key + ((long)k * param.batch + b) * key_stride + key_head_offset;
         const device ftype4* k4 = (const device ftype4*)key;
 #endif
 
@@ -2535,16 +2569,16 @@ struct Param {
 #define SPLITKV_NSG 4
 #endif
 #define DPT (HEAD_DIM / SIMD_GROUP_WIDTH)   // d-values owned per lane
-// q heads per threadgroup sharing one kv head. SDPA_QH_PER_TG>1 (must divide
+// q heads per threadgroup sharing one kv head. SDPA_QHEADS_PER_TG>1 (must divide
 // GROUP_SIZE) folds that many q heads into one TG so each K/V row is fetched
 // once instead of per q head.
-#ifndef SDPA_QH_PER_TG
-#define SDPA_QH_PER_TG 1
+#ifndef SDPA_QHEADS_PER_TG
+#define SDPA_QHEADS_PER_TG 1
 #endif
-// kv tokens per stream-loop iteration. SDPA_KVB>1 overlaps the per-token
+// kv tokens per stream-loop iteration. SDPA_KV_TOKENS_PER_ITER>1 overlaps the per-token
 // QK/simd_sum chains and folds their scores into one online-softmax update.
-#ifndef SDPA_KVB
-#define SDPA_KVB 1
+#ifndef SDPA_KV_TOKENS_PER_ITER
+#define SDPA_KV_TOKENS_PER_ITER 1
 #endif
 
 kernel void decode_splitkv(const device ftype* input0 [[buffer(0)]],
@@ -2562,9 +2596,9 @@ kernel void decode_splitkv(const device ftype* input0 [[buffer(0)]],
     uint sgitg [[simdgroup_index_in_threadgroup]]) {
 
     const int kv_head_num = param.head_num / GROUP_SIZE;
-    const int head_groups = param.head_num / SDPA_QH_PER_TG;      // TGs per batch item
+    const int head_groups = param.head_num / SDPA_QHEADS_PER_TG;      // TGs per batch item
     const int b     = int(gid.y) / head_groups;
-    const int q_head_base = (int(gid.y) % head_groups) * SDPA_QH_PER_TG; // first q head of this TG
+    const int q_head_base = (int(gid.y) % head_groups) * SDPA_QHEADS_PER_TG; // first q head of this TG
     const int kv_hn = q_head_base / GROUP_SIZE;
     const int key_seq_len = param.key_seq_len;
     const int key_stride   = kv_head_num * HEAD_DIM;          // K row: [batch, kv_head_num, HEAD_DIM]
@@ -2573,23 +2607,41 @@ kernel void decode_splitkv(const device ftype* input0 [[buffer(0)]],
     // Query slices for this lane, kept in registers. scale*log2e is
     // folded in so the online softmax can use fast::exp2 throughout
     // (FA_SG technique): exp2(score*log2e - M*log2e) == exp(score - M).
-    thread float q[SDPA_QH_PER_TG][DPT];
+    thread float q[SDPA_QHEADS_PER_TG][DPT];
     {
         const float q_scale = param.scale * 1.4426950408889634f;
-        for (int g = 0; g < SDPA_QH_PER_TG; ++g) {
+        for (int g = 0; g < SDPA_QHEADS_PER_TG; ++g) {
             const device ftype* q_base = input0 + (b * param.head_num + q_head_base + g) * HEAD_DIM + int(tiisg) * DPT;
             for (int d = 0; d < DPT; ++d) {
                 q[g][d] = float(q_base[d]) * q_scale;
             }
         }
     }
+#if defined(QUANT_K) && defined(DYNAMIC_QUANT_K)
+    // Deferred K bias term: sum_d q[g][d] * k_bias = q_sum[g] * k_bias,
+    // hoisted out of the KV loop so K dequant costs 1 FMA per head after simd_sum.
+    float q_sum[SDPA_QHEADS_PER_TG];
+    for (int g = 0; g < SDPA_QHEADS_PER_TG; ++g) {
+        float qs = 0.0f;
+        for (int d = 0; d < DPT; ++d) {
+            qs += q[g][d];
+        }
+        q_sum[g] = simd_sum(qs);
+    }
+#endif
 
-    float S[SDPA_QH_PER_TG];
-    float M[SDPA_QH_PER_TG];
-    float O[SDPA_QH_PER_TG][DPT];
-    for (int g = 0; g < SDPA_QH_PER_TG; ++g) {
+    float S[SDPA_QHEADS_PER_TG];
+    float M[SDPA_QHEADS_PER_TG];
+    float O[SDPA_QHEADS_PER_TG][DPT];
+#if defined(QUANT_V) && defined(DYNAMIC_QUANT_V)
+    float O_bias[SDPA_QHEADS_PER_TG];
+#endif
+    for (int g = 0; g < SDPA_QHEADS_PER_TG; ++g) {
         S[g] = 0.0f;
         M[g] = -FLT_MAX / 2;
+#if defined(QUANT_V) && defined(DYNAMIC_QUANT_V)
+        O_bias[g] = 0.0f;
+#endif
         for (int d = 0; d < DPT; ++d) {
             O[g][d] = 0.0f;
         }
@@ -2598,7 +2650,7 @@ kernel void decode_splitkv(const device ftype* input0 [[buffer(0)]],
     // Cross-simdgroup reduce scratch, filled after the stream loop:
     // (S, M) per simdgroup + transposed O partials. Deliberately independent
     // of HEAD_DIM so threadgroup memory stays small at NSG=32.
-    threadgroup float s_sm[SPLITKV_NSG][SDPA_QH_PER_TG][2];
+    threadgroup float s_sm[SPLITKV_NSG][SDPA_QHEADS_PER_TG][2];
     threadgroup float s_out[SPLITKV_NSG * SIMD_GROUP_WIDTH];
 
 #ifdef QUANT_K
@@ -2623,92 +2675,181 @@ kernel void decode_splitkv(const device ftype* input0 [[buffer(0)]],
     constexpr int kv_begin = 0;
     const int kv_end = key_seq_len;
 #endif
+    using ftype2_t = vec<ftype, 2>;
     int i = kv_begin + int(sgitg);
-#if SDPA_KVB > 1
-    // Multi-token overlap: take SDPA_KVB tokens of the simdgroup's stripe so
+#if SDPA_KV_TOKENS_PER_ITER > 1
+    // Multi-token overlap: take SDPA_KV_TOKENS_PER_ITER tokens of the simdgroup's stripe so
     // their dot/shuffle chains overlap and their scores share one softmax
     // update. Tail tokens fall through to the single-token loop.
-    for (; i + (SDPA_KVB - 1) * SPLITKV_NSG < kv_end; i += step * SDPA_KVB) {
-        float k_row[SDPA_KVB][DPT];
-        float v_row[SDPA_KVB][DPT];
-        float score[SDPA_KVB][SDPA_QH_PER_TG];
-        for (int kk = 0; kk < SDPA_KVB; ++kk) {
+    for (; i + (SDPA_KV_TOKENS_PER_ITER - 1) * SPLITKV_NSG < kv_end; i += step * SDPA_KV_TOKENS_PER_ITER) {
+#ifdef QUANT_K
+        char k_raw[SDPA_KV_TOKENS_PER_ITER][DPT];
+        float k_scale[SDPA_KV_TOKENS_PER_ITER];
+#ifdef DYNAMIC_QUANT_K
+        float k_bias[SDPA_KV_TOKENS_PER_ITER];
+#endif
+#else
+        ftype k_raw[SDPA_KV_TOKENS_PER_ITER][DPT];
+#endif
+#ifdef QUANT_V
+        char v_raw[SDPA_KV_TOKENS_PER_ITER][DPT];
+        float v_sc[SDPA_KV_TOKENS_PER_ITER];
+#ifdef DYNAMIC_QUANT_V
+        float v_bi[SDPA_KV_TOKENS_PER_ITER];
+#endif
+#else
+        ftype v_raw[SDPA_KV_TOKENS_PER_ITER][DPT];
+#endif
+        float score[SDPA_KV_TOKENS_PER_ITER][SDPA_QHEADS_PER_TG];
+        for (int kk = 0; kk < SDPA_KV_TOKENS_PER_ITER; ++kk) {
             const int it = i + kk * SPLITKV_NSG;
 #ifdef QUANT_K
             const device char* kp = k_cache + ((long)it * param.batch + b) * key_stride + kv_hn * HEAD_DIM + int(tiisg) * DPT;
 #ifdef DYNAMIC_QUANT_K
-            const float k_scale = float(k_scales[(it * param.batch + b) * 2 + 0]);
-            const float k_bias  = float(k_scales[(it * param.batch + b) * 2 + 1]);
+            const long ks_off = ((long)it * param.batch + b) * 2;
+            k_scale[kk] = float(k_scales[ks_off + 0]);
+            k_bias[kk]  = float(k_scales[ks_off + 1]);
 #else
-            const float k_scale = param.k_scale;
-            const float k_bias  = 0.0f;
+            k_scale[kk] = param.k_scale;
 #endif
-            for (int d = 0; d < DPT; ++d) {
-                k_row[kk][d] = float(kp[d]) * k_scale + k_bias;
+            if constexpr ((DPT % 4) == 0) {
+                for (int d = 0; d < DPT; d += 4) {
+                    char4 kv4 = *(const device char4*)(kp + d);
+                    k_raw[kk][d + 0] = kv4[0]; k_raw[kk][d + 1] = kv4[1];
+                    k_raw[kk][d + 2] = kv4[2]; k_raw[kk][d + 3] = kv4[3];
+                }
+            } else if constexpr ((DPT % 2) == 0) {
+                for (int d = 0; d < DPT; d += 2) {
+                    char2 kv2 = *(const device char2*)(kp + d);
+                    k_raw[kk][d + 0] = kv2[0]; k_raw[kk][d + 1] = kv2[1];
+                }
+            } else {
+                for (int d = 0; d < DPT; ++d) {
+                    k_raw[kk][d] = kp[d];
+                }
             }
 #else
             const device ftype* kp = k_cache + ((long)it * param.batch + b) * key_stride + kv_hn * HEAD_DIM + int(tiisg) * DPT;
-            for (int d = 0; d < DPT; ++d) {
-                k_row[kk][d] = float(kp[d]);
+            if constexpr ((DPT % 4) == 0) {
+                for (int d = 0; d < DPT; d += 4) {
+                    ftype4 kv4 = *(const device ftype4*)(kp + d);
+                    k_raw[kk][d + 0] = kv4[0]; k_raw[kk][d + 1] = kv4[1];
+                    k_raw[kk][d + 2] = kv4[2]; k_raw[kk][d + 3] = kv4[3];
+                }
+            } else if constexpr ((DPT % 2) == 0) {
+                for (int d = 0; d < DPT; d += 2) {
+                    ftype2_t kv2 = *(const device ftype2_t*)(kp + d);
+                    k_raw[kk][d + 0] = kv2[0]; k_raw[kk][d + 1] = kv2[1];
+                }
+            } else {
+                for (int d = 0; d < DPT; ++d) {
+                    k_raw[kk][d] = kp[d];
+                }
             }
 #endif
         }
-        for (int kk = 0; kk < SDPA_KVB; ++kk) {
-            for (int g = 0; g < SDPA_QH_PER_TG; ++g) {
+        for (int kk = 0; kk < SDPA_KV_TOKENS_PER_ITER; ++kk) {
+            for (int g = 0; g < SDPA_QHEADS_PER_TG; ++g) {
                 float acc = 0.0f;
                 for (int d = 0; d < DPT; ++d) {
-                    acc += q[g][d] * k_row[kk][d];
+                    acc += q[g][d] * float(k_raw[kk][d]);
                 }
                 score[kk][g] = acc;
             }
         }
         // V row loads issued before the reduce: score-independent, their
         // latency overlaps the shuffle chains.
-        for (int kk = 0; kk < SDPA_KVB; ++kk) {
+        for (int kk = 0; kk < SDPA_KV_TOKENS_PER_ITER; ++kk) {
             const int it = i + kk * SPLITKV_NSG;
 #ifdef QUANT_V
             const device char* vp = v_cache + (long)it * v_seq_stride + (b * kv_head_num + kv_hn) * HEAD_DIM + int(tiisg) * DPT;
 #ifdef DYNAMIC_QUANT_V
-            const float v_sc = float(v_scales[(b * param.max_kv_len + it) * 2 + 0]);
-            const float v_bi = float(v_scales[(b * param.max_kv_len + it) * 2 + 1]);
+            const long vs_off = ((long)b * param.max_kv_len + it) * 2;
+            v_sc[kk] = float(v_scales[vs_off + 0]);
+            v_bi[kk] = float(v_scales[vs_off + 1]);
 #else
-            const float v_sc = param.v_scale;
-            const float v_bi = 0.0f;
+            v_sc[kk] = param.v_scale;
 #endif
-            for (int d = 0; d < DPT; ++d) {
-                v_row[kk][d] = float(vp[d]) * v_sc + v_bi;
+            if constexpr ((DPT % 4) == 0) {
+                for (int d = 0; d < DPT; d += 4) {
+                    char4 vv4 = *(const device char4*)(vp + d);
+                    v_raw[kk][d + 0] = vv4[0]; v_raw[kk][d + 1] = vv4[1];
+                    v_raw[kk][d + 2] = vv4[2]; v_raw[kk][d + 3] = vv4[3];
+                }
+            } else if constexpr ((DPT % 2) == 0) {
+                for (int d = 0; d < DPT; d += 2) {
+                    char2 vv2 = *(const device char2*)(vp + d);
+                    v_raw[kk][d + 0] = vv2[0]; v_raw[kk][d + 1] = vv2[1];
+                }
+            } else {
+                for (int d = 0; d < DPT; ++d) {
+                    v_raw[kk][d] = vp[d];
+                }
             }
 #else
             const device ftype* vp = v_cache + (long)it * v_seq_stride + (b * kv_head_num + kv_hn) * HEAD_DIM + int(tiisg) * DPT;
-            for (int d = 0; d < DPT; ++d) {
-                v_row[kk][d] = float(vp[d]);
+            if constexpr ((DPT % 4) == 0) {
+                for (int d = 0; d < DPT; d += 4) {
+                    ftype4 vv4 = *(const device ftype4*)(vp + d);
+                    v_raw[kk][d + 0] = vv4[0]; v_raw[kk][d + 1] = vv4[1];
+                    v_raw[kk][d + 2] = vv4[2]; v_raw[kk][d + 3] = vv4[3];
+                }
+            } else if constexpr ((DPT % 2) == 0) {
+                for (int d = 0; d < DPT; d += 2) {
+                    ftype2_t vv2 = *(const device ftype2_t*)(vp + d);
+                    v_raw[kk][d + 0] = vv2[0]; v_raw[kk][d + 1] = vv2[1];
+                }
+            } else {
+                for (int d = 0; d < DPT; ++d) {
+                    v_raw[kk][d] = vp[d];
+                }
             }
 #endif
         }
-        for (int kk = 0; kk < SDPA_KVB; ++kk) {
-            for (int g = 0; g < SDPA_QH_PER_TG; ++g) {
-                score[kk][g] = simd_sum(score[kk][g]);
+        for (int kk = 0; kk < SDPA_KV_TOKENS_PER_ITER; ++kk) {
+            for (int g = 0; g < SDPA_QHEADS_PER_TG; ++g) {
+                float s = simd_sum(score[kk][g]);
+#ifdef QUANT_K
+#ifdef DYNAMIC_QUANT_K
+                s = s * k_scale[kk] + q_sum[g] * k_bias[kk];
+#else
+                s *= k_scale[kk];
+#endif
+#endif
+                score[kk][g] = s;
             }
         }
-        for (int g = 0; g < SDPA_QH_PER_TG; ++g) {
+        for (int g = 0; g < SDPA_QHEADS_PER_TG; ++g) {
             const float m_prev = M[g];
             float m_new = m_prev;
-            for (int kk = 0; kk < SDPA_KVB; ++kk) {
+            for (int kk = 0; kk < SDPA_KV_TOKENS_PER_ITER; ++kk) {
                 m_new = max(m_new, score[kk][g]);
             }
             const float ms = fast::exp2(m_prev - m_new);
-            float vs[SDPA_KVB];
+            float vs[SDPA_KV_TOKENS_PER_ITER];
             float s_add = 0.0f;
-            for (int kk = 0; kk < SDPA_KVB; ++kk) {
+            for (int kk = 0; kk < SDPA_KV_TOKENS_PER_ITER; ++kk) {
                 vs[kk] = fast::exp2(score[kk][g] - m_new);
                 s_add += vs[kk];
             }
             M[g] = m_new;
             S[g] = S[g] * ms + s_add;
+#ifdef QUANT_V
+#ifdef DYNAMIC_QUANT_V
+            float vb_add = 0.0f;
+            for (int kk = 0; kk < SDPA_KV_TOKENS_PER_ITER; ++kk) {
+                vb_add += vs[kk] * v_bi[kk];
+            }
+            O_bias[g] = O_bias[g] * ms + vb_add;
+#endif
+            for (int kk = 0; kk < SDPA_KV_TOKENS_PER_ITER; ++kk) {
+                vs[kk] *= v_sc[kk];
+            }
+#endif
             for (int d = 0; d < DPT; ++d) {
                 float o = O[g][d] * ms;
-                for (int kk = 0; kk < SDPA_KVB; ++kk) {
-                    o += vs[kk] * v_row[kk][d];
+                for (int kk = 0; kk < SDPA_KV_TOKENS_PER_ITER; ++kk) {
+                    o += vs[kk] * float(v_raw[kk][d]);
                 }
                 O[g][d] = o;
             }
@@ -2720,28 +2861,54 @@ kernel void decode_splitkv(const device ftype* input0 [[buffer(0)]],
 #ifdef QUANT_K
         const device char* kp = k_cache + ((long)i * param.batch + b) * key_stride + kv_hn * HEAD_DIM + int(tiisg) * DPT;
 #ifdef DYNAMIC_QUANT_K
-        const float k_scale = float(k_scales[(i * param.batch + b) * 2 + 0]);
-        const float k_bias  = float(k_scales[(i * param.batch + b) * 2 + 1]);
+        const long ks_off = ((long)i * param.batch + b) * 2;
+        const float k_scale = float(k_scales[ks_off + 0]);
+        const float k_bias  = float(k_scales[ks_off + 1]);
 #else
         const float k_scale = param.k_scale;
-        const float k_bias  = 0.0f;
 #endif
+        char k_raw[DPT];
+        if constexpr ((DPT % 4) == 0) {
+            for (int d = 0; d < DPT; d += 4) {
+                char4 kv4 = *(const device char4*)(kp + d);
+                k_raw[d + 0] = kv4[0]; k_raw[d + 1] = kv4[1];
+                k_raw[d + 2] = kv4[2]; k_raw[d + 3] = kv4[3];
+            }
+        } else if constexpr ((DPT % 2) == 0) {
+            for (int d = 0; d < DPT; d += 2) {
+                char2 kv2 = *(const device char2*)(kp + d);
+                k_raw[d + 0] = kv2[0]; k_raw[d + 1] = kv2[1];
+            }
+        } else {
+            for (int d = 0; d < DPT; ++d) {
+                k_raw[d] = kp[d];
+            }
+        }
 #else
         const device ftype* kp = k_cache + ((long)i * param.batch + b) * key_stride + kv_hn * HEAD_DIM + int(tiisg) * DPT;
-#endif
-        float k_row[DPT];
-        for (int d = 0; d < DPT; ++d) {
-#ifdef QUANT_K
-            k_row[d] = float(kp[d]) * k_scale + k_bias;
-#else
-            k_row[d] = float(kp[d]);
-#endif
+        ftype k_raw[DPT];
+        if constexpr ((DPT % 4) == 0) {
+            for (int d = 0; d < DPT; d += 4) {
+                ftype4 kv4 = *(const device ftype4*)(kp + d);
+                k_raw[d + 0] = kv4[0]; k_raw[d + 1] = kv4[1];
+                k_raw[d + 2] = kv4[2]; k_raw[d + 3] = kv4[3];
+            }
+        } else if constexpr ((DPT % 2) == 0) {
+            for (int d = 0; d < DPT; d += 2) {
+                ftype2_t kv2 = *(const device ftype2_t*)(kp + d);
+                k_raw[d + 0] = kv2[0]; k_raw[d + 1] = kv2[1];
+            }
+        } else {
+            for (int d = 0; d < DPT; ++d) {
+                k_raw[d] = kp[d];
+            }
         }
-        float score[SDPA_QH_PER_TG];
-        for (int g = 0; g < SDPA_QH_PER_TG; ++g) {
+#endif
+        float score[SDPA_QHEADS_PER_TG];
+        for (int g = 0; g < SDPA_QHEADS_PER_TG; ++g) {
             float acc = 0.0f;
             for (int d = 0; d < DPT; ++d) {
-                acc += q[g][d] * k_row[d];
+                acc += q[g][d] * float(k_raw[d]);
             }
             score[g] = acc;
         }
@@ -2749,43 +2916,92 @@ kernel void decode_splitkv(const device ftype* input0 [[buffer(0)]],
 #ifdef QUANT_V
         const device char* vp = v_cache + (long)i * v_seq_stride + (b * kv_head_num + kv_hn) * HEAD_DIM + int(tiisg) * DPT;
 #ifdef DYNAMIC_QUANT_V
-        const float v_sc = float(v_scales[(b * param.max_kv_len + i) * 2 + 0]);
-        const float v_bi = float(v_scales[(b * param.max_kv_len + i) * 2 + 1]);
+        const long vs_off = ((long)b * param.max_kv_len + i) * 2;
+        const float v_sc = float(v_scales[vs_off + 0]);
+        const float v_bi = float(v_scales[vs_off + 1]);
 #else
         const float v_sc = param.v_scale;
-        const float v_bi = 0.0f;
 #endif
-        float v_row[DPT];
-        for (int d = 0; d < DPT; ++d) {
-            v_row[d] = float(vp[d]) * v_sc + v_bi;
+        char v_raw[DPT];
+        if constexpr ((DPT % 4) == 0) {
+            for (int d = 0; d < DPT; d += 4) {
+                char4 vv4 = *(const device char4*)(vp + d);
+                v_raw[d + 0] = vv4[0]; v_raw[d + 1] = vv4[1];
+                v_raw[d + 2] = vv4[2]; v_raw[d + 3] = vv4[3];
+            }
+        } else if constexpr ((DPT % 2) == 0) {
+            for (int d = 0; d < DPT; d += 2) {
+                char2 vv2 = *(const device char2*)(vp + d);
+                v_raw[d + 0] = vv2[0]; v_raw[d + 1] = vv2[1];
+            }
+        } else {
+            for (int d = 0; d < DPT; ++d) {
+                v_raw[d] = vp[d];
+            }
         }
 #else
         const device ftype* vp = v_cache + (long)i * v_seq_stride + (b * kv_head_num + kv_hn) * HEAD_DIM + int(tiisg) * DPT;
-        float v_row[DPT];
-        for (int d = 0; d < DPT; ++d) {
-            v_row[d] = float(vp[d]);
+        ftype v_raw[DPT];
+        if constexpr ((DPT % 4) == 0) {
+            for (int d = 0; d < DPT; d += 4) {
+                ftype4 vv4 = *(const device ftype4*)(vp + d);
+                v_raw[d + 0] = vv4[0]; v_raw[d + 1] = vv4[1];
+                v_raw[d + 2] = vv4[2]; v_raw[d + 3] = vv4[3];
+            }
+        } else if constexpr ((DPT % 2) == 0) {
+            for (int d = 0; d < DPT; d += 2) {
+                ftype2_t vv2 = *(const device ftype2_t*)(vp + d);
+                v_raw[d + 0] = vv2[0]; v_raw[d + 1] = vv2[1];
+            }
+        } else {
+            for (int d = 0; d < DPT; ++d) {
+                v_raw[d] = vp[d];
+            }
         }
 #endif
-        for (int g = 0; g < SDPA_QH_PER_TG; ++g) {
-            score[g] = simd_sum(score[g]);
+        for (int g = 0; g < SDPA_QHEADS_PER_TG; ++g) {
+            float s = simd_sum(score[g]);
+#ifdef QUANT_K
+#ifdef DYNAMIC_QUANT_K
+            s = s * k_scale + q_sum[g] * k_bias;
+#else
+            s *= k_scale;
+#endif
+#endif
+            score[g] = s;
         }
 
-        for (int g = 0; g < SDPA_QH_PER_TG; ++g) {
+        for (int g = 0; g < SDPA_QHEADS_PER_TG; ++g) {
             const float m_prev = M[g];
             M[g] = max(m_prev, score[g]);
             const float ms = fast::exp2(m_prev - M[g]);
             const float vs = fast::exp2(score[g] - M[g]);
             S[g] = S[g] * ms + vs;
+#ifdef QUANT_V
+#ifdef DYNAMIC_QUANT_V
+            O_bias[g] = O_bias[g] * ms + vs * v_bi;
+#endif
+            const float vs_eff = vs * v_sc;
+#else
+            const float vs_eff = vs;
+#endif
             for (int d = 0; d < DPT; ++d) {
-                O[g][d] = O[g][d] * ms + vs * v_row[d];
+                O[g][d] = O[g][d] * ms + vs_eff * float(v_raw[d]);
             }
         }
     }
+#if defined(QUANT_V) && defined(DYNAMIC_QUANT_V)
+    for (int g = 0; g < SDPA_QHEADS_PER_TG; ++g) {
+        for (int d = 0; d < DPT; ++d) {
+            O[g][d] += O_bias[g];
+        }
+    }
+#endif
     // Transposed reduce: (S, M) via one simd_max/simd_sum over lanes indexing
     // simdgroups; O combined 32 components at a time through s_out, so
     // threadgroup memory stays HEAD_DIM-independent.
     if (tiisg == 0) {
-        for (int g = 0; g < SDPA_QH_PER_TG; ++g) {
+        for (int g = 0; g < SDPA_QHEADS_PER_TG; ++g) {
             s_sm[sgitg][g][0] = S[g];
             s_sm[sgitg][g][1] = M[g];
         }
@@ -2794,7 +3010,7 @@ kernel void decode_splitkv(const device ftype* input0 [[buffer(0)]],
 
     const int row_base = b * param.head_num + q_head_base;
     const bool lane_is_sg = (int(tiisg) < SPLITKV_NSG);
-    for (int g = 0; g < SDPA_QH_PER_TG; ++g) {
+    for (int g = 0; g < SDPA_QHEADS_PER_TG; ++g) {
         // lane t holds simdgroup t's (S, M); reduce across lanes
         const float Mi = lane_is_sg ? s_sm[tiisg][g][1] : (-FLT_MAX / 2);
         const float m  = simd_max(Mi);
@@ -2854,9 +3070,10 @@ kernel void decode_splitkv_reduce(device ftype* out_final [[buffer(1)]],
     const int hn = int(gid.x);
     const int stride_hd = hd + 2;
     float mg = -FLT_MAX / 2;
-    for (int blk = 0; blk < nblocks; ++blk) {
+    for (int blk = int(tix); blk < nblocks; blk += SIMD_GROUP_WIDTH) {
         mg = max(mg, partials[((long)blk * hn_total + hn) * stride_hd + hd + 1]);
     }
+    mg = simd_max(mg);
     float acc[DPT];
     for (int j = 0; j < DPT; ++j) {
         acc[j] = 0.0f;
