@@ -54,6 +54,22 @@
                     app:icon="@drawable/baseline_arrow_drop_down_24"
                     app:labelText="@string/select_download_provider" />
 
+                <com.google.android.material.divider.MaterialDivider
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="16dp"
+                    android:layout_marginEnd="16dp" />
+
+                <com.alibaba.mnnllm.android.modelsettings.DropDownLineView
+                    android:id="@+id/dropdown_language"
+                    style="@style/SettingsRowContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="8dp"
+                    app:icon="@drawable/baseline_arrow_drop_down_24"
+                    app:labelText="@string/language" />
+
 
                 <TextView
                     android:id="@+id/btn_voice_model_management"

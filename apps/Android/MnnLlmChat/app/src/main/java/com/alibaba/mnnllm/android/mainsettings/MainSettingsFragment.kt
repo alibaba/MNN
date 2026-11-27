@@ -24,6 +24,7 @@ import com.alibaba.mnnllm.android.modelmarket.ModelRepository
 import com.alibaba.mnnllm.android.privacy.PrivacyPolicyManager
 import com.alibaba.mnnllm.android.update.UpdateChecker
 import com.alibaba.mnnllm.android.utils.AppUtils
+import com.alibaba.mnnllm.android.utils.LanguageSettings
 import com.alibaba.mnnllm.api.openai.manager.ApiServiceManager
 import com.alibaba.mnnllm.api.openai.service.ApiServerConfig
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
@@ -70,6 +71,12 @@ class MainSettingsFragment : Fragment() {
 
     override fun onResume() {
         super.onResume()
+        // Android 13's per-app language screen can change the locale while this fragment is in the
+        // background; re-read so the row never shows a stale choice.
+        _binding?.let {
+            val current = LanguageSettings.current()
+            it.dropdownLanguage.setCurrentItem(current)
+        }
         updateChecker?.checkForUpdates(requireContext(), false)
     }
 
@@ -82,6 +89,7 @@ class MainSettingsFragment : Fragment() {
         }
 
         setupDownloadProvider(sharedPreferences)
+        setupLanguage()
         setupVoiceModelManagement()
         setupStorageManagement()
 
@@ -136,6 +144,26 @@ class MainSettingsFragment : Fragment() {
             }
         )
         binding.dropdownDownloadProvider.setCurrentItem(currentProvider)
+    }
+
+    private fun setupLanguage() {
+        // The row and Android 13's per-app language screen write the same AppCompat state, so the
+        // row is re-read on every resume rather than cached.
+        fun render() {
+            val current = LanguageSettings.current()
+            binding.dropdownLanguage.setCurrentItem(current)
+            binding.dropdownLanguage.setDropDownItems(
+                LanguageSettings.Language.entries.toList(),
+                itemToString = { LanguageSettings.label(requireContext(), it as LanguageSettings.Language) },
+                onDropdownItemSelected = { _, selected ->
+                    LanguageSettings.apply(selected as LanguageSettings.Language)
+                    // setApplicationLocales recreates the activity; re-render for the case where
+                    // AppCompat decides no recreation is needed.
+                    render()
+                }
+            )
+        }
+        render()
     }
 
     private fun setupVoiceModelManagement() {

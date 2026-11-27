@@ -17,21 +17,30 @@ mls::DiffusionSession::DiffusionSession(std::string resource_path, int memory_mo
             memory_mode
             ));
     MNN_DEBUG("diffusion session init resource_path_: %s memory_mode: %d ", resource_path_.c_str(), memory_mode);
-    this->diffusion_->load();
-    loaded_ = true;
+    // A failed load (missing text_encoder/unet/vae_decoder.mnn, or an OpenCL runtime that cannot
+    // build the kernels) has to be reported: Run() would otherwise forward on null modules and
+    // index an empty output vector, which is a SIGSEGV the Java layer cannot catch.
+    loaded_ = this->diffusion_ && this->diffusion_->load();
+    if (!loaded_) {
+        MNN_ERROR("diffusion session load failed for %s", resource_path_.c_str());
+    }
 }
 
-void mls::DiffusionSession::Run(const std::string &prompt,
+bool mls::DiffusionSession::Run(const std::string &prompt,
                                 const std::string &image_path,
                                 int iter_num,
                                 int random_seed,
                                 const std::function<void(int)>& progressCallback) {
     if (!loaded_) {
-        this->diffusion_->load();
-        loaded_ = true;
+        loaded_ = this->diffusion_ && this->diffusion_->load();
     }
-    this->diffusion_->run(prompt, image_path, iter_num, random_seed, progressCallback);
+    if (!loaded_) {
+        MNN_ERROR("diffusion session is not loaded, cannot run prompt: %s", prompt.c_str());
+        return false;
+    }
+    bool success = this->diffusion_->run(prompt, image_path, iter_num, random_seed, progressCallback);
     if (memory_mode_ != 1) {
         loaded_ = false;
     }
+    return success;
 }

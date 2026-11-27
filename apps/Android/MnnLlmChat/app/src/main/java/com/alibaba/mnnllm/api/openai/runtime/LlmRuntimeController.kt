@@ -18,11 +18,12 @@ interface LlmRuntimeController {
         configPath: String? = null,
         sessionId: String? = null,
         historyList: List<ChatDataItem>? = null,
-        deferLoad: Boolean = false
+        deferLoad: Boolean = false,
+        owner: Any? = null
     ): EnsureSessionResult
     fun getActiveSession(): LlmSession?
     fun getActiveModelId(): String?
     fun getThinkingEnabled(): Boolean?
     fun setThinkingEnabled(enabled: Boolean): Boolean
-    fun releaseSession()
+    fun releaseSession(expectedSession: LlmSession? = null, owner: Any? = null)
 }

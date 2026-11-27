@@ -23,6 +23,11 @@ object HexagonModule {
     private const val TAG = "HexagonModule"
     private const val STUB_LIB = "libMNN_htpops.so"
 
+    // FastRPC loads the DSP skeleton by arch-specific soname: libMNN_htpops_skel<ARCH>.so, falling
+    // back to the unversioned libMNN_htpops_skel.so. Both live next to the stub in the native lib dir.
+    private const val SKEL_LIB_PREFIX = "libMNN_htpops_skel"
+    private const val SKEL_LIB_SUFFIX = ".so"
+
     @Volatile
     private var prepared = false
 
@@ -45,21 +50,33 @@ object HexagonModule {
     private fun nativeLibDir(context: Context): String = context.applicationInfo.nativeLibraryDir
 
     /**
-     * Whether the Hexagon backend can be offered on this device: a supported SoC and the FastRPC
-     * stub actually packaged into the APK.
+     * Whether the Hexagon backend can be offered on this device: a supported SoC, the FastRPC stub
+     * packaged into the APK, and the DSP skeleton matching that SoC's Hexagon arch. Checking the
+     * skel too matters for multi-arch distribution: a universal package may ship the stub but not
+     * every arch's skel, and offering "hexagon" without the matching skel would fail at dlopen time.
      */
     fun deviceSupported(context: Context): Boolean {
         val soc = getSocModel()
-        if (soc == null || !sSupportedSoc.containsKey(soc)) {
+        val arch = soc?.let { sSupportedSoc[it] }
+        if (soc == null || arch == null) {
             return false
         }
-        val stub = File(nativeLibDir(context), STUB_LIB)
+        val libDir = nativeLibDir(context)
+        val stub = File(libDir, STUB_LIB)
         if (!stub.exists()) {
             Log.w(TAG, "SoC $soc supported but $STUB_LIB not packaged, Hexagon disabled")
             return false
         }
+        val skelName = skelLibName(arch)
+        if (!File(libDir, skelName).exists()) {
+            Log.w(TAG, "SoC $soc ($arch) supported but $skelName not packaged, Hexagon disabled")
+            return false
+        }
         return true
     }
+
+    /** FastRPC skel soname for a Hexagon arch, e.g. "V73" -> "libMNN_htpops_skelV73.so". */
+    private fun skelLibName(arch: String): String = "$SKEL_LIB_PREFIX$arch$SKEL_LIB_SUFFIX"
 
     /**
      * Point FastRPC at the packaged stub/skel. Safe to call more than once; only takes effect the

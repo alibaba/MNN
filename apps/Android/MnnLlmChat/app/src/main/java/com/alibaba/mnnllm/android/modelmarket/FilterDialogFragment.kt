@@ -6,9 +6,13 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.FrameLayout
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.alibaba.mls.api.download.DownloadState
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.utils.BaseBottomSheetDialogFragment
+import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
 
@@ -42,8 +46,24 @@ class FilterDialogFragment : BaseBottomSheetDialogFragment() {
         return inflater.inflate(R.layout.dialog_fragment_filter, container, false)
     }
 
+    override fun onStart() {
+        super.onStart()
+        val bottomSheet = dialog?.findViewById<FrameLayout>(com.google.android.material.R.id.design_bottom_sheet)
+            ?: return
+        bottomSheet.layoutParams = bottomSheet.layoutParams.apply {
+            height = ViewGroup.LayoutParams.MATCH_PARENT
+        }
+        BottomSheetBehavior.from(bottomSheet).apply {
+            isFitToContents = true
+            skipCollapsed = true
+            state = BottomSheetBehavior.STATE_EXPANDED
+        }
+        view?.let { ViewCompat.requestApplyInsets(it) }
+    }
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        applyWindowInsets(view)
 
         val tagsChipGroup = view.findViewById<ChipGroup>(R.id.tags_chip_group)
         val sizeChipGroup = view.findViewById<ChipGroup>(R.id.size_chip_group)
@@ -90,12 +110,47 @@ class FilterDialogFragment : BaseBottomSheetDialogFragment() {
         }
     }
 
+    private fun applyWindowInsets(view: View) {
+        val paddingLeft = view.paddingLeft
+        val paddingTop = view.paddingTop
+        val paddingRight = view.paddingRight
+        val paddingBottom = view.paddingBottom
+        var windowInsets: WindowInsetsCompat? = null
+        val location = IntArray(2)
+        val windowLocation = IntArray(2)
+
+        fun updatePadding() {
+            val decorView = dialog?.window?.decorView ?: return
+            val insets = windowInsets?.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            ) ?: return
+            if (view.width == 0 || view.height == 0 || decorView.width == 0 || decorView.height == 0) return
+            view.getLocationInWindow(location)
+            decorView.getLocationInWindow(windowLocation)
+            val left = location[0] - windowLocation[0]
+            val top = location[1] - windowLocation[1]
+            view.setPadding(
+                paddingLeft + (insets.left - left).coerceAtLeast(0),
+                paddingTop + (insets.top - top).coerceAtLeast(0),
+                paddingRight + (left + view.width - decorView.width + insets.right).coerceAtLeast(0),
+                paddingBottom + (top + view.height - decorView.height + insets.bottom).coerceAtLeast(0)
+            )
+        }
+
+        ViewCompat.setOnApplyWindowInsetsListener(view) { _, insets ->
+            windowInsets = insets
+            updatePadding()
+            insets
+        }
+        view.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> updatePadding() }
+    }
+
     private fun setupTagChipGroup(chipGroup: ChipGroup, tags: List<Tag>, singleSelection: Boolean) {
         chipGroup.isSingleSelection = true // always single selection for tags
         tags.forEach { tag ->
             val chip = LayoutInflater.from(requireContext())
                 .inflate(R.layout.chip_filter_item, chipGroup, false) as Chip
-            chip.text = tag.getDisplayText()
+            chip.text = tag.getDisplayText(requireContext())
             chip.tag = tag.key // Store the key in the chip's tag for retrieval
             chipGroup.addView(chip)
         }

@@ -28,7 +28,10 @@ import com.alibaba.mnnllm.android.utils.KeyboardUtils
 import com.alibaba.mnnllm.android.model.ModelTypeUtils
 import com.alibaba.mnnllm.android.utils.Permissions.REQUEST_RECORD_AUDIO_PERMISSION
 import java.util.Date
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.CoroutineDispatcher
 import com.alibaba.mnnllm.android.modelist.ModelListManager
 import com.alibaba.mnnllm.android.modelsettings.ModelConfig
 import kotlinx.coroutines.Dispatchers
@@ -40,6 +43,7 @@ class ChatInputComponent(
     private val binding: ActivityChatBinding,
     modelId:String,
     modelName: String,
+    private val attachmentDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     private var currentModelId: String = modelId
     private var currentModelName: String = modelName
@@ -54,6 +58,15 @@ class ChatInputComponent(
     private lateinit var voiceRecordingModule: VoiceRecordingModule
     private var currentUserMessage: ChatDataItem? = null
     private var buttonSwitchVoice: View? = null
+    private var attachmentGeneration = 0L
+    private var destroyed = false
+    private val lifecycleObserver = object : DefaultLifecycleObserver {
+        override fun onDestroy(owner: LifecycleOwner) {
+            destroyed = true
+            releaseAttachmentPickerModule()
+            owner.lifecycle.removeObserver(this)
+        }
+    }
 
     init {
         buttonSend.setEnabled(false)
@@ -64,16 +77,20 @@ class ChatInputComponent(
         setupThinkingMode()
         setupToggleAudioOutput()
         updateAudioOutput()
+        chatActivity.lifecycle.addObserver(lifecycleObserver)
     }
 
     /**
      * Update the model name and refresh related UI components
      */
     fun updateModel(newModelId:String, newModelName: String) {
+        if (destroyed) return
         val oldModelId = currentModelId
         currentModelId = newModelId
-        val oldModelName = currentModelName
         currentModelName = newModelName
+        if (oldModelId != newModelId) {
+            setupAttachmentPickerModule()
+        }
         
         // Update thinking mode
         setupThinkingMode()
@@ -81,11 +98,6 @@ class ChatInputComponent(
         // Update audio output
         updateAudioOutput()
         
-        // Update attachment picker if model capabilities changed
-        if (ModelTypeUtils.isVisualModel(oldModelId) != ModelTypeUtils.isVisualModel(newModelId) ||
-            ModelTypeUtils.isAudioModel(oldModelId) != ModelTypeUtils.isAudioModel(newModelId)) {
-            setupAttachmentPickerModule()
-        }
         // Update voice recording module
         voiceRecordingModule.updateModel(newModelName)
         
@@ -216,6 +228,9 @@ class ChatInputComponent(
         )
         buttonSend.isEnabled = enabled
         buttonSend.setImageResource(if (!chatActivity.isGenerating) R.drawable.button_send else R.drawable.ic_stop)
+        buttonSend.contentDescription = chatActivity.getString(
+            if (chatActivity.isGenerating) R.string.chat_stop_generation else R.string.send
+        )
     }
 
     private fun sendUserMessage() {
@@ -238,6 +253,17 @@ class ChatInputComponent(
         currentUserMessage = null
     }
 
+    /** Restores a message that was rejected before sending: its text and attachments. */
+    fun restoreDraft(item: ChatDataItem) {
+        val text = item.text.orEmpty()
+        if (editUserMessage.text.isNullOrEmpty() && text.isNotEmpty()) {
+            editUserMessage.setText(text)
+            editUserMessage.setSelection(editUserMessage.text?.length ?: 0)
+        }
+        attachmentPickerModule?.restoreAttachments(item)
+        updateSenderButton()
+    }
+
     private fun updateVoiceButtonVisibility() {
         if (!ModelTypeUtils.isAudioModel(currentModelId)) {
             return
@@ -256,16 +282,35 @@ class ChatInputComponent(
             if (visible) View.VISIBLE else View.GONE
     }
 
+    private fun releaseAttachmentPickerModule() {
+        attachmentGeneration++
+        val previous = attachmentPickerModule
+        attachmentPickerModule = null
+        previous?.dispose()
+        currentUserMessage = null
+    }
+
     private fun setupAttachmentPickerModule() {
+        releaseAttachmentPickerModule()
         imageMore = binding.btPlus
         buttonSwitchVoice = binding.btSwitchAudio
+        imageMore.setOnClickListener(null)
         if (!ModelTypeUtils.isVisualModel(currentModelId) && !ModelTypeUtils.isAudioModel(currentModelId)) {
             imageMore.setVisibility(View.GONE)
+            updateSenderButton()
             return
         }
-        attachmentPickerModule = AttachmentPickerModule(chatActivity)
-        attachmentPickerModule!!.setOnImagePickCallback(object : ImagePickCallback {
+        val generation = attachmentGeneration
+        val isCurrentModule: (AttachmentPickerModule) -> Boolean = { module ->
+            !destroyed && generation == attachmentGeneration && attachmentPickerModule === module
+        }
+        val module = AttachmentPickerModule(chatActivity, currentModelId, isCurrentModule, attachmentDispatcher)
+        attachmentPickerModule = module
+        imageMore.setVisibility(View.VISIBLE)
+        imageMore.setImageResource(R.drawable.ic_plus)
+        module.setOnImagePickCallback(object : ImagePickCallback {
             override fun onAttachmentPicked(imageUris: List<Uri>?, audio: AttachmentType?) {
+                if (!isCurrentModule(module)) return
                 imageMore.setVisibility(View.GONE)
                 updateVoiceButtonVisibility()
                 currentUserMessage = ChatDataItem(ChatViewHolders.USER)
@@ -284,6 +329,7 @@ class ChatInputComponent(
             }
 
             override fun onAttachmentRemoved() {
+                if (!isCurrentModule(module)) return
                 currentUserMessage = null
                 imageMore.setVisibility(View.VISIBLE)
                 updateSenderButton()
@@ -291,17 +337,22 @@ class ChatInputComponent(
             }
 
             override fun onAttachmentLayoutShow() {
+                if (!isCurrentModule(module)) return
                 imageMore.setImageResource(R.drawable.ic_bottom)
             }
 
             override fun onAttachmentLayoutHide() {
+                if (!isCurrentModule(module)) return
                 imageMore.setImageResource(R.drawable.ic_plus)
             }
         })
         imageMore.setOnClickListener {
-            voiceRecordingModule.exitRecordingMode()
-            attachmentPickerModule!!.toggleAttachmentVisibility()
+            if (isCurrentModule(module)) {
+                voiceRecordingModule.exitRecordingMode()
+                module.toggleAttachmentVisibility()
+            }
         }
+        updateSenderButton()
     }
 
     private fun setupVoiceRecordingModule() {

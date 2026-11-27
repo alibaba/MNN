@@ -2,6 +2,7 @@
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
 
 package com.alibaba.mls.api.download.ms
+import com.alibaba.mls.api.download.StorageSpaceChecker
 import android.util.Log
 import com.alibaba.mls.api.ApplicationProvider
 import com.alibaba.mls.api.FileDownloadException
@@ -202,6 +203,13 @@ class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
             totalAndDownloadSize
         )
         Log.d(TAG, "downloadMsRepoInner downloadTaskList： " + downloadTaskList.size)
+        StorageSpaceChecker.check(
+            ApplicationProvider.application, storageFolder,
+            totalAndDownloadSize[0] - totalAndDownloadSize[1]
+        )?.let { message ->
+            callback?.onDownloadFailed(modelId, FileDownloadException(message))
+            return
+        }
         val fileDownloadListener =
             object : FileDownloadListener {
                 override fun onDownloadDelta(

@@ -1,10 +1,12 @@
 package com.alibaba.mnnllm.api.openai.runtime
 
+import android.os.Looper
 import com.alibaba.mnnllm.android.chat.model.ChatDataItem
 import com.alibaba.mnnllm.android.llm.ChatService
 import com.alibaba.mnnllm.android.llm.LlmSession
 import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.modelsettings.ModelConfig
+import kotlinx.coroutines.CancellationException
 import timber.log.Timber
 
 object DefaultLlmRuntimeController : LlmRuntimeController {
@@ -12,6 +14,7 @@ object DefaultLlmRuntimeController : LlmRuntimeController {
     private var activeModelId: String? = null
     private var activeSession: LlmSession? = null
     private var activeUseAppConfig: Boolean = false
+    private var activeOwner: Any? = null
 
     override fun ensureSession(
         modelId: String,
@@ -20,137 +23,123 @@ object DefaultLlmRuntimeController : LlmRuntimeController {
         configPath: String?,
         sessionId: String?,
         historyList: List<ChatDataItem>?,
-        deferLoad: Boolean
+        deferLoad: Boolean,
+        owner: Any?
     ): EnsureSessionResult {
-        synchronized(lock) {
-            val currentSession = activeSession
-            if (
-                currentSession != null &&
-                RuntimeSessionReusePolicy.shouldReuse(
-                    forceReload = forceReload,
-                    activeModelId = activeModelId,
-                    requestedModelId = modelId,
-                    isSessionLoaded = currentSession.isModelLoaded(),
-                    activeUseAppConfig = activeUseAppConfig,
-                    requestedUseAppConfig = useAppConfig
-                )
-            ) {
-                return EnsureSessionResult(
-                    success = true,
-                    session = currentSession,
-                    modelId = modelId
-                )
-            }
-
-            if (currentSession != null) {
-                releaseSessionLocked()
-            }
-
-            val resolvedConfigPath = configPath ?: if (useAppConfig) {
-                ModelUtils.getConfigPathForModel(modelId)
-            } else {
-                ModelConfig.getDefaultConfigFile(modelId)
-            } ?: return EnsureSessionResult(
-                success = false,
-                modelId = modelId,
-                reason = "MODEL_CONFIG_NOT_FOUND"
-            )
-
-            val modelName = ModelUtils.getModelName(modelId) ?: modelId
-            val resolvedSessionId = sessionId ?: "service_runtime_${System.currentTimeMillis()}"
-
-            return runCatching {
-                val chatSession = ChatService.provide().createSession(
-                    modelId = modelId,
-                    modelName = modelName,
-                    sessionIdParam = resolvedSessionId,
-                    historyList = historyList,
-                    configPath = resolvedConfigPath,
-                    useNewConfig = !useAppConfig,
-                    useCustomConfig = useAppConfig
-                )
-
-                val llmSession = chatSession as? LlmSession
-                    ?: return EnsureSessionResult(
-                        success = false,
-                        modelId = modelId,
-                        reason = "SESSION_NOT_LLM"
-                    )
-
-                llmSession.setKeepHistory(true)
-                if (!deferLoad) {
-                    llmSession.load()
+        var createdSession: LlmSession? = null
+        var previousSession: LlmSession? = null
+        var rebindTarget: LlmSession? = null
+        try {
+            val session = synchronized(lock) {
+                val current = activeSession
+                if (current != null && RuntimeSessionReusePolicy.shouldReuse(
+                        forceReload, activeModelId, modelId, current.isModelLoaded(),
+                        activeUseAppConfig, useAppConfig
+                    )) {
+                    if (owner != null) activeOwner = owner
+                    if (RuntimeSessionReusePolicy.needsRebind(sessionId, current.sessionId)) {
+                        rebindTarget = current
+                    } else {
+                        return EnsureSessionResult(true, current, modelId)
+                    }
+                } else {
+                    check(current == null || Looper.myLooper() != Looper.getMainLooper()) {
+                        "Model replacement must run off the main thread"
+                    }
                 }
-                activeSession = llmSession
-                activeModelId = modelId
-                activeUseAppConfig = useAppConfig
-                EnsureSessionResult(
-                    success = true,
-                    session = llmSession,
-                    modelId = modelId
-                )
-            }.getOrElse { error ->
-                Timber.w(error, "ensureSession failed for modelId=%s", modelId)
-                releaseSessionLocked()
-                EnsureSessionResult(
-                    success = false,
-                    modelId = modelId,
-                    reason = "SESSION_INIT_FAILED"
-                )
+                val rebound = rebindTarget
+                if (rebound != null) {
+                    rebound
+                } else {
+                    val resolvedConfigPath = configPath ?: if (useAppConfig) {
+                        ModelUtils.getConfigPathForModel(modelId)
+                    } else {
+                        ModelConfig.getDefaultConfigFile(modelId)
+                    } ?: return EnsureSessionResult(false, modelId = modelId, reason = "MODEL_CONFIG_NOT_FOUND")
+                    val chatSession = ChatService.provide().createSession(
+                        modelId = modelId,
+                        modelName = ModelUtils.getModelName(modelId) ?: modelId,
+                        sessionIdParam = sessionId ?: "service_runtime_${System.currentTimeMillis()}",
+                        historyList = historyList,
+                        configPath = resolvedConfigPath,
+                        useNewConfig = !useAppConfig,
+                        useCustomConfig = useAppConfig
+                    )
+                    val llmSession = chatSession as? LlmSession
+                    if (llmSession == null) {
+                        chatSession.release()
+                        return EnsureSessionResult(false, modelId = modelId, reason = "SESSION_NOT_LLM")
+                    }
+                    createdSession = llmSession
+                    llmSession.setKeepHistory(true)
+                    previousSession = activeSession
+                    activeSession = llmSession
+                    activeModelId = modelId
+                    activeUseAppConfig = useAppConfig
+                    activeOwner = owner
+                    llmSession
+                }
             }
+            previousSession?.release()
+            val rebound = rebindTarget
+            rebound?.rebind(checkNotNull(sessionId), historyList)
+            if (!deferLoad && rebound == null) session.load()
+            return synchronized(lock) {
+                if (activeSession !== session || (!deferLoad && rebound == null && !session.isModelLoaded())) {
+                    EnsureSessionResult(false, modelId = modelId, reason = "SESSION_REPLACED")
+                } else {
+                    EnsureSessionResult(true, session, modelId)
+                }
+            }
+        } catch (e: CancellationException) {
+            createdSession?.let { releaseSession(it, owner) }
+            throw e
+        } catch (e: OutOfMemoryError) {
+            createdSession?.let { releaseSession(it, owner) }
+            throw e
+        } catch (e: Exception) {
+            createdSession?.let { releaseSession(it, owner) }
+            Timber.w(e, "ensureSession failed for modelId=%s", modelId)
+            return EnsureSessionResult(false, modelId = modelId, reason = e.message ?: "SESSION_INIT_FAILED")
         }
     }
 
-    override fun getActiveSession(): LlmSession? {
-        synchronized(lock) {
-            val session = activeSession ?: return null
-            return session.takeIf {
-                RuntimeSessionReusePolicy.shouldExposeActiveSession(it.isModelLoaded())
-            }
-        }
+    override fun getActiveSession(): LlmSession? = synchronized(lock) {
+        activeSession?.takeIf { RuntimeSessionReusePolicy.shouldExposeActiveSession(it.isModelLoaded()) }
     }
 
-    override fun getActiveModelId(): String? {
-        synchronized(lock) {
-            return activeModelId
-        }
-    }
+    override fun getActiveModelId(): String? = synchronized(lock) { activeModelId }
 
     override fun getThinkingEnabled(): Boolean? {
-        synchronized(lock) {
-            val modelId = activeModelId ?: return null
-            val config = ModelConfig.loadConfig(modelId) ?: return null
-            return config.jinja?.context?.enableThinking != false
-        }
+        val modelId = getActiveModelId() ?: return null
+        val config = ModelConfig.loadConfig(modelId) ?: return null
+        return config.jinja?.context?.enableThinking != false
     }
 
     override fun setThinkingEnabled(enabled: Boolean): Boolean {
-        synchronized(lock) {
-            val session = getActiveSession() ?: return false
-            return runCatching {
-                session.updateThinking(enabled)
-                true
-            }.getOrElse { error ->
-                Timber.w(error, "setThinkingEnabled failed enabled=%s", enabled)
-                false
+        val session = getActiveSession() ?: return false
+        return try {
+            session.updateThinking(enabled)
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "setThinkingEnabled failed enabled=%s", enabled)
+            false
+        }
+    }
+
+    override fun releaseSession(expectedSession: LlmSession?, owner: Any?) {
+        val session = synchronized(lock) {
+            if (expectedSession != null && activeSession !== expectedSession) return
+            if (owner != null && activeOwner !== owner) return
+            activeSession.also {
+                activeSession = null
+                activeModelId = null
+                activeUseAppConfig = false
+                activeOwner = null
             }
         }
-    }
-
-    override fun releaseSession() {
-        synchronized(lock) {
-            releaseSessionLocked()
-        }
-    }
-
-    private fun releaseSessionLocked() {
-        runCatching {
-            activeSession?.release()
-        }.onFailure { error ->
-            Timber.w(error, "releaseSession failed")
-        }
-        activeSession = null
-        activeModelId = null
-        activeUseAppConfig = false
+        session?.release()
     }
 }

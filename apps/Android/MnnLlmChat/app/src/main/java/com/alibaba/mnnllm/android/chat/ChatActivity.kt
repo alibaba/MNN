@@ -3,6 +3,9 @@
 package com.alibaba.mnnllm.android.chat
 
 import android.content.Intent
+import com.alibaba.mnnllm.android.chat.agent.AgentPhase
+import com.alibaba.mnnllm.android.chat.agent.AgentRunState
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -13,12 +16,14 @@ import android.view.MenuItem
 import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import com.google.android.material.color.MaterialColors
+import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.filterIsInstance
-import kotlinx.coroutines.flow.first
-import com.alibaba.mls.api.ApplicationProvider
 import com.alibaba.mnnllm.android.llm.ChatSession
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.BuildConfig
@@ -50,7 +55,6 @@ import com.alibaba.mnnllm.android.chat.voice.VoiceModelMarketBottomSheet
 import com.alibaba.mnnllm.android.modelist.ModelItemWrapper
 import com.alibaba.mnnllm.android.utils.CrashReportContext
 import com.alibaba.mnnllm.android.utils.ConfigInfoDialog
-import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
@@ -107,6 +111,12 @@ class ChatActivity : AppCompatActivity() {
     private var isMockStreamSession: Boolean = false
     private val mockStreamHandler = Handler(Looper.getMainLooper())
     private var mockStreamRunnable: Runnable? = null
+    private var agentLoadFailed = false
+    private var modelLoadInProgress = false
+    private var agentDisclosure: androidx.appcompat.app.AlertDialog? = null
+    private val agentSupported: Boolean get() = !ModelTypeUtils.isDiffusionModel(modelName) &&
+        !ModelTypeUtils.isSanaModel(modelName)
+    private val agentMode: Boolean get() = ::chatPresenter.isInitialized && chatPresenter.isAgentMode
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -115,6 +125,7 @@ class ChatActivity : AppCompatActivity() {
         val toolbar = binding.toolbar
         setSupportActionBar(toolbar)
 
+        savedInstanceState?.getString("active_chat_session")?.let { intent.putExtra("chatSessionId", it) }
         this.modelName = intent.getStringExtra("modelName")?:""
         this.modelId = intent.getStringExtra("modelId")
         if (this.modelName.isEmpty() || this.modelId.isNullOrEmpty()) {
@@ -131,6 +142,7 @@ class ChatActivity : AppCompatActivity() {
             }
         }
         setupView(this.modelId!!, this.modelName)
+        observeContextUsage()
         if (shouldStartMockStream()) {
             isMockStreamSession = true
             chatListComponent.setup(modelName, emptyList())
@@ -167,11 +179,13 @@ class ChatActivity : AppCompatActivity() {
         chatInputModule = ChatInputComponent(this, binding, modelId, modelName)
         setupChatListComponent()
         setupInputModule()
+        binding.btnAgentMode.setOnClickListener { handleAgentModeClick() }
+        updateAgentControls()
         binding.modelSwitcher.text = modelName
     }
 
     private fun onSessionCreated() {
-        val history = chatSession!!.getHistory()
+        val history = chatPresenter.getChatHistory()
         Log.d(TAG, "onSessionCreated: setting up UI with ${history?.size ?: 0} history items, isDiffusion=$isDiffusion")
         chatListComponent.setup(modelName, history)
     }
@@ -191,7 +205,12 @@ class ChatActivity : AppCompatActivity() {
         this.chatInputModule!!.apply {
             setOnThinkingModeChanged {isThinking ->
                 Log.d(TAG, "isThinking: $isThinking")
-                (chatSession as LlmSession).updateThinking(isThinking)
+                if (!agentMode) (chatSession as? LlmSession)?.updateThinking(isThinking)
+                else if (!isGenerating) {
+                    (chatSession as? LlmSession)?.updateConfig(
+                        org.json.JSONObject().put("jinja", org.json.JSONObject().put("context",
+                            org.json.JSONObject().put("enable_thinking", isThinking))).toString())
+                }
             }
             setOnAudioOutputModeChanged {
                 chatPresenter.setEnableAudioOutput(it)
@@ -208,12 +227,31 @@ class ChatActivity : AppCompatActivity() {
     }
 
     private fun setupSession() {
-        chatSession = chatPresenter.createSession()
-        sessionId = chatSession!!.sessionId
-        CrashReportContext.setCurrentModel(modelId, sessionId)
-        onSessionCreated()
-        Log.d(TAG, "current SessionId: $sessionId")
-        chatPresenter.load()
+        onLoadingChanged(true)
+        lifecycleScope.launch {
+            try {
+                if (agentSupported) chatPresenter.restoreAgentMode()
+                chatSession = withContext(Dispatchers.IO) {
+                    val created = chatPresenter.createSession()
+                    if (agentSupported) chatPresenter.restoreCreatedSessionMode() else created
+                }
+                sessionId = chatSession!!.sessionId
+                CrashReportContext.setCurrentModel(modelId, sessionId)
+                onSessionCreated()
+                intent.putExtra("chatSessionId", sessionId)
+                updateAgentControls()
+                chatPresenter.load()
+                if (agentMode) showAgentDisclosure(resuming = true)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: OutOfMemoryError) {
+                if (!agentMode) chatPresenter.destroy()
+                onModelLoadFailed("Not enough memory to create the session")
+            } catch (e: Exception) {
+                if (!agentMode) chatPresenter.destroy()
+                onModelLoadFailed(e.message ?: "Model load failed")
+            }
+        }
     }
 
     private fun shouldStartMockStream(): Boolean {
@@ -470,16 +508,19 @@ class ChatActivity : AppCompatActivity() {
         }
     }
 
-    fun onLoadingChanged(loading: Boolean) {
-        isLoading = loading
-        this.chatInputModule!!.onLoadingStatesChanged(loading)
+    fun onLoadingChanged(loading: Boolean, loaded: Boolean = !loading) {
+        modelLoadInProgress = loading
+        isLoading = loading || !loaded
+        this.chatInputModule!!.onLoadingStatesChanged(isLoading)
         layoutModelLoading!!.visibility =
             if (loading) View.VISIBLE else View.GONE
         if (supportActionBar != null) {
             supportActionBar!!.setDisplayHomeAsUpEnabled(true)
             binding.modelSwitcher.text = modelName
         }
-        if (!loading) {
+        if (!loading && loaded) agentLoadFailed = false
+        updateAgentControls()
+        if (!agentMode && !loading && loaded && chatSession != null && !isFinishing && !isDestroyed) {
             if (chatSession!!.supportOmni) {
                 setupOmni()
             }
@@ -494,9 +535,13 @@ class ChatActivity : AppCompatActivity() {
      * Called when model load fails (e.g. native init returned null). Shows error and finishes.
      */
     fun onModelLoadFailed(errorMessage: String) {
+        onLoadingChanged(false, loaded = false)
         Log.e(TAG, "Model load failed: $errorMessage")
         Toast.makeText(this, getString(R.string.model_load_failed, errorMessage), Toast.LENGTH_LONG).show()
-        finish()
+        if (agentMode) {
+            agentLoadFailed = true
+            updateAgentControls()
+        } else finish()
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
@@ -520,8 +565,30 @@ class ChatActivity : AppCompatActivity() {
         return true
     }
 
+    override fun onPrepareOptionsMenu(menu: Menu): Boolean {
+        menu.findItem(R.id.agent_manage)?.apply {
+            isVisible = agentSupported
+            isEnabled = !isGenerating
+        }
+        menu.findItem(R.id.agent_retry)?.isVisible = agentMode && agentLoadFailed && !modelLoadInProgress
+        if (agentMode) {
+            menu.findItem(R.id.start_voice_chat)?.isVisible = false
+            menu.findItem(R.id.menu_item_benchmark_test)?.isVisible = false
+            menu.findItem(R.id.menu_item_api_settings)?.isVisible = false
+            menu.findItem(R.id.menu_item_api_console)?.isVisible = false
+        }
+        menu.findItem(R.id.menu_item_model_settings)?.isEnabled = !isLoading && (!agentMode || !isGenerating)
+        return super.onPrepareOptionsMenu(menu)
+    }
+
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        if (item.itemId == R.id.start_new_chat) {
+        if (item.itemId == R.id.agent_manage) {
+            showAgentManagement()
+            return true
+        } else if (item.itemId == R.id.agent_retry) {
+            retryAgentModel()
+            return true
+        } else if (item.itemId == R.id.start_new_chat) {
             handleNewSession()
         } else if (item.itemId == R.id.start_voice_chat) {
             handleVoiceChatClick()
@@ -540,9 +607,12 @@ class ChatActivity : AppCompatActivity() {
                     setModelId(modelId!!)
                     setConfigPath(intent.getStringExtra("configFilePath"))
                     setSession(session)
+                    setModelMaxContext(chatPresenter.contextUsage.value.modelMax)
                     addOnSettingsDoneListener{needRecreate->
                         if (needRecreate) {
                             recreate()
+                        } else {
+                            chatPresenter.refreshContextUsage()
                         }
                     }
                 }.show(supportFragmentManager, SettingsBottomSheetFragment.TAG)
@@ -580,6 +650,169 @@ class ChatActivity : AppCompatActivity() {
         return super.onOptionsItemSelected(item)
     }
 
+    private fun updateAgentControls() {
+        if (!::binding.isInitialized || !::chatPresenter.isInitialized) return
+        binding.btnAgentMode.visibility = if (agentSupported) View.VISIBLE else View.GONE
+        val needsConsent = agentMode && !chatPresenter.agentChat.mode.value.authorized
+        binding.btnAgentMode.text = getString(
+            if (needsConsent) R.string.agent_mode_chip_confirm else R.string.agent_mode_chip
+        )
+        binding.btnAgentMode.isSelected = agentMode
+        binding.btnAgentMode.contentDescription = getString(when {
+            needsConsent -> R.string.agent_mode_confirm
+            agentMode -> R.string.agent_mode_on
+            else -> R.string.agent_mode_off
+        })
+        binding.btnAgentMode.isEnabled = !isGenerating && !isLoading && sessionId != null
+        binding.btnToggleThinking.isEnabled = !isLoading && (!agentMode || !isGenerating)
+        binding.btnToggleAudioOutput.isEnabled = !agentMode && !isLoading
+        binding.btSwitchAudio.isEnabled = !agentMode
+        binding.moreItemVoiceChat.isEnabled = !agentMode
+        binding.modelSwitcher.isEnabled = !agentMode && !isGenerating && !isLoading
+        if (isLoading && !isGenerating) binding.btnSend.isEnabled = false
+        if (agentMode) {
+            binding.tvContextUsage.visibility = View.GONE
+            binding.btnToggleAudioOutput.visibility = View.GONE
+        } else {
+            renderContextUsage(chatPresenter.contextUsage.value)
+            binding.agentStepsScroll.visibility = View.GONE
+            if (ModelTypeUtils.supportAudioOutput(modelName)) binding.btnToggleAudioOutput.visibility = View.VISIBLE
+        }
+        invalidateOptionsMenu()
+    }
+
+    private fun handleAgentModeClick() {
+        if (!agentSupported || isLoading || isGenerating || sessionId == null) return
+        val mode = chatPresenter.agentChat.mode.value
+        when {
+            mode.agent && !mode.authorized -> showAgentDisclosure(resuming = true)
+            !mode.canChange -> MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.agent_mode_locked_title).setMessage(R.string.agent_mode_locked)
+                .setPositiveButton(android.R.string.ok, null).show()
+            mode.agent -> changeAgentMode(false)
+            else -> showAgentDisclosure(resuming = false)
+        }
+    }
+
+    private fun showAgentDisclosure(resuming: Boolean) {
+        if (agentDisclosure?.isShowing == true || isFinishing || isDestroyed) return
+        val view = layoutInflater.inflate(R.layout.dialog_agent_disclosure, null)
+        agentDisclosure = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.agent_consent_title)
+            .setView(view)
+            .setPositiveButton(R.string.agent_consent_enable) { _, _ ->
+                if (resuming) lifecycleScope.launch {
+                    try { chatPresenter.confirmAgentConsent(); updateAgentControls() }
+                    catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                    catch (_: Exception) { Toast.makeText(this@ChatActivity, R.string.agent_operation_failed, Toast.LENGTH_LONG).show() }
+                } else changeAgentMode(true)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .create().also { it.show() }
+    }
+
+    private fun changeAgentMode(enabled: Boolean) {
+        if (isLoading || isGenerating) return
+        onLoadingChanged(true)
+        lifecycleScope.launch {
+            try {
+                chatSession = chatPresenter.changeAgentMode(enabled)
+                sessionId = chatSession!!.sessionId
+                intent.putExtra("chatSessionId", sessionId)
+                onSessionCreated()
+                updateAgentControls()
+                chatPresenter.load()
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (_: OutOfMemoryError) { onModelLoadFailed(getString(R.string.agent_failed)) }
+            catch (_: Exception) { onModelLoadFailed(getString(R.string.agent_operation_failed)) }
+        }
+    }
+
+    private fun retryAgentModel() {
+        if (!agentMode || modelLoadInProgress || isGenerating) return
+        onLoadingChanged(true)
+        lifecycleScope.launch {
+            try {
+                chatSession = chatPresenter.retryAgentSession()
+                sessionId = chatSession!!.sessionId
+                intent.putExtra("chatSessionId", sessionId)
+                CrashReportContext.setCurrentModel(modelId, sessionId)
+                onSessionCreated()
+                chatPresenter.load()
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (_: OutOfMemoryError) { onModelLoadFailed(getString(R.string.agent_failed)) }
+            catch (_: Exception) { onModelLoadFailed(getString(R.string.agent_operation_failed)) }
+        }
+    }
+
+    private fun showAgentManagement() {
+        if (isGenerating || supportFragmentManager.isStateSaved) return
+        if (supportFragmentManager.findFragmentByTag(AgentManagementFragment.TAG) == null) {
+            AgentManagementFragment().apply {
+                arguments = Bundle().apply { putString(AgentManagementFragment.ARG_SESSION_ID, sessionId) }
+            }.show(supportFragmentManager, AgentManagementFragment.TAG)
+        }
+    }
+
+    internal fun onAgentState(state: AgentRunState) {
+        val item = chatListComponent.recentItem ?: return
+        item.text = state.answer
+        item.displayText = state.answer
+        item.thinkingText = state.thinking
+        item.thinkingFinishedTime = if (state.thinking.isNotBlank() && state.phase != AgentPhase.RUNNING)
+            ChatViewHolders.THINKING_COMPLETE_WITHOUT_TIMING else -1
+        chatListComponent.updateAssistantResponse(item)
+        val phase = when (state.phase) {
+            AgentPhase.COMPLETED -> R.string.agent_completed
+            AgentPhase.CANCELLED -> R.string.agent_cancelled
+            AgentPhase.FAILED -> R.string.agent_failed
+            else -> R.string.agent_running
+        }
+        binding.agentStepsScroll.visibility = View.VISIBLE
+        binding.tvAgentSteps.text = buildString {
+            append(getString(phase))
+            for (step in state.steps) {
+                val title = AgentStepUi.title(step.kind)
+                val status = AgentStepUi.status(step.status)
+                append("\n").append(getString(title)).append(" · ").append(getString(status))
+                if (step.detail.isNotBlank()) append("\n").append(step.detail.take(140))
+                if (step.result.isNotBlank()) append("\n").append(step.result.take(160))
+            }
+        }
+        if (state.droppedHistoryMessages > 0 || state.droppedToolRounds > 0 || state.toolResultsTruncated) {
+            binding.tvAgentSteps.append("\n" + getString(R.string.agent_context_trimmed))
+        }
+    }
+
+    private fun finishAgentTurn(result: HashMap<String, Any>) {
+        val state = result["agent_state"] as? AgentRunState ?: AgentRunState(phase = AgentPhase.FAILED)
+        onAgentState(state)
+        setIsGenerating(false)
+        val item = chatListComponent.recentItem ?: return
+        item.loading = false
+        item.forceShowLoadingWithText = false
+        item.hasOmniAudio = false
+        item.audioUri = null
+        if (state.phase == AgentPhase.FAILED) {
+            Log.e(TAG, "Agent turn failed: ${state.error}")
+            item.text = getString(R.string.agent_failed)
+            item.displayText = item.text
+            if (result["session_invalid"] == true || state.metrics["session_invalid"] == true) agentLoadFailed = true
+        } else if (state.phase == AgentPhase.CANCELLED && item.displayText.isNullOrBlank()) {
+            item.text = getString(R.string.agent_cancelled)
+            item.displayText = item.text
+        }
+        (result["agent_assistant_id"] as? Long)?.takeIf { it >= 0 }?.let { item.dbId = it }
+        (result["agent_assistant_time"] as? String)?.let { item.time = it }
+        item.benchmarkInfo = AgentChatIntegration.metrics(this, state)
+        chatListComponent.updateAssistantResponse(item)
+        if (agentLoadFailed) onLoadingChanged(false, loaded = false)
+        updateAgentControls()
+        if (result["agent_persistence_failed"] == true) {
+            Toast.makeText(this, R.string.agent_persistence_failed, Toast.LENGTH_LONG).show()
+        }
+    }
+
     private fun createUserMessage(text:String):ChatDataItem {
         val userMessage = ChatDataItem(ChatViewHolders.USER)
         userMessage.text = text
@@ -598,6 +831,12 @@ class ChatActivity : AppCompatActivity() {
 
 
     private fun handleNewSession() {
+        if (isLoading) return
+        if (agentMode && !isGenerating) {
+            startActivity(Intent(intent).apply { removeExtra("chatSessionId") })
+            finish()
+            return
+        }
         if (!isGenerating) {
             currentUserMessage = null
             if (chatListComponent.reset()) {
@@ -606,6 +845,9 @@ class ChatActivity : AppCompatActivity() {
             this.sessionName = null
             chatPresenter.reset{newSessionId ->
                 sessionId = newSessionId
+                intent.putExtra("chatSessionId", sessionId)
+                chatPresenter.agentChat.unlockForNewConversation()
+                updateAgentControls()
                 CrashReportContext.setCurrentModel(modelId, sessionId)
             }
         } else {
@@ -639,10 +881,74 @@ class ChatActivity : AppCompatActivity() {
     }
 
     private suspend fun handleSendMessage(userData: ChatDataItem): HashMap<String, Any> {
-        return chatPresenter.sendMessage(userData)
+        val result = chatPresenter.sendMessage(userData)
+        if (result["session_unavailable"] == true) {
+            chatInputModule?.restoreDraft(userData)
+            onModelLoadFailed(getString(R.string.chat_session_unavailable))
+        }
+        (result["agent_rejected"] as? Int)?.let { reason ->
+            Toast.makeText(this, reason, Toast.LENGTH_LONG).show()
+            chatInputModule?.restoreDraft(userData)
+            if (reason == R.string.agent_consent_required) showAgentDisclosure(resuming = true)
+        }
+        return result
+    }
+
+    private fun observeContextUsage() {
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                launch { chatPresenter.contextUsage.collect { if (!agentMode) renderContextUsage(it) } }
+                launch { chatPresenter.agentChat.mode.collect { updateAgentControls() } }
+                launch { chatPresenter.agentChat.state.collect { if (agentMode && isGenerating) onAgentState(it) } }
+                launch {
+                    chatPresenter.contextNotices.collect { notice ->
+                        val message = when (notice) {
+                            ContextNotice.TRUNCATED -> R.string.context_truncated_notice
+                            ContextNotice.COMPRESSED -> R.string.context_compressed_notice
+                        }
+                        Snackbar.make(binding.root, message, Snackbar.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun renderContextUsage(state: ContextUsageState) {
+        val view = binding.tvContextUsage
+        view.visibility = if (state.visible || state.compressing) View.VISIBLE else View.GONE
+        if (state.compressing) {
+            view.text = getString(R.string.context_compressing)
+        } else if (state.visible) {
+            view.text = getString(
+                R.string.context_usage_format,
+                ContextUsageFormat.tokens(state.tokens),
+                ContextUsageFormat.tokens(state.limit)
+            )
+            view.contentDescription = getString(R.string.context_usage_description, state.tokens, state.limit)
+        }
+        val colorAttr = if (state.nearlyFull && !state.compressing) {
+            androidx.appcompat.R.attr.colorError
+        } else {
+            com.google.android.material.R.attr.colorOnSurfaceVariant
+        }
+        // The overload with a fallback never throws when a theme lacks the attribute.
+        view.setTextColor(MaterialColors.getColor(view, colorAttr, view.currentTextColor))
+    }
+
+    /** The message alone exceeds the context budget: keep the draft and explain why. */
+    fun onContextRejected(userData: ChatDataItem) {
+        Toast.makeText(this, R.string.context_too_long, Toast.LENGTH_LONG).show()
+        chatInputModule?.restoreDraft(userData)
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString("active_chat_session", sessionId)
+        super.onSaveInstanceState(outState)
     }
 
     override fun onDestroy() {
+        agentDisclosure?.dismiss()
+        agentDisclosure = null
         saveInterruptedResponseIfNeeded()
         super.onDestroy()
         mockStreamRunnable?.let(mockStreamHandler::removeCallbacks)
@@ -658,13 +964,11 @@ class ChatActivity : AppCompatActivity() {
         if (::chatPresenter.isInitialized) {
             chatPresenter.destroy()
         }
-        MainScope().launch {
-            ApiServiceManager.stopApiService(ApplicationProvider.get())
-        }
+        if (::chatPresenter.isInitialized && getChatPresenter() === chatPresenter) setChatPresenter(null)
     }
 
     private fun saveInterruptedResponseIfNeeded() {
-        if (!::chatPresenter.isInitialized || !::chatListComponent.isInitialized) {
+        if (agentMode || !::chatPresenter.isInitialized || !::chatListComponent.isInitialized) {
             return
         }
         val recentItem = chatListComponent.recentItem ?: return
@@ -685,7 +989,7 @@ class ChatActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
-        AudioPlayService.instance!!.destroy()
+        AudioPlayService.instance?.destroy()
     }
     fun onGenerateStart(userData: ChatDataItem) {
         chatListComponent.onStartSendMessage(userData)
@@ -693,6 +997,12 @@ class ChatActivity : AppCompatActivity() {
         val recentItem = chatListComponent.recentItem
         recentItem?.loading = true
         recentItem?.forceShowLoadingWithText = false
+        if (agentMode) {
+            binding.agentStepsScroll.visibility = View.VISIBLE
+            binding.tvAgentSteps.setText(R.string.agent_running)
+            recentItem?.hasOmniAudio = false
+            updateAgentControls()
+        }
         useDiffusionWaitHint = DiffusionWaitHintPolicy.shouldShowWaitHint(modelName)
         hasMeaningfulDiffusionProgress = false
         showDiffusionPercentWhenZero = ModelTypeUtils.isSanaModel(modelName)
@@ -726,7 +1036,7 @@ class ChatActivity : AppCompatActivity() {
     fun isRealTimeAudioPlayback(): Boolean = isRealTimePlayback
 
     fun onLlmGenerateProgress(progress: String?, generateResultProcessor:GenerateResultProcessor) {
-        val chatDataItem = chatListComponent.recentItem!!
+        val chatDataItem = chatListComponent.recentItem ?: return
         chatDataItem.thinkingText = generateResultProcessor.getThinkingContent()
         chatDataItem.displayText = generateResultProcessor.getNormalOutput()
         chatDataItem.text = generateResultProcessor.getRawResult()
@@ -782,8 +1092,12 @@ class ChatActivity : AppCompatActivity() {
     }
 
     fun onGenerateFinished(benchMarkResult: HashMap<String, Any>) {
+        if (benchMarkResult["agent"] == true) {
+            finishAgentTurn(benchMarkResult)
+            return
+        }
         setIsGenerating(false)
-        val recentItem = chatListComponent.recentItem!!
+        val recentItem = chatListComponent.recentItem ?: return
         recentItem.loading = false
         recentItem.forceShowLoadingWithText = false
         useDiffusionWaitHint = false
@@ -791,8 +1105,13 @@ class ChatActivity : AppCompatActivity() {
         showDiffusionPercentWhenZero = false
         
         // Handle error cases
-        if (benchMarkResult.containsKey("error") && benchMarkResult["error"] as Boolean) {
-            val errorMessage = benchMarkResult["message"] as? String ?: "generation_failed"
+        val contextTooLong = benchMarkResult["message"] == ChatPresenter.CONTEXT_TOO_LONG
+        if (benchMarkResult["error"] == true) {
+            val errorMessage = if (contextTooLong) {
+                getString(R.string.context_too_long)
+            } else {
+                benchMarkResult["message"] as? String ?: "generation_failed"
+            }
             recentItem.text = errorMessage
             recentItem.displayText = errorMessage
             Log.e(TAG, "Generation failed: $errorMessage")
@@ -805,13 +1124,20 @@ class ChatActivity : AppCompatActivity() {
             }
         }
         
-        recentItem.benchmarkInfo = ModelUtils.generateBenchMarkString(benchMarkResult)
+        // A turn stopped before generating (e.g. while summarizing) carries no metrics.
+        recentItem.benchmarkInfo = if (benchMarkResult.containsKey("prompt_len") ||
+            benchMarkResult.containsKey("total_timeus")) {
+            ModelUtils.generateBenchMarkString(benchMarkResult)
+        } else {
+            null
+        }
         chatListComponent.updateAssistantResponse(recentItem)
 
-        if (isMockStreamSession) {
+        // Native undid this turn; storing the explanation would turn it into a reply.
+        if (isMockStreamSession || contextTooLong) {
             return
         }
-        
+
         // Always save to database, even for errors, to maintain conversation history
         try {
             chatPresenter.saveResponseToDatabase(recentItem)
@@ -830,16 +1156,7 @@ class ChatActivity : AppCompatActivity() {
             // Trigger the same stop logic as the UI stop button
             chatPresenter.stopGenerate()
             
-            // Update UI state immediately
-            setIsGenerating(false)
-            val recentItem = chatListComponent.recentItem
-            recentItem?.loading = false
-            recentItem?.forceShowLoadingWithText = false
-            useDiffusionWaitHint = false
-            hasMeaningfulDiffusionProgress = false
-            showDiffusionPercentWhenZero = false
-            
-            Log.d(TAG, "Generation stopped by external request")
+            Log.d(TAG, "Generation stop requested; waiting for the active call to finish")
         } else {
             Log.d(TAG, "No active generation to stop")
         }
@@ -936,6 +1253,10 @@ class ChatActivity : AppCompatActivity() {
 
 
     fun startVoiceChat() {
+        if (agentMode) {
+            Toast.makeText(this, R.string.agent_text_only, Toast.LENGTH_LONG).show()
+            return
+        }
         // Start a new session for voice chat, similar to handleNewSession
         if (!isGenerating) {
             currentUserMessage = null
@@ -960,6 +1281,7 @@ class ChatActivity : AppCompatActivity() {
 
     
     private fun showModelSelectionDialog() {
+        if (agentMode || isLoading) return
         if (isGenerating) {
             Toast.makeText(this, "Please wait for current generation to complete before switching models", Toast.LENGTH_SHORT).show()
             return
@@ -1006,6 +1328,10 @@ class ChatActivity : AppCompatActivity() {
             selectedModelItem,
             currentChatHistory,
             onSwitchComplete = { newSession ->
+                intent.putExtra("modelId", selectedModelId)
+                intent.putExtra("modelName", selectedModelName)
+                intent.putExtra("configFilePath", ModelUtils.getConfigPathForModel(selectedModelItem))
+                intent.putExtra("chatSessionId", sessionId)
                 Toast.makeText(this, "Model switched to $selectedModelName", Toast.LENGTH_SHORT).show()
             },
             onSwitchError = { error ->

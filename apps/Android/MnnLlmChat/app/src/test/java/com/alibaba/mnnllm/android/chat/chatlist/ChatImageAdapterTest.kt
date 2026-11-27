@@ -16,12 +16,14 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.annotation.Config
 
 /**
  * Unit tests for ChatImageAdapter
  * Tests chat message image display and full-screen viewer integration
  */
 @RunWith(RobolectricTestRunner::class)
+@Config(sdk = [28])
 class ChatImageAdapterTest {
     private lateinit var testUri1: Uri
     private lateinit var testUri2: Uri
@@ -345,6 +347,19 @@ class ChatImageAdapterTest {
             FullScreenImageViewer.showImagePopup(context, images, 0, false)
             FullScreenImageViewer.showImagePopup(context, images, 2, false)
         }
+    }
+
+    @Test
+    fun `recycling chat image clears drawable without recycling published bitmap`() {
+        val adapter = ChatImageAdapter(listOf(testUri1))
+        val holder = adapter.onCreateViewHolder(createParentRecyclerView(), 0)
+        adapter.onBindViewHolder(holder, 0)
+        val image = holder.itemView.findViewById<ImageView>(R.id.chat_image_item)
+        val bitmap = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888)
+        image.setImageBitmap(bitmap)
+        adapter.onViewRecycled(holder)
+        assertNull(image.drawable)
+        assertFalse(bitmap.isRecycled)
     }
 
     @Test

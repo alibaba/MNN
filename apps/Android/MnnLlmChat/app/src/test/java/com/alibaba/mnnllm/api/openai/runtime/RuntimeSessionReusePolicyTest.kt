@@ -52,4 +52,25 @@ class RuntimeSessionReusePolicyTest {
     fun shouldExposeActiveSession_returnsFalse_whenSessionIsNotLoaded() {
         assertFalse(RuntimeSessionReusePolicy.shouldExposeActiveSession(isSessionLoaded = false))
     }
+
+    @Test
+    fun needsRebind_returnsTrue_whenRequestedSessionDiffers() {
+        assertTrue(RuntimeSessionReusePolicy.needsRebind("session-b", "session-a"))
+    }
+
+    @Test
+    fun needsRebind_returnsFalse_whenSameSession() {
+        assertFalse(RuntimeSessionReusePolicy.needsRebind("session-a", "session-a"))
+    }
+
+    @Test
+    fun needsRebind_returnsFalse_whenCallerHasNoSessionId() {
+        // API-service style callers keep whatever conversation binding is active.
+        assertFalse(RuntimeSessionReusePolicy.needsRebind(null, "session-a"))
+    }
+
+    @Test
+    fun needsRebind_returnsTrue_whenActiveSessionHasNoIdYet() {
+        assertTrue(RuntimeSessionReusePolicy.needsRebind("session-a", null))
+    }
 }

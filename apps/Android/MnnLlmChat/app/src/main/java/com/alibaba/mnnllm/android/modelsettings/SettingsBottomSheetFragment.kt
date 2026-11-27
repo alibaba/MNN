@@ -5,6 +5,7 @@ package com.alibaba.mnnllm.android.modelsettings
 
 import android.annotation.SuppressLint
 import android.os.Bundle
+import org.json.JSONObject
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -48,6 +49,7 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
 
     private var modelItem: ModelItem? = null
     private var chatSession: LlmSession? = null
+    private var modelMaxContext: Int = 0
     private var _binding: FragmentSettingsSheetBinding? = null
     private val binding get() = _binding!!
     private var currentSamplerType: SamplerType = SamplerType.Mixed
@@ -100,6 +102,28 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
         binding.inputLayoutGridSize.isVisible = false
     }
 
+    private fun setupContextSettings() {
+        val current = currentConfig.contextTokenLimit
+            ?: defaultConfig.contextTokenLimit ?: ModelConfig.DEFAULT_CONTEXT_TOKEN_LIMIT
+        val choices = ModelConfig.contextLimitChoices(modelMaxContext, current)
+        binding.dropdownContextLimit.setCurrentItem(current)
+        binding.dropdownContextLimit.setDropDownItems(choices, itemToString = { it.toString() }) { _, item ->
+            currentConfig.contextTokenLimit = item as Int
+        }
+        binding.autoCompressContextToggle.setOnCheckedChangeListener(null)
+        binding.autoCompressContextToggle.isChecked =
+            currentConfig.autoCompressContext ?: defaultConfig.autoCompressContext ?: true
+        binding.autoCompressContextToggle.setOnCheckedChangeListener { _, isChecked ->
+            currentConfig.autoCompressContext = isChecked
+        }
+    }
+
+    private fun contextConfigJson(): String = JSONObject()
+        .put("context_token_limit", currentConfig.contextTokenLimit
+            ?: defaultConfig.contextTokenLimit ?: ModelConfig.DEFAULT_CONTEXT_TOKEN_LIMIT)
+        .put("auto_compress_context", currentConfig.autoCompressContext ?: true)
+        .toString()
+
     @SuppressLint("SetTextI18n")
     private fun setupAdvancedConfigs() {
         // Mmap settings
@@ -107,6 +131,7 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
         binding.mmapSettingsItem.setOnCheckedChangeListener { _, isChecked ->
             currentConfig.useMmap = isChecked
         }
+        setupContextSettings()
         // Prompt cache toggle
         binding.promptCacheToggle.isChecked = currentConfig.promptCache ?: false
         binding.promptCacheToggle.setOnCheckedChangeListener { _, isChecked ->
@@ -124,14 +149,20 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
         }
         
         // Precision
-        binding.dropdownPrecision.setCurrentItem(currentConfig.precision ?: defaultConfig.precision!!)
         binding.dropdownPrecision.setDropDownItems(
             listOf("low", "high"),
-            itemToString = { it.toString() },
+            itemToString = {
+                when (it) {
+                    "low" -> getString(R.string.settings_precision_low)
+                    "high" -> getString(R.string.settings_precision_high)
+                    else -> it.toString()
+                }
+            },
             onDropdownItemSelected = { _, item ->
                 currentConfig.precision = item.toString()
             },
         )
+        binding.dropdownPrecision.setCurrentItem(currentConfig.precision ?: defaultConfig.precision!!)
 
         // Thread num
         val threadNum = currentConfig.threadNum ?: defaultConfig.threadNum!!
@@ -352,7 +383,7 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
         currentConfig.penalty = currentConfig.penalty ?: defaultConfig.penalty!!
         setupSliderSwitchRow(
             rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowMixedPenalty.root),
-            label = "Penalty",
+            label = getString(R.string.settings_penalty),
             initialValue = currentConfig.penalty!!,
             initialEnabled = isPenaltyEnabled,
             valueRange = 0f..5f,
@@ -367,7 +398,7 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
         currentConfig.nGram = currentConfig.nGram ?: defaultConfig.nGram!!
         setupSliderSwitchRow(
             rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowMixedNgramSize.root),
-            label = "N-gram Size",
+            label = getString(R.string.settings_ngram_size),
             initialValue = (currentConfig.nGram!!).toFloat(),
             initialEnabled = isPenaltyEnabled,
             valueRange = 1f..16f,
@@ -379,7 +410,7 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
         currentConfig.nGramFactor = currentConfig.nGramFactor ?: defaultConfig.nGramFactor!!
         setupSliderSwitchRow(
             rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowMixedNgramFactor.root),
-            label = "N-gram Factor",
+            label = getString(R.string.settings_ngram_factor),
             initialValue = currentConfig.nGramFactor!!,
             initialEnabled = isPenaltyEnabled,
             valueRange = 1f..2f,
@@ -389,7 +420,10 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
         )
 
         penaltySamplerValue = currentConfig.penaltySampler ?: defaultConfig.penaltySampler!!
-        binding.dropdownMixedPenaltySampler.setDropDownItems(listOf("greedy", "temperature")) { _, value ->
+        binding.dropdownMixedPenaltySampler.setDropDownItems(
+            listOf("greedy", "temperature"),
+            itemToString = ::penaltySamplerToString
+        ) { _, value ->
             penaltySamplerValue = value.toString()
             currentConfig.penaltySampler = penaltySamplerValue
         }
@@ -420,7 +454,7 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
     private fun setupPenaltySettings() {
         setupSliderSwitchRow(
             rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowPenaltyPenalty.root),
-            label = "Penalty",
+            label = getString(R.string.settings_penalty),
             initialValue = currentConfig.penalty ?: defaultConfig.penalty!!,
             initialEnabled = true,
             valueRange = 0f..5f,
@@ -431,7 +465,7 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
 
         setupSliderSwitchRow(
             rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowPenaltyNgramSize.root),
-            label = "N-gram Size",
+            label = getString(R.string.settings_ngram_size),
             initialValue = (currentConfig.nGram ?: defaultConfig.nGram!!).toFloat(),
             initialEnabled = true,
             valueRange = 1f..16f,
@@ -442,7 +476,7 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
 
         setupSliderSwitchRow(
             rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowPenaltyNgramFactor.root),
-            label = "N-gram Factor",
+            label = getString(R.string.settings_ngram_factor),
             initialValue = currentConfig.nGramFactor ?: defaultConfig.nGramFactor!!,
             initialEnabled = true,
             valueRange = 1f..2f,
@@ -451,7 +485,10 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
             switchVisible = false
         )
         penaltySamplerValue = currentConfig.penaltySampler ?: defaultConfig.penaltySampler!!
-        binding.dropdownPenaltySampler.setDropDownItems(listOf("greedy", "temperature")) { _, value ->
+        binding.dropdownPenaltySampler.setDropDownItems(
+            listOf("greedy", "temperature"),
+            itemToString = ::penaltySamplerToString
+        ) { _, value ->
             penaltySamplerValue = value.toString()
             currentConfig.penaltySampler = penaltySamplerValue
         }
@@ -471,6 +508,7 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
     ) {
         val valueFormat = "%.${decimalPlaces}f"
         rowBinding.labelSlider.text = label
+        rowBinding.switchSlider.contentDescription = label
         rowBinding.valueSlider.text = String.format(Locale.US, valueFormat, initialValue)
 
         val maxProgress = 1000
@@ -520,15 +558,23 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
 
     private fun samplerTypeToString(type: SamplerType): String {
         return when (type) {
-            SamplerType.Mixed -> "Mixed"
-            SamplerType.Penalty -> "Penalty"
+            SamplerType.Mixed -> getString(R.string.settings_sampler_mixed)
+            SamplerType.Penalty -> getString(R.string.settings_penalty)
             SamplerType.TopP -> "Top P"
-            SamplerType.Greedy -> "Greedy"
-            SamplerType.Temperature -> "Temperature"
+            SamplerType.Greedy -> getString(R.string.settings_sampler_greedy)
+            SamplerType.Temperature -> getString(R.string.settings_temperature)
             SamplerType.TopK -> "Top K"
             SamplerType.MinP -> "Min P"
             SamplerType.Tfs -> "TFS-Z"
-            SamplerType.Typical -> "Typical"
+            SamplerType.Typical -> getString(R.string.settings_sampler_typical)
+        }
+    }
+
+    private fun penaltySamplerToString(value: Any): String {
+        return when (value) {
+            SamplerType.Greedy.value -> samplerTypeToString(SamplerType.Greedy)
+            SamplerType.Temperature.value -> samplerTypeToString(SamplerType.Temperature)
+            else -> value.toString()
         }
     }
 
@@ -572,6 +618,12 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
             needSaveConfig = true
             needRecreate = true
         }
+        // Independent of the else-if chain above, which only handles the first change.
+        if (currentConfig.contextTokenLimit != loadedConfig.contextTokenLimit ||
+            currentConfig.autoCompressContext != loadedConfig.autoCompressContext) {
+            needSaveConfig = true
+            chatSession?.updateConfig(contextConfigJson())
+        }
         if (needSaveConfig) {
             ModelConfig.saveConfig(ModelConfig.getExtraConfigFile(modelId), currentConfig)
         }
@@ -591,6 +643,8 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
         binding.promptCacheToggle.isChecked = currentConfig.promptCache ?: false
         val llmSession = chatSession as? com.alibaba.mnnllm.android.llm.LlmSession
         llmSession?.updateConfig("""{"prompt_cache": ${currentConfig.promptCache ?: false}}""")
+        setupContextSettings()
+        chatSession?.updateConfig(contextConfigJson())
     }
 
     override fun onDestroyView() {
@@ -600,6 +654,11 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
 
     fun setSession(chatSession: LlmSession?) {
         this.chatSession = chatSession
+    }
+
+    /** Model window from native, used to offer only context lengths the model supports. */
+    fun setModelMaxContext(modelMax: Int) {
+        this.modelMaxContext = modelMax
     }
 
     fun setModelItem(modelItem: ModelItem) {

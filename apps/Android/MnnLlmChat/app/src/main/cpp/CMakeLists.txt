@@ -68,6 +68,8 @@ include_directories("${MNN_SOURCE_ROOT}/transformers/llm/engine/include")
 
 #audio
 include_directories("${MNN_SOURCE_ROOT}/tools/audio/include")
+#cv (MNN::CV::imread for prompt image loading)
+include_directories("${MNN_SOURCE_ROOT}/tools/cv/include")
 include_directories("${MNN_SOURCE_ROOT}/3rd_party/")
 include_directories("${CMAKE_SOURCE_DIR}/third_party")
 # Link the shared library

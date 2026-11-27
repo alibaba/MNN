@@ -3,6 +3,7 @@
 
 package com.alibaba.mls.api.download.hf
 
+import com.alibaba.mls.api.download.StorageSpaceChecker
 import android.util.Log
 import com.alibaba.mls.api.ApplicationProvider
 import com.alibaba.mls.api.FileDownloadException
@@ -230,6 +231,13 @@ class HfModelDownloader(override var callback: ModelRepoDownloadCallback?,
                 collectTaskList(storageFolder, parentPointerPath, hfRepoInfo, totalAndDownloadSize)
         } catch (e: FileDownloadException) {
             callback?.onDownloadFailed(hfRepoInfo.modelId!!, e)
+            return
+        }
+        StorageSpaceChecker.check(
+            ApplicationProvider.application, storageFolder,
+            totalAndDownloadSize[0] - totalAndDownloadSize[1]
+        )?.let { message ->
+            callback?.onDownloadFailed(hfRepoInfo.modelId!!, FileDownloadException(message))
             return
         }
         val fileDownloadListener =

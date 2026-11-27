@@ -11,6 +11,7 @@ import com.alibaba.mnnllm.api.openai.network.logging.ChatLogger
 import com.alibaba.mnnllm.api.openai.network.processors.MnnImageProcessor
 import com.alibaba.mnnllm.api.openai.network.queue.RequestQueueManager
 import com.alibaba.mnnllm.api.openai.network.utils.MessageTransformer
+import com.alibaba.mnnllm.api.openai.network.utils.LlmResultBoundary
 import com.alibaba.mnnllm.api.openai.network.validators.ChatRequestValidator
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
@@ -20,6 +21,12 @@ import io.ktor.server.response.respondText
 import io.ktor.server.sse.SSEServerContent
 import io.ktor.server.sse.heartbeat
 import io.ktor.sse.ServerSentEvent
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -64,6 +71,8 @@ class AnthropicMessagesService {
                     logger.logError(traceId, exception, "Anthropic queue failed, requestId=$requestId")
                 }
             )
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             logger.logError(traceId, e, "Anthropic queue submit failed")
             call.respond(
@@ -106,16 +115,14 @@ class AnthropicMessagesService {
             } else {
                 handleNonStreamResponse(call, unifiedHistory, request.model ?: "mnn-local", llmSession)
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             logger.logError(traceId, e, "Anthropic generation failed")
-            call.respond(
-                HttpStatusCode.InternalServerError,
-                mapOf<String, Any>(
-                    "error" to mapOf<String, String>(
-                        "type" to "api_error",
-                        "message" to (e.message ?: "Internal server error")
-                    )
-                )
+            call.respondText(
+                LlmResultBoundary.errorJson(e, anthropic = true),
+                ContentType.Application.Json,
+                HttpStatusCode.InternalServerError
             )
         }
     }
@@ -127,12 +134,16 @@ class AnthropicMessagesService {
         llmSession: LlmSession
     ) {
         val fullResponse = StringBuilder()
-        val result = llmSession.submitFullHistory(history, object : GenerateProgressListener {
-            override fun onProgress(progress: String?): Boolean {
-                progress?.let { fullResponse.append(it) }
-                return false
-            }
-        })
+        val result = withContext(Dispatchers.IO) {
+            val context = currentCoroutineContext()
+            LlmResultBoundary.submitFullHistory(llmSession, history, object : GenerateProgressListener {
+                override fun onProgress(progress: String?): Boolean {
+                    if (!context.isActive) return true
+                    progress?.let { fullResponse.append(it) }
+                    return false
+                }
+            }).also { context.ensureActive() }
+        }
 
         val usage = usageFromMetrics(result)
         val responseJson = AnthropicAdapter.createNonStreamResponse(

@@ -17,6 +17,7 @@ import com.alibaba.mnnllm.android.model.ModelTypeUtils
 import com.alibaba.mnnllm.android.chat.model.ChatDataManager
 import com.alibaba.mnnllm.android.download.DownloadForegroundServiceManager
 import com.alibaba.mnnllm.android.modelmarket.ModelMarketCache
+import com.alibaba.mnnllm.android.modelist.ModelDeletionHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -25,6 +26,12 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
 
     companion object {
         private const val TAG = "ModelMarketViewModel"
+
+        /** Featured models pinned to the top of the market list. Prefix-matched
+         *  so new Pocket releases (e.g. -DFlash) are pinned automatically. */
+        @JvmStatic
+        internal fun isPinnedModel(item: ModelMarketItem): Boolean =
+            item.modelName.startsWith("MNN-Pocket", ignoreCase = true)
     }
 
     private val downloadManager = ModelDownloadManager.getInstance(application)
@@ -69,9 +76,10 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
     private fun applyCurrentFilters() {
         var filteredList = allModels
 
-        if (currentFilterState.tagKeys.isNotEmpty()) {
+        val selectedTagKeys = TagMapper.getCapabilityTags(currentFilterState.tagKeys).map { it.key }
+        if (selectedTagKeys.isNotEmpty()) {
             filteredList = filteredList.filter { wrapper ->
-                currentFilterState.tagKeys.all { tagKey -> 
+                selectedTagKeys.all { tagKey ->
                     wrapper.modelMarketItem.structuredTags.any { it.key == tagKey }
                 }
             }
@@ -79,7 +87,7 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
 
         if (currentFilterState.vendors.isNotEmpty()) {
             filteredList = filteredList.filter { wrapper ->
-                currentFilterState.vendors.contains(wrapper.modelMarketItem.vendor)
+                currentFilterState.vendors.contains(wrapper.modelMarketItem.displayVendor)
             }
         }
 
@@ -130,53 +138,63 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
             }
         }
 
+        // Featured models (MNN-Pocket family) stay on top; sortedBy is stable so
+        // everything else keeps its catalog order.
+        filteredList = filteredList.sortedBy { if (isPinnedModel(it.modelMarketItem)) 0 else 1 }
+
         _models.postValue(filteredList)
     }
 
+    private var loadJob: kotlinx.coroutines.Job? = null
+
     fun loadModels() {
-        viewModelScope.launch {
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
             try {
-                // Set loading state
-                _isLoading.postValue(true)
                 _loadError.postValue(null)
-                
-                // Get pre-processed config with all models
-                val config = ModelRepository.getModelMarketData()
-                modelMarketConfig = config
-                
-                if (config == null) {
-                    // Handle case where data couldn't be loaded
-                    _isLoading.postValue(false)
-                    _loadError.postValue("Failed to load model data")
-                    return@launch
-                }
-                
-                // Initialize TagMapper with config
-                TagMapper.initializeFromConfig(config)
-                
-                // Use pre-processed models directly from config
-                val marketItems = config.llmModels
-                allModels = marketItems.map {
-                    val downloadInfo = downloadManager.getDownloadInfo(it.modelId)
-                    // If download hasn't started and we have file size in metadata, use it
-                    if (downloadInfo.totalSize == 0L && it.fileSize > 0) {
-                        downloadInfo.totalSize = it.fileSize
+
+                // Render immediately from cache/assets if available; the repository
+                // streams network updates (partial API catalog -> full catalog) through
+                // marketDataFlow, so the list grows instead of blocking on the crawl.
+                if (allModels.isEmpty()) {
+                    val cached = ModelRepository.loadCachedOrAssets()
+                    if (cached != null) {
+                        applyConfig(cached)
+                    } else {
+                        _isLoading.postValue(true)
                     }
-                    Log.d(TAG, "Model: ${it.modelName}, modelId: ${it.modelId} initial downloadState: ${downloadInfo.downloadState}")
-                    ModelMarketItemWrapper(it, downloadInfo)
+                } else {
+                    // Source switch etc.: keep showing the current list while refreshing.
+                    _isLoading.postValue(false)
                 }
-                Log.d(TAG, "allModels: ${allModels.size} models loaded")
-                
-                // Clear loading state
-                _isLoading.postValue(false)
-                applyCurrentFilters()
-                
+
+                ModelRepository.subscribeToMarketData().collect { config ->
+                    applyConfig(config)
+                }
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.e(TAG, "Failed to load models", e)
                 _isLoading.postValue(false)
                 _loadError.postValue("Loading failed: ${e.message}")
             }
         }
+    }
+
+    private fun applyConfig(config: ModelMarketConfig) {
+        modelMarketConfig = config
+        TagMapper.initializeFromConfig(config)
+
+        val marketItems = config.llmModels
+        allModels = marketItems.map {
+            val downloadInfo = downloadManager.getDownloadInfo(it.modelId)
+            if (downloadInfo.totalSize == 0L && it.fileSize > 0) {
+                downloadInfo.totalSize = it.fileSize
+            }
+            ModelMarketItemWrapper(it, downloadInfo)
+        }
+        Log.d(TAG, "applyConfig: ${allModels.size} models, version=${config.version}")
+        _isLoading.postValue(false)
+        applyCurrentFilters()
     }
 
 
@@ -203,8 +221,17 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun deleteModel(item: ModelMarketItem) {
-        viewModelScope.launch {
-            downloadManager.deleteModel(item.modelId)
+        viewModelScope.launch(Dispatchers.IO) {
+            // Local models live outside the downloader's tree; route them through the same
+            // cleanup path as the model list so cache and chat sessions go with them.
+            if (item.modelId?.startsWith("local/") == true) {
+                val result = ModelDeletionHelper.deleteModelWithCleanup(getApplication(), item.modelId)
+                if (!result.modelDeleted) {
+                    Log.w(TAG, "Local model deletion failed: ${result.errors.joinToString()}")
+                }
+            } else {
+                downloadManager.deleteModel(item.modelId)
+            }
         }
     }
 
@@ -213,7 +240,9 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun getAvailableVendors(): List<String> {
-        val availableVendors = allModels.map { it.modelMarketItem.vendor }.distinct()
+        val availableVendors = allModels.map { it.modelMarketItem.displayVendor }
+            .filter { it.isNotBlank() }
+            .distinct()
         val vendorOrder = modelMarketConfig?.vendorOrder ?: emptyList()
         
         // Sort vendors according to the custom order, with unlisted vendors at the end
@@ -232,6 +261,7 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
 
     fun getAvailableTags(): List<Tag> {
         return allModels.flatMap { it.modelMarketItem.structuredTags }
+            .filter { it.key.isNotBlank() }
             .distinctBy { it.key }
             .sortedBy { it.getDisplayText() }
     }

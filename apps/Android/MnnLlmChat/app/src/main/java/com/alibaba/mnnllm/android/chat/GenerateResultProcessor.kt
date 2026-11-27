@@ -28,6 +28,92 @@ class GenerateResultProcessor {
             }
             return text
         }
+
+        fun answerDisplayText(text: String?, streaming: Boolean = false): String {
+            if (text.isNullOrEmpty()) return ""
+            val openingTag = "<answer>"
+            val closingTag = "</answer>"
+            val start = text.indexOfFirst { !it.isWhitespace() }
+            if (start == -1) return text
+            if (!text.startsWith(openingTag, start)) {
+                val remaining = text.length - start
+                return if (streaming && remaining < openingTag.length &&
+                    openingTag.regionMatches(0, text, start, remaining)
+                ) {
+                    text.substring(0, start)
+                } else {
+                    text
+                }
+            }
+
+            val bodyStart = start + openingTag.length
+            val end = text.indexOfLast { !it.isWhitespace() } + 1
+            var bodyEnd = end
+            val suffixLengths = if (streaming) {
+                closingTag.length downTo 1
+            } else {
+                closingTag.length..closingTag.length
+            }
+            for (length in suffixLengths) {
+                val candidate = end - length
+                if (candidate >= bodyStart &&
+                    text.regionMatches(candidate, closingTag, 0, length) &&
+                    !isAnswerCode(text, bodyStart, candidate)
+                ) {
+                    bodyEnd = candidate
+                    break
+                }
+            }
+            return text.substring(0, start) + text.substring(bodyStart, bodyEnd) + text.substring(end)
+        }
+
+        private fun isAnswerCode(text: String, start: Int, end: Int): Boolean {
+            var index = start
+            var lineStart = start
+            var fenceChar = '\u0000'
+            var fenceLength = 0
+            var inlineLength = 0
+            while (index < end) {
+                val char = text[index]
+                if (char == '\n' || char == '\r') {
+                    lineStart = index + 1
+                    index++
+                    continue
+                }
+                if (char != '`' && char != '~') {
+                    index++
+                    continue
+                }
+
+                var runEnd = index + 1
+                while (runEnd < end && text[runEnd] == char) runEnd++
+                val length = runEnd - index
+                val atLineStart = index - lineStart <= 3 &&
+                    (lineStart until index).all { text[it] == ' ' }
+                if (atLineStart && inlineLength == 0 && length >= 3) {
+                    if (fenceLength == 0) {
+                        fenceChar = char
+                        fenceLength = length
+                    } else if (char == fenceChar && length >= fenceLength) {
+                        val lineEnd = text.indexOfAny(charArrayOf('\r', '\n'), runEnd)
+                            .let { if (it == -1) end else minOf(it, end) }
+                        if ((runEnd until lineEnd).all { text[it].isWhitespace() }) {
+                            fenceLength = 0
+                        }
+                    }
+                } else if (fenceLength == 0 && char == '`') {
+                    if (inlineLength == length) {
+                        inlineLength = 0
+                    } else if (inlineLength == 0) {
+                        var escapeStart = index
+                        while (escapeStart > start && text[escapeStart - 1] == '\\') escapeStart--
+                        if ((index - escapeStart) % 2 == 0) inlineLength = length
+                    }
+                }
+                index = runEnd
+            }
+            return fenceLength != 0 || inlineLength != 0
+        }
     }
 
     // Enum to represent the detected stream format

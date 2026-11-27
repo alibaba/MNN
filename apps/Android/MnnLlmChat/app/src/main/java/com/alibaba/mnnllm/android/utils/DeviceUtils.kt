@@ -16,8 +16,11 @@ SdkInt:${Build.VERSION.SDK_INT}""")
         get() = isChinese(ApplicationProvider.get())
 
     /**
-     * Check if the given context's configuration indicates Chinese locale (zh_CN).
-     * Use this for ViewHolder/UI bind to ensure correct locale at bind time.
+     * Check whether the given context's configuration is a Chinese locale.
+     *
+     * Any `zh` region counts, not just `zh_CN`: zh_TW/zh_HK users read the Chinese strings too, and
+     * callers use this to pick a Chinese default model source and Chinese update notes. Comparing
+     * the country to "CN" alone sent those users to the English paths.
      */
     @JvmStatic
     fun isChinese(context: Context): Boolean {
@@ -28,6 +31,6 @@ SdkInt:${Build.VERSION.SDK_INT}""")
             @Suppress("DEPRECATION")
             config.locale
         } ?: return false
-        return locale.language == "zh" && locale.country == "CN"
+        return locale.language == "zh"
     }
 }

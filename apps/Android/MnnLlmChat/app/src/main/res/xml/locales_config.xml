@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Languages offered by Settings > Apps > MNN Chat > Language on Android 13+.
+     Must stay in sync with the values-* folders and with LanguageSettings.Language. -->
+<locale-config xmlns:android="http://schemas.android.com/apk/res/android">
+    <locale android:name="en" />
+    <locale android:name="zh-CN" />
+    <locale android:name="zh-TW" />
+    <locale android:name="ru" />
+</locale-config>

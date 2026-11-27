@@ -21,19 +21,12 @@
                 android:layout_height="match_parent"
                 android:layout_gravity="center_horizontal"
                 android:gravity="center_vertical"
-                android:orientation="vertical">
-<!--                <TextView-->
-<!--                    android:layout_width="wrap_content"-->
-<!--                    android:layout_height="wrap_content"-->
-<!--                    android:text="@string/app_name"-->
-<!--                    android:layout_gravity="center_horizontal"-->
-<!--                    android:layout_marginBottom="6dp"-->
-<!--                    style="?textAppearanceTitleMedium"/>-->
+                android:orientation="horizontal">
                 <com.alibaba.mnnllm.android.widgets.ModelSwitcherView
                     android:id="@+id/model_switcher"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_gravity="center_horizontal"
+                    android:layout_gravity="center_vertical"
                     />
             </LinearLayout>
         </com.google.android.material.appbar.MaterialToolbar>
@@ -62,6 +55,20 @@
         android:layout_gravity="bottom"
         android:orientation="vertical">
 
+        <ScrollView
+            android:id="@+id/agent_steps_scroll"
+            android:layout_width="match_parent"
+            android:layout_height="112dp"
+            android:visibility="gone">
+            <TextView
+                android:id="@+id/tv_agent_steps"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:padding="12dp"
+                android:textAppearance="?attr/textAppearanceBodySmall"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                android:accessibilityLiveRegion="polite" />
+        </ScrollView>
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_toggle_audio_output"
             android:layout_width="wrap_content"
@@ -187,12 +194,13 @@
                         >
                         <ImageView
                             android:id="@+id/bt_plus"
-                            android:layout_width="35dp"
-                            android:layout_height="35dp"
-                            android:layout_marginStart="5dp"
+                            android:layout_width="48dp"
+                            android:layout_height="48dp"
+                            android:padding="7dp"
+                            android:focusable="true"
+                            android:contentDescription="@string/chat_attachment_options"
                             app:srcCompat="@drawable/ic_plus"
                             app:tint="?colorOnSurface"
-                            tools:ignore="ContentDescription"
                             tools:visibility="visible" />
                         <ImageView
                             android:id="@+id/bt_switch_audio"
@@ -203,40 +211,92 @@
                             app:srcCompat="@drawable/ic_audio"
                             app:tint="?colorOnSurface"
                             tools:ignore="ContentDescription" />
-                        <Space
+                        <HorizontalScrollView
                             android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"/>
+                            android:layout_height="match_parent"
+                            android:layout_weight="1"
+                            android:fillViewport="true"
+                            android:scrollbars="none">
+                            <LinearLayout
+                                android:layout_width="wrap_content"
+                                android:layout_height="match_parent"
+                                android:orientation="horizontal"
+                                android:gravity="end|center_vertical">
+                                <TextView
+                                    android:id="@+id/tv_context_usage"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginEnd="4dp"
+                                    android:maxLines="1"
+                                    android:textAppearance="?attr/textAppearanceLabelSmall"
+                                    android:textColor="?attr/colorOnSurfaceVariant"
+                                    android:visibility="gone"
+                                    tools:text="1.2K / 4K"
+                                    tools:visibility="visible" />
 
+                                <com.google.android.material.button.MaterialButton
+                                    android:id="@+id/btn_agent_mode"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="35dp"
+                                    android:layout_marginEnd="4dp"
+                                    android:minWidth="0dp"
+                                    android:paddingTop="0dp"
+                                    android:paddingBottom="0dp"
+                                    android:paddingStart="6dp"
+                                    android:paddingEnd="6dp"
+                                    android:singleLine="true"
+                                    android:letterSpacing="0"
+                                    android:textSize="12sp"
+                                    app:backgroundTint="@null"
+                                    android:background="@drawable/bg_mode_toggle"
+                                    app:iconPadding="4dp"
+                                    app:iconSize="16dp"
+                                    app:iconGravity="textStart"
+                                    app:icon="@drawable/ic_agent_globe"
+                                    app:iconTint="@color/agent_chip_tint"
+                                    android:text="@string/agent_mode_chip"
+                                    android:textAllCaps="false"
+                                    android:textColor="@color/agent_chip_tint"
+                                    android:contentDescription="@string/agent_mode_chip"
+                                    android:visibility="gone"
+                                    tools:visibility="visible" />
 
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/btn_toggle_thinking"
-                            android:layout_width="wrap_content"
-                            android:layout_height="35dp"
-                            android:layout_marginEnd="16dp"
-                            android:paddingTop="0dp"
-                            android:paddingBottom="0dp"
-                            android:paddingStart="12dp"
-                            android:paddingEnd="12dp"
-                            app:backgroundTint="@null"
-                            android:background="@drawable/bg_mode_toggle"
-                            app:iconPadding="8dp"
-                            app:iconGravity="textStart"
-                            app:icon="@drawable/ic_think"
-                            android:text="Thinking"
-                            android:textAllCaps="false"
-                            android:textColor="@color/toggle_tint"
-                            app:drawableTint="@color/toggle_tint"
-                            />
+                                <com.google.android.material.button.MaterialButton
+                                    android:id="@+id/btn_toggle_thinking"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="35dp"
+                                    android:layout_marginEnd="4dp"
+                                    android:minWidth="0dp"
+                                    android:paddingTop="0dp"
+                                    android:paddingBottom="0dp"
+                                    android:paddingStart="6dp"
+                                    android:paddingEnd="6dp"
+                                    android:singleLine="true"
+                                    android:letterSpacing="0"
+                                    android:textSize="12sp"
+                                    app:backgroundTint="@null"
+                                    android:background="@drawable/bg_mode_toggle"
+                                    app:iconPadding="4dp"
+                                    app:iconSize="16dp"
+                                    app:iconGravity="textStart"
+                                    app:icon="@drawable/ic_think"
+                                    android:text="@string/thinking_mode_label"
+                                    android:textAllCaps="false"
+                                    android:textColor="@color/toggle_tint"
+                                    app:drawableTint="@color/toggle_tint" />
+                            </LinearLayout>
+                        </HorizontalScrollView>
 
                         <ImageView
                             android:id="@+id/btn_send"
-                            android:layout_width="35dp"
-                            android:layout_height="35dp"
-                            android:layout_marginEnd="10dp"
+                            android:layout_width="48dp"
+                            android:layout_height="48dp"
+                            android:layout_marginEnd="4dp"
+                            android:padding="7dp"
+                            android:focusable="true"
+                            android:contentDescription="@string/send"
                             app:srcCompat="@drawable/button_send"
-                            app:tint="@color/ic_send_tint"
-                            tools:ignore="ContentDescription" />
+                            app:tint="@color/ic_send_tint" />
                     </LinearLayout>
                     <FrameLayout
                         android:layout_width="match_parent"

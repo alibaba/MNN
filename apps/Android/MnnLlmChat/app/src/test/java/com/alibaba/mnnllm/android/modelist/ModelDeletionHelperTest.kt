@@ -332,4 +332,183 @@ class ModelDeletionHelperTest {
         assertTrue("configFiles should list custom_config.json", detail.configFiles.any { it.first.endsWith("custom_config.json") })
         assertEquals(64L, detail.configFiles.find { it.first.endsWith("custom_config.json") }!!.second)
     }
+
+    // ---- Local (on-device) models -------------------------------------------------------------
+
+    private fun importedModelDir(name: String): File {
+        val dir = File(LocalModelsProvider.importedModelsDir(application), name)
+        dir.mkdirs()
+        File(dir, "config.json").writeText("{}")
+        File(dir, "llm.mnn").writeBytes(ByteArray(32))
+        return dir
+    }
+
+    @Test
+    fun deleteModelWithCleanup_removes_imported_local_model_folder() {
+        val modelDir = importedModelDir("Qwen-Local")
+        assertTrue(modelDir.exists())
+
+        val result = ModelDeletionHelper.deleteModelWithCleanup(
+            application,
+            "local/${modelDir.absolutePath}",
+            modelDir.absolutePath
+        )
+
+        assertTrue("local model folder must be removed", result.modelDeleted)
+        assertFalse("folder must no longer exist", modelDir.exists())
+        assertTrue("no errors expected: ${result.errors}", result.errors.isEmpty())
+    }
+
+    @Test
+    fun deleteModelWithCleanup_removes_drop_in_local_model_folder() {
+        val dropInRoot = LocalModelsProvider.dropInModelsDir(application)!!
+        val modelDir = File(dropInRoot, "Dropped-In")
+        modelDir.mkdirs()
+        File(modelDir, "config.json").writeText("{}")
+
+        val result = ModelDeletionHelper.deleteModelWithCleanup(
+            application,
+            "local/${modelDir.absolutePath}",
+            modelDir.absolutePath
+        )
+
+        assertTrue(result.modelDeleted)
+        assertFalse(modelDir.exists())
+        assertTrue("drop-in root itself must survive", dropInRoot.exists())
+    }
+
+    @Test
+    fun deleteModelWithCleanup_refuses_path_outside_local_roots() {
+        val outside = File(application.filesDir, "not-a-model-root/target")
+        outside.mkdirs()
+        File(outside, "config.json").writeText("{}")
+
+        val result = ModelDeletionHelper.deleteModelWithCleanup(
+            application,
+            "local/${outside.absolutePath}",
+            outside.absolutePath
+        )
+
+        assertFalse("must refuse to delete outside the local roots", result.modelDeleted)
+        assertTrue("folder must be left untouched", outside.exists())
+        assertTrue(
+            "error must explain the refusal: ${result.errors}",
+            result.errors.any { it.contains("Refusing") }
+        )
+    }
+
+    @Test
+    fun deleteModelWithCleanup_refuses_the_root_itself() {
+        val root = LocalModelsProvider.importedModelsDir(application)
+        root.mkdirs()
+        File(root, "config.json").writeText("{}")
+
+        val result = ModelDeletionHelper.deleteModelWithCleanup(
+            application,
+            "local/${root.absolutePath}",
+            root.absolutePath
+        )
+
+        assertFalse("the shared root is not a model folder", result.modelDeleted)
+        assertTrue(root.exists())
+    }
+
+    @Test
+    fun deleteModelWithCleanup_treats_missing_local_folder_as_deleted() {
+        val gone = File(LocalModelsProvider.importedModelsDir(application), "already-gone")
+
+        val result = ModelDeletionHelper.deleteModelWithCleanup(
+            application,
+            "local/${gone.absolutePath}",
+            gone.absolutePath
+        )
+
+        assertTrue("a vanished folder still has to leave the list", result.modelDeleted)
+    }
+
+    @Test
+    fun deleteModelWithCleanup_reports_local_model_without_path() {
+        val result = ModelDeletionHelper.deleteModelWithCleanup(application, "local/nopath", null)
+
+        assertFalse(result.modelDeleted)
+        assertTrue("error must mention the missing path: ${result.errors}", result.errors.isNotEmpty())
+    }
+
+    @Test
+    fun deleteModelWithCleanup_derives_path_from_model_id_when_localPath_missing() {
+        val modelDir = importedModelDir("FromId")
+
+        val result = ModelDeletionHelper.deleteModelWithCleanup(
+            application,
+            "local/${modelDir.absolutePath}"
+        )
+
+        assertTrue("id-embedded path must be enough to delete", result.modelDeleted)
+        assertFalse(modelDir.exists())
+    }
+
+    @Test
+    fun deleteModelWithCleanup_clears_drop_in_root_used_as_model_but_keeps_the_root() {
+        val root = LocalModelsProvider.dropInModelsDir(application)!!
+        root.mkdirs()
+        File(root, "config.json").writeText("{}")
+        File(root, "llm.mnn").writeBytes(ByteArray(16))
+        val nested = File(root, "tokenizer")
+        nested.mkdirs()
+        File(nested, "tokenizer.txt").writeText("x")
+
+        assertTrue(
+            "a model dropped straight into the root must offer delete",
+            ModelDeletionHelper.canDeleteLocalModel(application, root.absolutePath)
+        )
+        val result = ModelDeletionHelper.deleteModelWithCleanup(
+            application,
+            "local/${root.absolutePath}",
+            root.absolutePath
+        )
+
+        assertTrue("root-as-model contents must be deletable: ${result.errors}", result.modelDeleted)
+        assertTrue("the shared drop-in directory must survive", root.isDirectory)
+        assertTrue("contents must be gone", root.listFiles().isNullOrEmpty())
+    }
+
+    @Test
+    fun canDeleteLocalModel_true_for_writable_imported_folder() {
+        val modelDir = importedModelDir("Writable")
+        assertTrue(ModelDeletionHelper.canDeleteLocalModel(application, modelDir.absolutePath))
+    }
+
+    @Test
+    fun canDeleteLocalModel_false_outside_local_roots() {
+        val outside = File(application.filesDir, "elsewhere/model")
+        outside.mkdirs()
+        assertFalse(ModelDeletionHelper.canDeleteLocalModel(application, outside.absolutePath))
+    }
+
+    @Test
+    fun canDeleteLocalModel_false_when_path_is_null() {
+        assertFalse(ModelDeletionHelper.canDeleteLocalModel(application, null))
+    }
+
+    @Test
+    fun canDeleteLocalModel_true_when_folder_already_gone() {
+        val gone = File(LocalModelsProvider.importedModelsDir(application), "gone-away")
+        assertTrue("a vanished folder still has to leave the list", ModelDeletionHelper.canDeleteLocalModel(application, gone.absolutePath))
+    }
+
+    @Test
+    fun canDeleteLocalModel_false_when_parent_is_not_writable() {
+        val root = LocalModelsProvider.importedModelsDir(application)
+        val modelDir = File(root, "Locked")
+        modelDir.mkdirs()
+        assertTrue(modelDir.setWritable(false, false))
+        try {
+            assertFalse(
+                "removing the folder needs a writable parent",
+                ModelDeletionHelper.canDeleteLocalModel(application, modelDir.absolutePath)
+            )
+        } finally {
+            modelDir.setWritable(true, false)
+        }
+    }
 }

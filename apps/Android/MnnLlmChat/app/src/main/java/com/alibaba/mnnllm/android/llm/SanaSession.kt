@@ -1,12 +1,11 @@
 package com.alibaba.mnnllm.android.llm
 
 import android.util.Log
-import com.alibaba.mls.api.ApplicationProvider
 import com.alibaba.mnnllm.android.chat.model.ChatDataItem
 import com.alibaba.mnnllm.android.llm.ChatService.Companion.provide
 import com.alibaba.mnnllm.android.modelsettings.ModelConfig
 import com.google.gson.Gson
-import java.util.HashMap
+import kotlinx.coroutines.CancellationException
 
 class SanaSession(
     private val modelId: String,
@@ -14,38 +13,54 @@ class SanaSession(
     private val configPath: String,
     private var savedHistory: List<ChatDataItem>? = null
 ) : ChatSession {
-    
     override var supportOmni: Boolean = false
     override val debugInfo: String = ""
-    
     private var nativePtr: Long = 0
     @Volatile
     private var releaseRequested = false
-    @Volatile
+    private var releaseStarted = false
     private var generating = false
+    private var modelLoading = false
 
     override fun load() {
-        Log.d(TAG, "SanaSession load() called, configPath: $configPath")
-        val config = try {
-            ModelConfig.loadConfig(modelId)
+        synchronized(this) {
+            check(!releaseRequested) { "Session has been released" }
+            check(!modelLoading && !generating) { "Session is busy" }
+            if (nativePtr != 0L) return
+            modelLoading = true
+        }
+        try {
+            provide().beforeLoad(this)
+            check(!releaseRequested) { "Session has been released" }
+            val config = try {
+                ModelConfig.loadConfig(modelId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to load ModelConfig for $modelId, using defaults: ${e.message}")
+                null
+            }
+            val configMap = hashMapOf<String, Any>(
+                "diffusion_memory_mode" to (config?.diffusionMemoryMode ?: "0"),
+                "backend_type" to (config?.backendType ?: "opencl"),
+                "image_width" to (config?.imageWidth ?: 512),
+                "image_height" to (config?.imageHeight ?: 512),
+                "grid_size" to (config?.gridSize ?: 1)
+            )
+            nativePtr = initNative(configPath, Gson().toJson(configMap))
+            check(nativePtr != 0L) { "Native Sana session not initialized" }
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to load ModelConfig for $modelId, using defaults: ${e.message}")
-            null
-        }
-        val configMap = HashMap<String, Any>().apply {
-            put("diffusion_memory_mode", config?.diffusionMemoryMode ?: "0")
-            put("backend_type", config?.backendType ?: "opencl")
-            put("image_width", config?.imageWidth ?: 512)
-            put("image_height", config?.imageHeight ?: 512)
-            put("grid_size", config?.gridSize ?: 1)
-        }
-        nativePtr = initNative(
-            configPath,
-            Gson().toJson(configMap)
-        )
-        Log.d(TAG, "SanaSession load() nativePtr initialized: $nativePtr")
-        if (releaseRequested) {
-            release()
+            releaseRequested = true
+            throw e
+        } catch (e: OutOfMemoryError) {
+            releaseRequested = true
+            throw e
+        } finally {
+            synchronized(this) {
+                modelLoading = false
+                (this as Object).notifyAll()
+            }
+            if (releaseRequested) release()
         }
     }
 
@@ -54,88 +69,78 @@ class SanaSession(
         params: Map<String, Any>,
         progressListener: GenerateProgressListener
     ): HashMap<String, Any> {
-        synchronized(this) {
-            Log.d(TAG, "Sana generate prompt: $prompt, nativePtr: $nativePtr")
-            if (nativePtr == 0L) {
-                Log.e(TAG, "nativePtr is 0, cannot generate")
-                return HashMap<String, Any>().apply {
-                    put("error", true)
-                    put("message", "Native session not initialized")
-                }
-            }
+        val ptr = synchronized(this) {
+            check(!releaseRequested && nativePtr != 0L) { "Session is not available; reload the model" }
+            check(!modelLoading && !generating) { "Session is busy" }
             generating = true
-            val output = params["output"] as String
-            val imageInput = params["imageInput"] as? String ?: ""
-            val steps = params["iterNum"] as Int
-            val seed = params["randomSeed"] as Int
-            val useCfg = params["useCfg"] as? Boolean ?: true
-            val cfgScale = (params["cfgScale"] as? Number)?.toFloat() ?: 4.5f
+            nativePtr
+        }
+        try {
             val result = generateNative(
-                nativePtr,
+                ptr,
                 prompt,
-                imageInput,
-                output,
-                steps,
-                seed,
-                useCfg,
-                cfgScale,
+                params["imageInput"] as? String ?: "",
+                params["output"] as String,
+                params["iterNum"] as Int,
+                params["randomSeed"] as Int,
+                params["useCfg"] as? Boolean ?: true,
+                (params["cfgScale"] as? Number)?.toFloat() ?: 4.5f,
                 progressListener
-            ) ?: HashMap<String, Any>().apply {
-                put("error", true)
-                put("message", "Native generation returned null")
-            }
-
-            // Check success flag from native
-            if (result["success"] == false) {
-                Log.e(TAG, "Native generation failed: ${result["message"]}")
-            }
-
-            generating = false
-            if (releaseRequested) {
-                releaseInner()
-            }
+            ) ?: hashMapOf<String, Any>("error" to true, "message" to "Native generation returned null", "session_invalid" to true)
+            if (result["session_invalid"] == true || result["error"] == true) releaseRequested = true
             return result
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            releaseRequested = true
+            throw e
+        } catch (e: OutOfMemoryError) {
+            releaseRequested = true
+            throw e
+        } finally {
+            synchronized(this) {
+                generating = false
+                (this as Object).notifyAll()
+            }
+            if (releaseRequested) release()
         }
     }
 
-    override fun reset(): String {
-        return System.currentTimeMillis().toString().also { sessionId = it }
+    override fun reset(): String = synchronized(this) {
+        check(!releaseRequested && !generating && !modelLoading) { "Session is not available" }
+        sessionId = System.currentTimeMillis().toString()
+        provide().updateSessionId(this)
+        sessionId
     }
 
     override fun release() {
-        synchronized(this) {
-            if (!generating) {
-                releaseInner()
-            } else {
-                releaseRequested = true
+        val ptr = synchronized(this) {
+            releaseRequested = true
+            if (generating || modelLoading || releaseStarted) return
+            releaseStarted = true
+            nativePtr.also { nativePtr = 0 }
+        }
+        var succeeded = false
+        try {
+            if (ptr != 0L) releaseNative(ptr)
+            succeeded = true
+        } finally {
+            try {
+                provide().removeSession(this)
+            } finally {
+                provide().onNativeReleased(this, succeeded)
+                synchronized(this) { (this as Object).notifyAll() }
             }
         }
     }
-    
-    private fun releaseInner() {
-        if (nativePtr != 0L) {
-            releaseNative(nativePtr)
-            nativePtr = 0
-            provide().removeSession(sessionId)
-        }
-    }
 
-    override fun setKeepHistory(keepHistory: Boolean) {
-        // Sana session does not support history
-    }
-
-    override fun setEnableAudioOutput(enable: Boolean) {
-        // Not used
-    }
-
+    override fun setKeepHistory(keepHistory: Boolean) {}
+    override fun setEnableAudioOutput(enable: Boolean) {}
     override fun getHistory(): List<ChatDataItem>? = savedHistory
-
     override fun setHistory(history: List<ChatDataItem>?) {
         savedHistory = history
     }
-
-    override fun updateThinking(thinking: Boolean) {
-    }
+    override fun updateThinking(thinking: Boolean) {}
 
     private external fun initNative(resourcePath: String, configJson: String): Long
     private external fun releaseNative(instanceId: Long)

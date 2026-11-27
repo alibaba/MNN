@@ -120,25 +120,33 @@ object ModelUtils {
         if (metrics.containsKey("total_timeus")) {
             return generateDiffusionBenchMarkString(metrics)
         }
-        val promptLen = metrics.getOrDefault("prompt_len", 0L) as Long
-        val decodeLen = metrics.getOrDefault("decode_len", 0L) as Long
-        val prefillTimeUs = metrics.getOrDefault("prefill_time", 0L) as Long
-        val decodeTimeUs = metrics.getOrDefault("decode_time", 0L) as Long
-        var visionTimeUs = if (metrics.containsKey("vision_time")) metrics["vision_time"] as Long else 0L
-        var audioTimeUs = if (metrics.containsKey("audio_time")) metrics["audio_time"] as Long else 0L
+        fun metric(key: String) = (metrics[key] as? Number)?.toLong() ?: 0L
+        val promptLen = metric("prompt_len")
+        val decodeLen = metric("decode_len")
+        val prefillTimeUs = metric("prefill_time")
+        val decodeTimeUs = metric("decode_time")
+        val visionTimeUs = metric("vision_time")
+        val audioTimeUs = metric("audio_time")
         if (promptLen == 0L || decodeLen == 0L) {
             return "generateBenchMarkString error"
         }
         // Calculate speeds in tokens per second
-        var totalPrefillTimeUs = prefillTimeUs + visionTimeUs + audioTimeUs
+        val totalPrefillTimeUs = prefillTimeUs + visionTimeUs + audioTimeUs
         val promptSpeed =
             if ((totalPrefillTimeUs > 0)) (promptLen / (totalPrefillTimeUs / 1000000.0)) else 0.0
         val decodeSpeed = if ((decodeTimeUs > 0)) (decodeLen / (decodeTimeUs / 1000000.0)) else 0.0
-        return String.format(
+        val speeds = String.format(
             "Prefill: %.2fs, %d tokens, %.2f tokens/s \nDecode: %.2fs, %d tokens, %.2f tokens/s",
             totalPrefillTimeUs.toFloat() / 1000000, promptLen, promptSpeed,
             decodeTimeUs.toFloat() / 1000000,decodeLen, decodeSpeed,
         )
+        // Anonymous resident memory: excludes mmapped weight files and GPU buffers.
+        val peakAnonKb = metric("peak_anon_kb")
+        return if (peakAnonKb > 0) {
+            speeds + String.format("\nPeak memory (CPU, anon): %.0f MB", peakAnonKb / 1024.0)
+        } else {
+            speeds
+        }
     }
 
     @SuppressLint("DefaultLocale")

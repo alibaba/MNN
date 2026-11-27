@@ -3,12 +3,58 @@
 package com.alibaba.mnnllm.android.llm
 
 import android.text.TextUtils
+import android.os.Looper
+import kotlinx.coroutines.CancellationException
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ExecutionException
 import com.alibaba.mnnllm.android.chat.model.ChatDataItem
 import com.alibaba.mnnllm.android.model.ModelTypeUtils
 
 class ChatService {
     private val transformerSessionMap: MutableMap<String, ChatSession> = HashMap()
     private val diffusionSessionMap: MutableMap<String, ChatSession> = HashMap()
+    private val loadLock = Any()
+    private var residentSession: ChatSession? = null
+    private var residentRelease: CompletableFuture<Unit>? = null
+
+    internal fun beforeLoad(session: ChatSession, isReleaseRequested: () -> Boolean = { false }) {
+        while (true) {
+            val previous = synchronized(loadLock) {
+                if (isReleaseRequested()) throw CancellationException("Session was released while waiting to load")
+                if (residentSession === session) return
+                val resident = residentSession
+                if (resident == null) {
+                    residentRelease = CompletableFuture()
+                    residentSession = session
+                    return
+                }
+                resident to residentRelease!!
+            }
+            check(Looper.myLooper() != Looper.getMainLooper()) { "Model replacement must run off the main thread" }
+            previous.first.release()
+            try {
+                previous.second.get()
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+                throw CancellationException("Interrupted while waiting for model release", e)
+            } catch (e: ExecutionException) {
+                throw IllegalStateException("Previous model could not be released", e.cause)
+            }
+        }
+    }
+
+    internal fun onNativeReleased(session: ChatSession, succeeded: Boolean) {
+        synchronized(loadLock) {
+            if (residentSession !== session) return
+            if (succeeded) {
+                residentRelease!!.complete(Unit)
+                residentSession = null
+                residentRelease = null
+            } else {
+                residentRelease!!.completeExceptionally(IllegalStateException("Native model release failed"))
+            }
+        }
+    }
 
     /**
      * Unified method to create a session for any model type
@@ -104,9 +150,17 @@ class ChatService {
     }
 
     @Synchronized
-    fun removeSession(sessionId: String) {
-        transformerSessionMap.remove(sessionId)
-        diffusionSessionMap.remove(sessionId)
+    fun removeSession(session: ChatSession) {
+        transformerSessionMap.entries.removeAll { it.value === session }
+        diffusionSessionMap.entries.removeAll { it.value === session }
+    }
+
+    @Synchronized
+    fun updateSessionId(session: ChatSession) {
+        val sessions = if (session is LlmSession) transformerSessionMap else diffusionSessionMap
+        if (sessions.values.none { it === session }) return
+        sessions.entries.removeAll { it.value === session }
+        session.sessionId?.let { if (!sessions.containsKey(it)) sessions[it] = session }
     }
 
     companion object {

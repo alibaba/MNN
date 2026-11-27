@@ -3,4 +3,5 @@
     <string name="source_huggingface">HuggingFace</string>
     <string name="source_modelers">魔乐</string>
     <string name="source_modelscope">魔搭</string>
+    <string name="download_insufficient_storage">存储空间不足：需要 %1$s（含 200 MB 预留），当前可用 %2$s。请清理空间后重试。</string>
 </resources>
