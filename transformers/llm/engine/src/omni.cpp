@@ -281,10 +281,13 @@ static std::vector<T> readTensorVector(VARP var) {
 
 static VARP makeEmbeddingInput(DiskEmbedding* embedding, const std::vector<int>& ids, int hiddenSize) {
     auto var = makeTensorInput<float>({1, static_cast<int>(ids.size()), hiddenSize});
-    if (!embedding || var.get() == nullptr || !var->writeMap<float>()) {
+    auto ptr = var.get() == nullptr ? nullptr : var->writeMap<float>();
+    if (!embedding || ptr == nullptr) {
         return nullptr;
     }
-    embedding->embedding(ids, var->writeMap<float>());
+    if (!embedding->embedding(ids, ptr)) {
+        return nullptr;
+    }
     return var;
 }
 
@@ -391,10 +394,14 @@ static VARP makeQwen3AudioCodePredictorCodecEmbeds(DiskEmbedding* firstEmbedding
         return nullptr;
     }
     auto ptr = var->writeMap<float>();
-    firstEmbedding->embedding({codes[0]}, ptr);
+    if (!firstEmbedding->embedding({codes[0]}, ptr)) {
+        return nullptr;
+    }
     for (int group = 1; group < codeGroups - 1; ++group) {
         int embeddingId = (group - 1) * vocabSize + codes[group];
-        predictorEmbedding->embedding({embeddingId}, ptr + group * hiddenSize);
+        if (!predictorEmbedding->embedding({embeddingId}, ptr + group * hiddenSize)) {
+            return nullptr;
+        }
     }
     return var;
 }
@@ -2667,7 +2674,9 @@ VARP Omni::embedding(const std::vector<int>& input_ids) {
             }
         }
         fullPle = _Input({1, seq_len, ple_dim}, NCHW);
-        mPleEmbedding->embedding(ple_ids, fullPle->writeMap<float>());
+        if (!mPleEmbedding->embedding(ple_ids, fullPle->writeMap<float>())) {
+            return nullptr;
+        }
         if (ple_scale != 1.0f) {
             fullPle = fullPle * _Scalar<float>(ple_scale);
         }
@@ -3607,6 +3616,10 @@ bool Talker::load() {
     mTextPad = mThinker->embedding({mTextPadToken});
     mCodecBos = embedding({mCodecBosToken});
     mCodecPad = embedding({mCodecPadToken});
+    if (mTextBos == nullptr || mTextEos == nullptr || mTextPad == nullptr || mCodecBos == nullptr ||
+        mCodecPad == nullptr) {
+        return false;
+    }
 
     Module::Config module_config;
     module_config.shapeMutable = false;
@@ -4237,9 +4250,16 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
                 return false;
             }
             auto cpPrefill = makeTensorInput<float>({1, 2, hiddenSize});
-            auto prefillPtr = cpPrefill->writeMap<float>();
+            auto prefillPtr = cpPrefill.get() == nullptr ? nullptr : cpPrefill->writeMap<float>();
+            if (prefillPtr == nullptr) {
+                mContext->status = LlmStatus::INTERNAL_ERROR;
+                return false;
+            }
             std::copy(talkerHidden.begin(), talkerHidden.end(), prefillPtr);
-            mDiskEmbedding->embedding({firstCode}, prefillPtr + hiddenSize);
+            if (!mDiskEmbedding->embedding({firstCode}, prefillPtr + hiddenSize)) {
+                mContext->status = LlmStatus::INTERNAL_ERROR;
+                return false;
+            }
             mQwen3CpMeta->remove = mQwen3CpMeta->previous;
             mQwen3CpMeta->add    = 2;
             auto cpOutputs = mQwen3AudioCodePredictor->onForward({cpPrefill, cpPrefillMask, cpPrefillPos});
@@ -4254,9 +4274,16 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
             frameCodes[1] = token < 0 ? 0 : token;
             for (int group = 2; group < codeGroups; ++group) {
                 auto cpStep    = makeTensorInput<float>({1, 1, hiddenSize});
-                auto stepPtr   = cpStep->writeMap<float>();
-                mQwen3AudioCodePredictorEmbedding->embedding(
-                    {(group - 2) * mConfig->audio_code_predictor_vocab_size() + frameCodes[group - 1]}, stepPtr);
+                auto stepPtr = cpStep.get() == nullptr ? nullptr : cpStep->writeMap<float>();
+                if (stepPtr == nullptr) {
+                    mContext->status = LlmStatus::INTERNAL_ERROR;
+                    return false;
+                }
+                if (!mQwen3AudioCodePredictorEmbedding->embedding(
+                        {(group - 2) * mConfig->audio_code_predictor_vocab_size() + frameCodes[group - 1]}, stepPtr)) {
+                    mContext->status = LlmStatus::INTERNAL_ERROR;
+                    return false;
+                }
                 auto posPtr = cpDecodePos->writeMap<int>();
                 posPtr[0]   = group;
                 mQwen3CpMeta->add = 1;
@@ -4306,6 +4333,11 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
         auto codecFrameEmbeds =
             makeQwen3AudioCodePredictorCodecEmbeds(mDiskEmbedding.get(), mQwen3AudioCodePredictorEmbedding.get(), frameCodes,
                                               codeGroups + 1, mConfig->audio_code_predictor_vocab_size(), hiddenSize);
+        if (codecFrameEmbeds.get() == nullptr) {
+            MNN_ERROR("[Error]: failed to build qwen3_tts codec frame embeddings at frame %d\n", step);
+            mContext->status = LlmStatus::INTERNAL_ERROR;
+            return false;
+        }
         auto codecOutputs = mQwen3CodecEmbedder->onForward({codecFrameEmbeds, textHidden});
         if (codecOutputs.size() != 1) {
             MNN_ERROR("[Error]: qwen3_tts codec embedder output size mismatch at frame %d: %zu\n", step,
@@ -4395,6 +4427,10 @@ void Talker::stepForward(int stepIdx) {
     }
 
     auto input_embeds = embedding({mContext->current_token});
+    if (input_embeds == nullptr) {
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return;
+    }
     if (stepIdx + 1 < mTalkerEmbeds.size()) {
         input_embeds = input_embeds + mTalkerEmbeds[stepIdx + 1];
     } else {
