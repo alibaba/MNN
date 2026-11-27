@@ -24,6 +24,16 @@ public:
             MNN_ERROR("Onnx ScatterND error for inputs: %d\n", (int)inputs.size());
             return nullptr;
         }
+        auto attrs = op->main_as_Extra()->attr();
+        if (attrs != nullptr) {
+            for (int i = 0; i < attrs->size(); ++i) {
+                auto attr = attrs->GetAs<Attribute>(i);
+                if (attr->key()->str() == "reduction" && attr->s()->str() != "none") {
+                    MNN_ERROR("ONNX ScatterND reduction=%s is not supported\n", attr->s()->c_str());
+                    return nullptr;
+                }
+            }
+        }
         // Onnx Scatter = data + MNN::Scatter(indice, update, shape)
         auto config = Global<modelConfig>::Get();
         auto data   = inputs[0];
