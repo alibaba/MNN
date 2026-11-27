@@ -8,10 +8,10 @@
     <string name="model_loading">模型加载中...</string>
     <string name="model_load_failed">模型加载失败: %1$s</string>
     <string name="download_not_started">%1$s</string>
-    <string name="downloaded_click_to_chat">%1$S</string>
-    <string name="local_click_to_chat">%1$S %2$S</string>
+    <string name="downloaded_click_to_chat">%1$s</string>
+    <string name="local_click_to_chat">%1$s %2$s</string>
     <string name="download_failed_click_retry">下载失败: %1$s, 点击重试</string>
-    <string name="downloading_progress">%1$s | %2$s</string>"
+    <string name="downloading_progress">%1$s | %2$s</string>
     <string name="config_file_not_found">模型配置文件不存在：%1$s</string>
     <string name="model_hello_prompt">有什么需要帮忙的么？</string>
     <string name="model_hello_prompt_diffusion">请输入提示词\n我可以生成图片哦</string>
@@ -122,6 +122,12 @@
     <string name="current_version">当前版本:%1$s</string>
     <string name="current_version_check_update">当前版本:%1$s（点击检查更新）</string>
     <string name="mnn_version">MNN引擎版本</string>
+    <string name="language">语言</string>
+    <string name="language_follow_system">跟随系统</string>
+    <string name="language_english">English</string>
+    <string name="language_simplified_chinese">简体中文</string>
+    <string name="language_traditional_chinese">繁體中文</string>
+    <string name="language_russian">俄语</string>
     <string name="select_download_provider">选择下载提供商</string>
     <string name="settings_complete">强烈建议删除未完成任务重新下载，否则可能有数据不一致问题。</string>
     <string name="stop_download_tasks_when_chat">聊天时停止下载任务</string>
@@ -142,6 +148,10 @@
     <string name="api_service_copy_url">复制URL</string>
     <string name="api_service_test_page">测试页面</string>
     <string name="api_url_copied">API URL已复制到剪贴板</string>
+    <string name="use_https_url">客户端使用 HTTPS URL</string>
+    <string name="open_in_browser">在浏览器中打开</string>
+    <string name="not_downloaded">未下载</string>
+    <string name="menu_show_model_info_title">模型信息</string>
     <string name="modelscope">魔搭</string>
     <string name="modelers">魔乐</string>
     <string name="huggingface">HuggingFace</string>
@@ -323,6 +333,8 @@
     <string name="download_state_failed">下载失败</string>
     <string name="download_state_paused">下载暂停</string>
     <string name="download_state_updating">更新中</string>
+    <string name="download_state_cancelled">已取消</string>
+    <string name="download_state_preparing">准备中</string>
     <string name="no_models_found">没有找到模型，请在模型市场下载</string>
     <string name="no_filtered_models_title">没有符合筛选条件的模型</string>
     <string name="no_filtered_models_message">请尝试调整筛选条件以查看更多模型，或者清除所有筛选条件以查看所有可用模型。</string>
@@ -371,6 +383,8 @@
     <string name="start_video_decoder_test">开始视频解码器测试</string>
     <string name="stop_video_decoder_test">停止视频解码器测试</string>
     <string name="process_video_file">处理视频文件</string>
+    <string name="video_file_failed">获取视频文件失败</string>
+    <string name="scroll_to_bottom">滚动到底部</string>
     <string name="video_decoder_test_input_hint">选择要解码的视频文件</string>
     <string name="video_decoder_test_title">视频解码器测试</string>
     <string name="video_decoder_test_description">测试优化的视频解码器实现</string>

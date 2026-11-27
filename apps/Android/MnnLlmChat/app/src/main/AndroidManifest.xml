@@ -23,7 +23,18 @@
         android:roundIcon="@mipmap/ic_launcher"
         android:supportsRtl="true"
         android:theme="@style/AppTheme"
+        android:localeConfig="@xml/locales_config"
         tools:targetApi="31">
+        <!-- Persists the app language chosen in Settings > Apps or in the in-app row, so the
+             choice survives a process restart and is shared by both entry points. -->
+        <service
+            android:name="androidx.appcompat.app.AppLocalesMetadataHolderService"
+            android:enabled="false"
+            android:exported="false">
+            <meta-data
+                android:name="autoStoreLocales"
+                android:value="true" />
+        </service>
         <meta-data
             android:name="firebase_crashlytics_collection_enabled"
             android:value="false" />

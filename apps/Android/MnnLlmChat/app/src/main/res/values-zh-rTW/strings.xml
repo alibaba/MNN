@@ -8,8 +8,8 @@
     <string name="model_loading">模型載入中…</string>
     <string name="model_load_failed">模型載入失敗: %1$s</string>
     <string name="download_not_started">%1$s</string>
-    <string name="downloaded_click_to_chat">%1$S</string>
-    <string name="local_click_to_chat">%1$S %2$S</string>
+    <string name="downloaded_click_to_chat">%1$s</string>
+    <string name="local_click_to_chat">%1$s %2$s</string>
     <string name="download_failed_click_retry">下載失敗: %1$s，點擊重試</string>
     <string name="downloading_progress">%1$s | %2$s</string>
     <string name="config_file_not_found">找不到模型設定檔：%1$s</string>
@@ -121,6 +121,12 @@
     <string name="current_version">目前版本: %1$s</string>
     <string name="current_version_check_update">目前版本: %1$s (點擊檢查更新)</string>
     <string name="mnn_version">MNN 引擎版本</string>
+    <string name="language">語言</string>
+    <string name="language_follow_system">跟隨系統</string>
+    <string name="language_english">English</string>
+    <string name="language_simplified_chinese">简体中文</string>
+    <string name="language_traditional_chinese">繁體中文</string>
+    <string name="language_russian">俄語</string>
     <string name="select_download_provider">選擇下載提供商</string>
     <string name="settings_complete">強烈建議刪除未完成的下載任務重新開始，否則可能會產生資料不一致的問題。</string>
     <string name="stop_download_tasks_when_chat">對話時停止下載任務</string>
@@ -141,6 +147,10 @@
     <string name="api_service_copy_url">複製網址 (URL)</string>
     <string name="api_service_test_page">測試頁面</string>
     <string name="api_url_copied">API 網址已複製到剪貼簿</string>
+    <string name="use_https_url">用戶端使用 HTTPS 網址</string>
+    <string name="open_in_browser">在瀏覽器中開啟</string>
+    <string name="not_downloaded">未下載</string>
+    <string name="menu_show_model_info_title">模型資訊</string>
     <string name="modelscope">魔搭 (ModelScope)</string>
     <string name="modelers">魔樂 (Modelers)</string>
     <string name="huggingface">HuggingFace</string>
@@ -322,6 +332,8 @@
     <string name="download_state_failed">下載失敗</string>
     <string name="download_state_paused">下載暫停</string>
     <string name="download_state_updating">更新中</string>
+    <string name="download_state_cancelled">已取消</string>
+    <string name="download_state_preparing">準備中</string>
     <string name="no_models_found">找不到模型，請前往模型市集下載</string>
     <string name="no_filtered_models_title">沒有符合篩選條件的模型</string>
     <string name="no_filtered_models_message">請嘗試調整篩選條件，或清除所有篩選條件以查看所有可用模型。</string>
@@ -370,6 +382,8 @@
     <string name="start_video_decoder_test">開始影片解碼器測試</string>
     <string name="stop_video_decoder_test">停止影片解碼器測試</string>
     <string name="process_video_file">處理影片檔案</string>
+    <string name="video_file_failed">取得影片檔案失敗</string>
+    <string name="scroll_to_bottom">捲動到底部</string>
     <string name="video_decoder_test_input_hint">選擇要解碼的影片檔案</string>
     <string name="video_decoder_test_title">影片解碼器測試</string>
     <string name="video_decoder_test_description">測試最佳化的影片解碼器實現</string>

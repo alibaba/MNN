@@ -130,6 +130,12 @@
     <string name="current_version">Current Version:%1$s</string>
     <string name="current_version_check_update">Current Version:%1$s (Tap to check updates)</string>
     <string name="mnn_version">MNN Engine Version</string>
+    <string name="language">Language</string>
+    <string name="language_follow_system">Follow system</string>
+    <string name="language_english">English</string>
+    <string name="language_simplified_chinese">简体中文</string>
+    <string name="language_traditional_chinese">繁體中文</string>
+    <string name="language_russian">Russian</string>
     <string name="select_download_provider">Select Download Provider</string>
     <string name="settings_complete">it\'s recommended to remove unfinished tasks and redownload to prevent errors.</string>
     <string name="stop_download_tasks_when_chat">Stop downloads when chat</string>
