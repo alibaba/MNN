@@ -470,14 +470,17 @@ ErrorCode ImageProcessUtils::transformImage(const uint8_t* source, uint8_t* dst,
                 }
             }
             // Convert format
-            const uint8_t* blitFloatSrc = blitSrc;
+            const uint8_t* blitOutputSrc = blitSrc;
             if (mInside->mBlitter) {
                 mInside->mBlitter(blitSrc, blitDest, count);
-                blitFloatSrc = blitDest;
+                blitOutputSrc = blitDest;
             }
             // Turn float
             if (mInside->mBlitFloat) {
-                mInside->mBlitFloat(blitFloatSrc, (float*)dstStart, mInside->config.mean, mInside->config.normal, count);
+                mInside->mBlitFloat(blitOutputSrc, (float*)dstStart, mInside->config.mean, mInside->config.normal, count);
+            } else if (mInside->mDtype.code == halide_type_uint && mInside->mDtype.bits == 8 &&
+                       mInside->ic == mInside->oc && blitOutputSrc != dstStart) {
+                ::memcpy(dstStart, blitOutputSrc, count * mInside->ic);
             }
         }
     }
