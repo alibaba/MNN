@@ -133,23 +133,19 @@ __kernel void linear_attn_conv_state_update(
     const int D = conv_dim;
     const int css = conv_state_size;
 
-    const int i = gid % css;
-    const int bd = gid / css;
-    const int b = bd / D;
-    const int d = bd % D;
+    const int b = gid / D;
+    const int d = gid % D;
 
-    // new_state[i] = padded[L + i]
-    // padded = cat(old_state[css], qkv[L])
-    // position (L + i) in padded: if (L+i) < css -> old_state, else -> qkv[(L+i) - css]
-    int pos = L + i;
-    FLOAT val;
-    if (pos < css) {
-        val = conv_state[b * D * css + d * css + pos];
-    } else {
-        val = qkv[linear_attn_qkv_offset(b, d, pos - css, batch, D, L)];
+    // One work-item per channel so the in-place shift stays ordered.
+    __global FLOAT* state = conv_state + gid * css;
+    for (int i = 0; i < css; ++i) {
+        int pos = L + i;
+        if (pos < css) {
+            state[i] = state[pos];
+        } else {
+            state[i] = qkv[linear_attn_qkv_offset(b, d, pos - css, batch, D, L)];
+        }
     }
-    // Safe: we write to index i, read from index (L+i) where L >= 1, so (L+i) > i always
-    conv_state[b * D * css + d * css + i] = val;
 }
 
 // Kernel 3: Gated Delta Rule (Steps 2-5 fused)
@@ -439,16 +435,17 @@ __kernel void linear_attn_short_conv_state_update(
     __private const int hidden) {
     const int gid = get_global_id(0);
     if (gid >= global_dim0) return;
-    const int i = gid % conv_state_size;
-    const int bh = gid / conv_state_size;
-    const int b = bh / hidden;
-    const int h = bh % hidden;
-    int pos = seq_len + i;
-    FLOAT value = pos < conv_state_size
-                      ? conv_state[(b * hidden + h) * conv_state_size + pos]
-                      : (FLOAT)linear_attn_short_input(qkv, b, h, pos - conv_state_size, batch, conv_dim, seq_len,
-                                                       hidden);
-    conv_state[(b * hidden + h) * conv_state_size + i] = value;
+    const int b = gid / hidden;
+    const int h = gid % hidden;
+    // One work-item per channel so the in-place shift stays ordered.
+    __global FLOAT* state = conv_state + gid * conv_state_size;
+    for (int i = 0; i < conv_state_size; ++i) {
+        int pos = seq_len + i;
+        state[i] = pos < conv_state_size
+                       ? state[pos]
+                       : (FLOAT)linear_attn_short_input(qkv, b, h, pos - conv_state_size, batch, conv_dim, seq_len,
+                                                        hidden);
+    }
 }
 
 __kernel void linear_attn_short_conv_output(

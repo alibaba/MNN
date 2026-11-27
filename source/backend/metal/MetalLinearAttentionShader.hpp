@@ -1461,6 +1461,7 @@ kernel void linear_attn_short_conv_nosilu(
     conv_out[(b * H + h) * L + l] = (ftype)sum;
 }
 
+// One thread per channel so the in-place shift stays ordered.
 kernel void linear_attn_short_conv_state_update(
     const device ftype* qkv         [[buffer(0)]],
     device ftype* conv_state        [[buffer(1)]],
@@ -1470,17 +1471,16 @@ kernel void linear_attn_short_conv_state_update(
     const int L = param.seq_len;
     const int css = param.conv_state_size;
     const int H = param.head_v_dim;
-    const int total = B * H * css;
+    const int total = B * H;
     if ((int)gid >= total) return;
 
-    const int i = gid % css;
-    const int bh = gid / css;
-    const int b = bh / H;
-    const int h = bh % H;
-    int pos = L + i;
-    ftype value = pos < css ? conv_state[(b * H + h) * css + pos]
-                            : (ftype)short_conv_input(qkv, b, h, pos - css, param);
-    conv_state[(b * H + h) * css + i] = value;
+    const int b = gid / H;
+    const int h = gid % H;
+    device ftype* state = conv_state + gid * css;
+    for (int i = 0; i < css; ++i) {
+        int pos = L + i;
+        state[i] = pos < css ? state[pos] : (ftype)short_conv_input(qkv, b, h, pos - css, param);
+    }
 }
 
 kernel void linear_attn_short_conv_output(

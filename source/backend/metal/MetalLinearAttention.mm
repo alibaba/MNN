@@ -1021,7 +1021,7 @@ void MetalLinearAttention::onEncode(const std::vector<Tensor *> &inputs, const s
                 threadsPerThreadgroup:MTLSizeMake(threadGroupSize, 1, 1)];
 
         if (convStateSize > 0) {
-            int stateTotal = batch * mHeadVDim * convStateSize;
+            int stateTotal = batch * mHeadVDim;
             NSUInteger stateThreadGroupSize =
                 MIN((NSUInteger)256, mShortConvStateUpdatePipeline.maxTotalThreadsPerThreadgroup);
             stateThreadGroupSize = MIN(stateThreadGroupSize, (NSUInteger)stateTotal);
