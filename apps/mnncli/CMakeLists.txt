@@ -114,6 +114,7 @@ add_executable(mnncli ${MNNCLI_SOURCES})
 
 target_include_directories(mnncli PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/include
+    ${MNN_SOURCE_DIR}/source
     ${MNN_SOURCE_DIR}/include
     ${MNN_SOURCE_DIR}/transformers/llm/engine/include
     ${MNN_SOURCE_DIR}/transformers/llm/engine/src

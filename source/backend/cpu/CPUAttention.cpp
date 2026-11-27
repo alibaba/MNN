@@ -454,6 +454,13 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
         }
         // Add the new kv to the kvcache
         mKVCacheManager->onUpdateKV(key, value, (int)insertLen);
+        if (mMeta && mMeta->file_flag == KVMeta::PendingSnapshot) {
+            const int layer = mMeta->layer_index++;
+            mMeta->layer_index %= mMeta->layer_nums;
+            if (!mKVCacheManager->savePrefixSnapshot(mMeta->file_name, layer)) {
+                mMeta->file_flag = KVMeta::SnapshotFailed;
+            }
+        }
     } else {
         // Shared layer: KV cache is shared via onClone, skip KV update
         insertLen = (int)mMeta->add;
