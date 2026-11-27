@@ -57,7 +57,8 @@ class SamplerIsPenaltyActiveTest : public MNNTestCase {
             Sampler s(ctx, cfg);
             // With empty history, penalty has nothing to penalize; the token
             // distribution is unchanged so greedy still picks 0.
-            auto logits = makeLogits({5.0f, 3.0f, 1.0f});
+            // The gap keeps token 1 below the default min_p cutoff, so the pick is deterministic.
+            auto logits = makeLogits({10.0f, 3.0f, 1.0f});
             int tok = s.sample(logits);
             MNNTEST_ASSERT(tok == 0);
         }
@@ -257,5 +258,52 @@ class SamplerTfsNoTrimTest : public MNNTestCase {
     }
 };
 MNNTestSuiteRegister(SamplerTfsNoTrimTest, "llm/sampler_tfs_no_trim");
+
+// --------------------------------------------------------------------------
+// top_k <= 0 disables top-k, and temperature <= 0 degenerates to argmax.
+// --------------------------------------------------------------------------
+class SamplerDegenerateParamsTest : public MNNTestCase {
+    bool run(int /* precision */) override {
+        auto ctx = std::make_shared<LlmContext>();
+        const int VOCAB = 64;
+        std::vector<float> raw(VOCAB);
+        for (int i = 0; i < VOCAB; ++i) {
+            raw[i] = (float)(i % 7) * 0.1f;
+        }
+        const int ARGMAX = 37;
+        raw[ARGMAX] = 3.0f;
+
+        // top_k = 0 must keep every candidate instead of emptying the set.
+        {
+            auto cfg = makeConfig(R"({"sampler_type":"mixed","mixed_samplers":["topK","greedy"],"top_k":0})");
+            Sampler s(ctx, cfg);
+            int tok = s.sample(makeLogits(raw));
+            MNNTEST_ASSERT(tok == ARGMAX);
+        }
+
+        // temperature = 0 alone picks the argmax.
+        {
+            auto cfg = makeConfig(R"({"sampler_type":"temperature","temperature":0.0})");
+            Sampler s(ctx, cfg);
+            for (int i = 0; i < 8; ++i) {
+                int tok = s.sample(makeLogits(raw));
+                MNNTEST_ASSERT(tok == ARGMAX);
+            }
+        }
+
+        // temperature = 0 through the default mixed filters also picks the argmax.
+        {
+            auto cfg = makeConfig(R"({"sampler_type":"mixed","temperature":0.0})");
+            Sampler s(ctx, cfg);
+            for (int i = 0; i < 8; ++i) {
+                int tok = s.sample(makeLogits(raw));
+                MNNTEST_ASSERT(tok == ARGMAX);
+            }
+        }
+
+        return true;
+    }
+};
+MNNTestSuiteRegister(SamplerDegenerateParamsTest, "llm/sampler_degenerate_params");
 
 #endif // MNN_BUILD_LLM

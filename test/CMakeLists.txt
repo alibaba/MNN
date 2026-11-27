@@ -59,6 +59,13 @@ endif()
 target_include_directories(run_test.out PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/
     ${CMAKE_CURRENT_LIST_DIR}/../transformers/llm/engine/src/)
+# test/llm/*.cpp are guarded by this macro; without it they compile to nothing.
+if (MNN_BUILD_LLM)
+  target_compile_definitions(run_test.out PRIVATE MNN_BUILD_LLM)
+  if (MNN_SEP_BUILD)
+    target_link_libraries(run_test.out llm)
+  endif()
+endif()
 if (APPLE)
   find_library(FOUNDATION Foundation REQUIRED)
   target_link_libraries(run_test.out ${FOUNDATION})
