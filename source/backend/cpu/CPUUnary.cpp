@@ -412,6 +412,8 @@ MNNUnaryExecute CPUUnary::selectForFloat(int type, int precision) {
             return _unaryOp<UnarySign<float>, float>;
         case UnaryOpOperation_ROUND:
             return _unaryOp<UnaryRound<float>, float>;
+        case UnaryOpOperation_ROUND_EVEN:
+            return _unaryOp<UnaryRoundEven<float>, float>;
         case UnaryOpOperation_COSH:
             return _unaryOp<UnaryCosh<float>, float>;
         case UnaryOpOperation_ERF:

@@ -169,6 +169,27 @@ struct UnaryRound {
 };
 
 template <typename T>
+struct UnaryRoundEven {
+    T operator()(const T &value) const {
+        const float x = value;
+#if defined(__aarch64__) && defined(__has_builtin)
+#if __has_builtin(__builtin_roundevenf)
+        return __builtin_roundevenf(x);
+#endif
+#endif
+        const float magnitude = std::fabs(x);
+        // Float32 values at or above 2^23 are already integral. This also preserves NaN and Inf.
+        if (!(magnitude < 8388608.0f)) {
+            return x;
+        }
+        const int lower = static_cast<int>(magnitude);
+        const float fraction = magnitude - lower;
+        const bool increment = fraction > 0.5f || (fraction == 0.5f && (lower & 1));
+        return std::copysign(static_cast<float>(lower + increment), x);
+    }
+};
+
+template <typename T>
 struct UnaryCosh {
     T operator()(const T &x) const {
         return (T)coshf((T)(x));

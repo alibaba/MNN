@@ -156,6 +156,7 @@ enum UnaryOpOperation : int {
     GELU = 32,
     GELU_STANDARD = 33,
     SILU = 34,
+    ROUND_EVEN = 35,
 }
 
 table UnaryOp {
