@@ -406,10 +406,11 @@ void sync_attention_try_vtcm_workspace(SyncAttentionTaskState *state, int task_r
   // Leave the kernels exactly what their bump allocations need for this shape, from the same estimate the
   // q-group picker uses, so the two cannot disagree about what fits.
   const size_t kernel_bytes = htp_attn_vtcm_kernel_bytes(task_rows, state->head_dim, state->kv_chunk);
-  if (vtcm_total <= kernel_bytes) {
+  const size_t alignment_slack = 2047;
+  if (vtcm_total <= kernel_bytes + alignment_slack) {
     return;
   }
-  const size_t budget = vtcm_total - kernel_bytes;
+  const size_t budget = vtcm_total - kernel_bytes - alignment_slack;
 
   // Scores go in first: they carry most of the win (an HMX store plus an HVX softmax read per q block),
   // and are the smaller of the two regions when scores_fp16 is set, since that path only uses the lower
@@ -445,7 +446,9 @@ void sync_attention_try_vtcm_workspace(SyncAttentionTaskState *state, int task_r
     state->activation_in_vtcm = 1;
     used += (size_t) workers * act_stride;
   }
-  state->kernel_vtcm_base = vtcm_base + used;
+  const uintptr_t kernel_addr =
+      (reinterpret_cast<uintptr_t>(vtcm_base + used) + 2047u) & ~uintptr_t(2047u);
+  state->kernel_vtcm_base = reinterpret_cast<uint8_t*>(kernel_addr);
 }
 
 int sync_attention_use_online_pages(int allow_online_pages, int head_dim, int page_size, int seq_len, int mask_stride,
