@@ -42,3 +42,85 @@ target_include_directories(MNN_Hexagon
         ${CMAKE_CURRENT_LIST_DIR}
         ${_HEXAGON_ROOT}/includes
 )
+
+if(MNN_BUILD_TEST)
+    add_executable(test_hexagon_quant_contract
+        ${CMAKE_CURRENT_LIST_DIR}/tests/test_hexagon_quant_contract.cpp
+        ${CMAKE_CURRENT_LIST_DIR}/backend/HexagonQuantization.cpp
+    )
+    target_include_directories(test_hexagon_quant_contract
+        PRIVATE
+            ${CMAKE_CURRENT_LIST_DIR}/backend
+            ${CMAKE_CURRENT_LIST_DIR}/htp-ops-lib/include
+    )
+
+    add_executable(test_hexagon_quant_tensor_contract
+        ${CMAKE_CURRENT_LIST_DIR}/tests/test_hexagon_quant_tensor_contract.cpp
+    )
+    target_include_directories(test_hexagon_quant_tensor_contract
+        PRIVATE
+            ${CMAKE_CURRENT_LIST_DIR}/backend
+            ${CMAKE_CURRENT_LIST_DIR}/execution
+            ${CMAKE_CURRENT_LIST_DIR}/htp-ops-lib/include
+            ${CMAKE_SOURCE_DIR}
+            ${CMAKE_SOURCE_DIR}/include
+            ${CMAKE_SOURCE_DIR}/source
+            ${CMAKE_SOURCE_DIR}/schema/current
+            ${CMAKE_SOURCE_DIR}/3rd_party
+            ${CMAKE_SOURCE_DIR}/3rd_party/flatbuffers/include
+    )
+    target_link_libraries(test_hexagon_quant_tensor_contract PRIVATE MNN)
+
+    add_executable(test_hexagon_int8_abi_contract
+        ${CMAKE_CURRENT_LIST_DIR}/tests/test_hexagon_int8_abi_contract.cpp
+    )
+    target_include_directories(test_hexagon_int8_abi_contract
+        PRIVATE
+            ${CMAKE_CURRENT_LIST_DIR}/backend
+            ${CMAKE_CURRENT_LIST_DIR}/htp-ops-lib/include
+    )
+
+    add_executable(test_hexagon_command_status
+        ${CMAKE_CURRENT_LIST_DIR}/tests/test_hexagon_command_status.cpp
+    )
+    target_include_directories(test_hexagon_command_status
+        PRIVATE
+            ${CMAKE_CURRENT_LIST_DIR}/backend
+    )
+
+    add_executable(test_hexagon_w8a8_device_contract
+        ${CMAKE_CURRENT_LIST_DIR}/tests/test_hexagon_w8a8_device_contract.cpp
+    )
+    target_include_directories(test_hexagon_w8a8_device_contract
+        PRIVATE
+            ${CMAKE_CURRENT_LIST_DIR}/backend
+            ${CMAKE_CURRENT_LIST_DIR}/execution
+    )
+    target_link_libraries(test_hexagon_w8a8_device_contract PRIVATE MNN)
+
+    add_executable(test_hexagon_int8_requant_contract
+        ${CMAKE_CURRENT_LIST_DIR}/htp-ops-lib/tests/int8_requant_contract_test.cpp
+        ${CMAKE_CURRENT_LIST_DIR}/backend/HexagonQuantization.cpp
+        ${CMAKE_CURRENT_LIST_DIR}/htp-ops-lib/src/dsp/int8_quant_ops.cc
+        ${CMAKE_CURRENT_LIST_DIR}/htp-ops-lib/src/dsp/ops/int8_requant_hvx.c
+    )
+    target_include_directories(test_hexagon_int8_requant_contract
+        PRIVATE
+            ${CMAKE_CURRENT_LIST_DIR}/backend
+            ${CMAKE_CURRENT_LIST_DIR}/htp-ops-lib/include
+    )
+
+    add_executable(test_hexagon_int8_conv_contract
+        ${CMAKE_CURRENT_LIST_DIR}/htp-ops-lib/tests/int8_conv_contract_test.cpp
+        ${CMAKE_CURRENT_LIST_DIR}/backend/HexagonQuantization.cpp
+        ${CMAKE_CURRENT_LIST_DIR}/htp-ops-lib/src/dsp/int8_quant_ops.cc
+        ${CMAKE_CURRENT_LIST_DIR}/htp-ops-lib/src/dsp/int8_conv_ops.cc
+        ${CMAKE_CURRENT_LIST_DIR}/htp-ops-lib/src/dsp/ops/int8_requant_hvx.c
+        ${CMAKE_CURRENT_LIST_DIR}/htp-ops-lib/src/dsp/ops/int8_conv_hvx.c
+    )
+    target_include_directories(test_hexagon_int8_conv_contract
+        PRIVATE
+            ${CMAKE_CURRENT_LIST_DIR}/backend
+            ${CMAKE_CURRENT_LIST_DIR}/htp-ops-lib/include
+    )
+endif()
