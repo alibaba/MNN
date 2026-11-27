@@ -1,6 +1,9 @@
 #include "HexagonExecutionFactory.hpp"
 
 #include "HexagonConvolution.hpp"
+#include "HexagonConvolutionInt8.hpp"
+#include "HexagonQuantization.hpp"
+#include "HexagonQuantize.hpp"
 #include "HexagonDeconvolution.hpp"
 #include "HexagonTMac.hpp"
 #include "HexagonConvolutionDepthwise.hpp"
@@ -60,6 +63,10 @@ Execution* HexagonExecutionFactory::create(const Op* op, const std::vector<Tenso
             if (inputs.size() > 1) {
                 break;
             }
+            if (supportsW8A8Conv1x1(op, inputs, outputs)) {
+                return HexagonConvolutionInt8::create(
+                    backend, op, inputs, outputs);
+            }
             if (auto exe = HexagonTMac::create(backend, op, inputs, outputs)) {
                 return exe;
             }
@@ -106,6 +113,11 @@ Execution* HexagonExecutionFactory::create(const Op* op, const std::vector<Tenso
             break;
         case OpType_Cast:
             execution = HexagonCast::create(backend, op, inputs, outputs);
+            break;
+        case OpType_FloatToInt8:
+        case OpType_Int8ToFloat:
+            execution =
+                HexagonQuantize::create(backend, op, inputs, outputs);
             break;
         case OpType_RoPE:
             return HexagonRoPE::create(backend, op);

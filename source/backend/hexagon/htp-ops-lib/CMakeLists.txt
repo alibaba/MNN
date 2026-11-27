@@ -61,6 +61,8 @@ else()
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/matmul_ops.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/matmul_q4block_ops.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/tmac_ops.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/int8_quant_ops.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/int8_conv_ops.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/conv1x1_w8a16_sym_per_channel.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/im2col_convolution_fp16.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/pool_ops.cc
@@ -96,6 +98,8 @@ else()
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/ops/matmul_q4block_gemv_i8.c
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/ops/matmul_w8a16_gemv_i8.c
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/ops/tmac_a16w1_fp16.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/ops/int8_requant_hvx.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/ops/int8_conv_hvx.c
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/ops/pool_fp16.c
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/ops/depthwise_conv_fp16.c
     )

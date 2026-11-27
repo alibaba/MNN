@@ -29,6 +29,8 @@ HexagonCommand& HexagonCommand::operator=(HexagonCommand&& other) noexcept {
     mParamData = std::move(other.mParamData);
     mInputFdOffsets = std::move(other.mInputFdOffsets);
     mOutputFdOffsets = std::move(other.mOutputFdOffsets);
+    mInputSizes = std::move(other.mInputSizes);
+    mOutputSizes = std::move(other.mOutputSizes);
     mLastQueuedSerial = other.mLastQueuedSerial;
     mDirty = other.mDirty;
     mInputTensorIndexes = std::move(other.mInputTensorIndexes);
@@ -61,7 +63,9 @@ void HexagonCommand::build(HexagonBackend* backend, int opType, const void* para
             const std::vector<std::pair<int, int>>& inputFdOffsets,
             const std::vector<std::pair<int, int>>& outputFdOffsets,
             const std::vector<Tensor*>& inputs,
-            const std::vector<Tensor*>& outputs) {
+            const std::vector<Tensor*>& outputs,
+            const std::vector<int>& inputSizes,
+            const std::vector<int>& outputSizes) {
     mInputTensorIndexes.clear();
     mOutputTensorIndexes.clear();
     mInputDevicePtrs.clear();
@@ -83,6 +87,8 @@ void HexagonCommand::build(HexagonBackend* backend, int opType, const void* para
     }
     mInputFdOffsets = inputFdOffsets;
     mOutputFdOffsets = outputFdOffsets;
+    mInputSizes = inputSizes;
+    mOutputSizes = outputSizes;
     encode(mInputFdOffsets, mOutputFdOffsets);
 
     std::vector<uint8_t> usedInputs(inputFdOffsets.size(), 0);
@@ -130,14 +136,18 @@ void HexagonCommand::encode(const std::vector<std::pair<int, int>>& inputFdOffse
     std::vector<flatbuffers::Offset<DSPCOMMAND::Tensor>> inputTensors;
     inputTensors.reserve(inputFdOffsets.size());
     for (size_t i = 0; i < inputFdOffsets.size(); i++) {
-        auto tensor = DSPCOMMAND::CreateTensor(builder, inputFdOffsets[i].first, inputFdOffsets[i].second, 0);
+        const int size = i < mInputSizes.size() ? mInputSizes[i] : 0;
+        auto tensor = DSPCOMMAND::CreateTensor(
+            builder, inputFdOffsets[i].first, inputFdOffsets[i].second, size);
         inputTensors.push_back(tensor);
     }
 
     std::vector<flatbuffers::Offset<DSPCOMMAND::Tensor>> outputTensors;
     outputTensors.reserve(outputFdOffsets.size());
     for (size_t i = 0; i < outputFdOffsets.size(); i++) {
-        auto tensor = DSPCOMMAND::CreateTensor(builder, outputFdOffsets[i].first, outputFdOffsets[i].second, 0);
+        const int size = i < mOutputSizes.size() ? mOutputSizes[i] : 0;
+        auto tensor = DSPCOMMAND::CreateTensor(
+            builder, outputFdOffsets[i].first, outputFdOffsets[i].second, size);
         outputTensors.push_back(tensor);
     }
 
