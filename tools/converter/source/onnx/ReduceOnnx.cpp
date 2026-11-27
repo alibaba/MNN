@@ -19,10 +19,9 @@ MNN::OpParameter ReduceOnnx::type() {
 
 void ReduceOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode,
                      OnnxScope* scope) {
-    auto param = new MNN::ReductionParamT;
-
     std::vector<int> axes;
-    bool keepdims       = true;
+    bool keepdims          = true;
+    bool noopWithEmptyAxes = false;
     const auto attrSize = onnxNode->attribute_size();
     for (int i = 0; i < attrSize; ++i) {
         const auto &attributeProto = onnxNode->attribute(i);
@@ -37,10 +36,36 @@ void ReduceOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode,
         } else if (attributeName == "keepdims") {
             DCHECK(attributeProto.type() == ::onnx::AttributeProto_AttributeType_INT) << "Node Attribute ERROR";
             keepdims = static_cast<bool>(attributeProto.i());
+        } else if (attributeName == "noop_with_empty_axes") {
+            DCHECK(attributeProto.type() == ::onnx::AttributeProto_AttributeType_INT) << "Node Attribute ERROR";
+            noopWithEmptyAxes = attributeProto.i() != 0;
         }
     }
 
-    auto type = onnxNode->op_type();
+    const auto& type = onnxNode->op_type();
+    const bool hasAxesInput = scope->mOpsetVersion >= (type == "ReduceSum" ? 13 : 18);
+    if (hasAxesInput) {
+        bool emptyAxes = onnxNode->input_size() < 2 || onnxNode->input(1).empty();
+        if (!emptyAxes) {
+            const auto initializer = scope->mInitializers.find(onnxNode->input(1));
+            if (initializer != scope->mInitializers.end()) {
+                const auto* tensor = initializer->second;
+                emptyAxes = tensor->dims_size() == 1 && tensor->dims(0) == 0;
+            }
+        }
+        if (emptyAxes) {
+            // A single-input Reduction without axes reduces over all dimensions.
+            dstOp->inputIndexes.resize(1);
+            if (noopWithEmptyAxes) {
+                dstOp->type      = MNN::OpType_Identity;
+                dstOp->main.type = MNN::OpParameter_NONE;
+                return;
+            }
+        }
+    }
+
+    auto param = new MNN::ReductionParamT;
+
     if (type == "ReduceMean") {
         param->operation = MNN::ReductionType_MEAN;
     } else if (type == "ReduceMax") {
