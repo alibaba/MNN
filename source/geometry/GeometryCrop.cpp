@@ -25,7 +25,7 @@ static int computeOffsetRegion(Tensor::InsideDescribe::NativeInsideDescribe* out
     auto inputDim     = input->dimensions();
     std::vector<int> seperateRightOffset;
     for (int i = 0; i < inputDim; ++i) {
-        if (output->length(i) != input->length(i)) {
+        if (output->length(i) != input->length(i) || offsets[i] != 0 || rightOffsets[i] != 0) {
             if (1 < currentInput) {
                 seperateInputDims.emplace_back(currentInput);
                 seperateOutputDims.emplace_back(currentOutput);
@@ -178,7 +178,7 @@ public:
         for (int i = 0; i < dimensions; ++i) {
             pads[i] = paddingPtr[2 * i];
             padRights[i] = paddingPtr[2 * i + 1];
-            if (pads[i] > 0 || padRights[i] > 0) {
+            if (pads[i] != 0 || padRights[i] != 0) {
                 allZero = false;
             }
         }
