@@ -3,7 +3,8 @@ namespace MNN;
 enum PadMode : byte{
     CAFFE=0,
     VALID=1,
-    SAME=2
+    SAME=2,
+    SAME_LOWER=3
 }
 
 table Convolution2DCommon {
@@ -147,7 +148,8 @@ enum PoolType : byte {
 enum PoolPadType : byte {
     CAFFE=0,
     VALID,
-    SAME
+    SAME,
+    SAME_LOWER
 }
 enum AvgPoolCountType : byte {
     DEFAULT=0,

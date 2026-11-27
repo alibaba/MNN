@@ -74,7 +74,7 @@ public:
             return false;
         }
 
-        if (layer->padMode() == PadMode_SAME) {
+        if (layer->padMode() == PadMode_SAME || layer->padMode() == PadMode_SAME_LOWER) {
             // Tensorflow padding mode SAME
             output_width  = ceil((float)input->width() / (float)layer->strideX());
             output_height = ceil((float)input->height() / (float)layer->strideY());

@@ -1001,14 +1001,18 @@ bool ConvolutionCommon::getConvInt8Parameters(const MNN::Op* op, std::shared_ptr
 
 std::pair<int, int> ConvolutionCommon::convolutionPad(const Tensor *input, const Tensor *output,
                                                       const Convolution2DCommon *mCommon) {
-    if (mCommon->padMode() == PadMode_SAME) {
+    if (mCommon->padMode() == PadMode_SAME || mCommon->padMode() == PadMode_SAME_LOWER) {
         int kernelWidthSize  = (mCommon->kernelX() - 1) * mCommon->dilateX() + 1;
         int kernelHeightSize = (mCommon->kernelY() - 1) * mCommon->dilateY() + 1;
 
-        int padNeededWidth  = (output->width() - 1) * mCommon->strideX() + kernelWidthSize - input->width();
-        int padNeededHeight = (output->height() - 1) * mCommon->strideY() + kernelHeightSize - input->height();
-        auto mPadX          = padNeededWidth / 2;
-        auto mPadY          = padNeededHeight / 2;
+        int padNeededWidth  = std::max(0, (output->width() - 1) * mCommon->strideX() + kernelWidthSize - input->width());
+        int padNeededHeight = std::max(0, (output->height() - 1) * mCommon->strideY() + kernelHeightSize - input->height());
+        auto mPadX = mCommon->padMode() == PadMode_SAME_LOWER
+                         ? padNeededWidth - padNeededWidth / 2
+                         : padNeededWidth / 2;
+        auto mPadY = mCommon->padMode() == PadMode_SAME_LOWER
+                         ? padNeededHeight - padNeededHeight / 2
+                         : padNeededHeight / 2;
         return std::make_pair(mPadX, mPadY);
     }
     auto mPadX = mCommon->padX();

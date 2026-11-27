@@ -75,8 +75,9 @@ ErrorCode VulkanPool::onEncode(const std::vector<Tensor*>& inputs, const std::ve
         int strideHeight = mCommon->strideY();
 
         // edit const if global
-        int kernelWidth  = std::min(mCommon->kernelX(), iw);
-        int kernelHeight = std::min(mCommon->kernelY(), ih);
+        const bool samePadding = mCommon->padType() == PoolPadType_SAME || mCommon->padType() == PoolPadType_SAME_LOWER;
+        int kernelWidth  = samePadding ? mCommon->kernelX() : std::min(mCommon->kernelX(), iw);
+        int kernelHeight = samePadding ? mCommon->kernelY() : std::min(mCommon->kernelY(), ih);
         if (mCommon->isGlobal()) {
             kernelWidth  = iw;
             kernelHeight = ih;
@@ -87,11 +88,13 @@ ErrorCode VulkanPool::onEncode(const std::vector<Tensor*>& inputs, const std::ve
         }
 
         auto padType = mCommon->padType();
-        if (padType == PoolPadType_SAME) {
+        if (padType == PoolPadType_SAME || padType == PoolPadType_SAME_LOWER) {
             int padNeededWidth  = (output->width() - 1) * strideWidth + kernelWidth - input->width();
             int padNeededHeight = (output->height() - 1) * strideHeight + kernelHeight - input->height();
-            padWidth            = padNeededWidth > 0 ? padNeededWidth / 2 : 0;
-            padHeight           = padNeededHeight > 0 ? padNeededHeight / 2 : 0;
+            padWidth            = padType == PoolPadType_SAME_LOWER ? std::max(0, padNeededWidth) - std::max(0, padNeededWidth) / 2
+                                                                    : std::max(0, padNeededWidth) / 2;
+            padHeight           = padType == PoolPadType_SAME_LOWER ? std::max(0, padNeededHeight) - std::max(0, padNeededHeight) / 2
+                                                                   : std::max(0, padNeededHeight) / 2;
         } else if (padType == PoolPadType_VALID) {
             padWidth = padHeight = 0;
         }

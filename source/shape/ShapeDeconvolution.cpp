@@ -14,6 +14,10 @@ public:
     virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                const std::vector<Tensor*>& outputs) const override {
         auto layer = op->main_as_Convolution2D()->common();
+        if (layer->padMode() == PadMode_SAME_LOWER) {
+            MNN_ERROR("ConvTranspose SAME_LOWER padding is not supported\n");
+            return false;
+        }
 
         auto inputTensor = inputs[0];
         int outputHeight = 0, outputWidth = 0;

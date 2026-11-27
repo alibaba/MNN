@@ -35,14 +35,16 @@ GPUConvolution::~GPUConvolution() {
 ErrorCode GPUConvolution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto input  = inputs[0];
     auto output = outputs[0];
-    if (mCommon->padMode() == PadMode_SAME) {
+    if (mCommon->padMode() == PadMode_SAME || mCommon->padMode() == PadMode_SAME_LOWER) {
         int kernelWidthSize = (mCommon->kernelX() - 1) * mCommon->dilateX() + 1;
         int kernelHeightSize = (mCommon->kernelY() - 1) * mCommon->dilateY() + 1;
         int pad_needed_width  = (output->width() - 1) * mCommon->strideX() + kernelWidthSize - input->width();
         int pad_needed_height = (output->height() - 1) * mCommon->strideY() + kernelHeightSize - input->height();
 
-        mPadX = (pad_needed_width > 0 ?  pad_needed_width : 0) / 2;
-        mPadY = (pad_needed_height > 0 ?  pad_needed_height : 0) / 2;
+        pad_needed_width = std::max(0, pad_needed_width);
+        pad_needed_height = std::max(0, pad_needed_height);
+        mPadX = mCommon->padMode() == PadMode_SAME_LOWER ? pad_needed_width - pad_needed_width / 2 : pad_needed_width / 2;
+        mPadY = mCommon->padMode() == PadMode_SAME_LOWER ? pad_needed_height - pad_needed_height / 2 : pad_needed_height / 2;
         return NO_ERROR;
     }
     mPadX = mCommon->padX();

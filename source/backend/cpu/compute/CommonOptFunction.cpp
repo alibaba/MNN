@@ -3595,8 +3595,12 @@ static void MNNPoolingAvg(const void* channelInput, int inputWidth, int inputHei
         }
         int count = (hEnd - hStart) * (wEnd - wStart);
         if (countType == MNN::AvgPoolCountType_INCLUDE_PADDING) {
-            count = (ALIMIN(ih + kernelHeight, inputHeight + padHeight) - ih) *
-                    (ALIMIN(iw + kernelWidth, inputWidth + padWidth) - iw);
+            if (padType == MNN::PoolPadType_SAME || padType == MNN::PoolPadType_SAME_LOWER) {
+                count = kernelWidth * kernelHeight;
+            } else {
+                count = (ALIMIN(ih + kernelHeight, inputHeight + padHeight) - ih) *
+                        (ALIMIN(iw + kernelWidth, inputWidth + padWidth) - iw);
+            }
         }
         pool(input + (hStart * inputWidth + wStart) * 4, dst, wEnd - wStart, hEnd - hStart,
              count > 0 ? 1.0f / count : 0.0f);

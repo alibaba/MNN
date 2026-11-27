@@ -43,6 +43,13 @@ ErrorCode NPUConvolution::onResize(const std::vector<Tensor *> &inputs, const st
         pads.push_back(static_cast<int64_t>(conv2DCommon->padX()));
         pads.push_back(static_cast<int64_t>(conv2DCommon->padX()));
     }
+    if (conv2DCommon->padMode() == PadMode_SAME_LOWER) {
+        const int padY = std::max(0, (outputs[0]->height() - 1) * conv2DCommon->strideY() +
+                                      (kernelY - 1) * conv2DCommon->dilateY() + 1 - inputs[0]->height());
+        const int padX = std::max(0, (outputs[0]->width() - 1) * conv2DCommon->strideX() +
+                                      (kernelX - 1) * conv2DCommon->dilateX() + 1 - inputs[0]->width());
+        pads = {padY - padY / 2, padY / 2, padX - padX / 2, padX / 2};
+    }
 
     int weightSize             = 0;
     const float *filterDataPtr = nullptr;

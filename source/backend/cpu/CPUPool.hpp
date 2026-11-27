@@ -165,29 +165,26 @@ static void poolingMaxWithRedice(const T *channelInput, int inputWidth, int inpu
 
     const int inputStep4       = 4 * inputWidth;
     const int inputSize4       = inputStep4 * inputHeight;
-    const int strideInputStep4 = strideHeight * inputStep4;
     const int outputStep4      = 4 * outputWidth;
-    const int strideWidth4     = 4 * strideWidth;
 
-    const T *lineInput = channelInput + (-padHeight) * inputStep4 + (-padWidth) * 4;
     T *lineOutput = channelOutput;
     int *lineRediceOutput = rediceOutput;
 
     for (int oh = 0, ih = -padHeight; oh < outputHeight;
-        oh++, ih += strideHeight, lineOutput += outputStep4, lineRediceOutput += outputStep4, lineInput += strideInputStep4) {
-        const T *offsetInput = lineInput;
+        oh++, ih += strideHeight, lineOutput += outputStep4, lineRediceOutput += outputStep4) {
         T *offsetOutput      = lineOutput;
         int *offsetRediceOutput  = lineRediceOutput;
-        for (int ow = 0, iw = -padWidth; ow < outputWidth; ++ow, iw += strideWidth, offsetOutput += 4, offsetRediceOutput += 4, offsetInput += strideWidth4) {
+        for (int ow = 0, iw = -padWidth; ow < outputWidth; ++ow, iw += strideWidth, offsetOutput += 4, offsetRediceOutput += 4) {
             T max0 = float(MAXVALUE);
             T max1 = float(MAXVALUE);
             T max2 = float(MAXVALUE);
             T max3 = float(MAXVALUE);
             int indice0 = 0, indice1 = 0, indice2 = 0, indice3 = 0;
-            const T *kernelInput = offsetInput;
-            for (int kh = 0; kh < kernelHeight && (kh + ih) >= 0 && (kh + ih) < inputHeight; kh++, kernelInput += inputStep4) {
+            const int khStart = ALIMAX(0, -ih), kwStart = ALIMAX(0, -iw);
+            const T *kernelInput = channelInput + (ih + khStart) * inputStep4 + (iw + kwStart) * 4;
+            for (int kh = khStart; kh < kernelHeight && (kh + ih) < inputHeight; kh++, kernelInput += inputStep4) {
                 const T *cursorInput = kernelInput;
-                for (int kw = 0; kw < kernelWidth && (kw + iw) >= 0 && (kw + iw) < inputWidth; kw++, cursorInput += 4) {
+                for (int kw = kwStart; kw < kernelWidth && (kw + iw) < inputWidth; kw++, cursorInput += 4) {
                     T in0 = cursorInput[0];
                     T in1 = cursorInput[1];
                     T in2 = cursorInput[2];
@@ -244,8 +241,12 @@ static void poolingAvgPad(const T *offsetInput, T *offsetOutput, int inputWidth,
         }
     }
     if (countType == MNN::AvgPoolCountType_INCLUDE_PADDING) {
-        count = (ALIMIN(ih + kernelHeight, inputHeight + padHeight) - ih) *
-                (ALIMIN(iw + kernelWidth, inputWidth + padWidth) - iw);
+        if (padType == MNN::PoolPadType_SAME || padType == MNN::PoolPadType_SAME_LOWER) {
+            count = kernelWidth * kernelHeight;
+        } else {
+            count = (ALIMIN(ih + kernelHeight, inputHeight + padHeight) - ih) *
+                    (ALIMIN(iw + kernelWidth, inputWidth + padWidth) - iw);
+        }
     } else {
         count = (khe - khs) * (kwe - kws);
     }

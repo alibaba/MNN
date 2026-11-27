@@ -50,11 +50,17 @@ public:
             padWidth     = 0;
             padHeight    = 0;
         }
-        if (layer->padType() == PoolPadType_SAME) {
+        if (layer->padType() == PoolPadType_SAME || layer->padType() == PoolPadType_SAME_LOWER) {
             int padNeededWidth  = (output->width() - 1) * strideWidth + kernelWidth - input->width();
             int padNeededHeight = (output->height() - 1) * strideHeight + kernelHeight - input->height();
-            padWidth            = padNeededWidth > 0 ? padNeededWidth / 2 : 0;
-            padHeight           = padNeededHeight > 0 ? padNeededHeight / 2 : 0;
+            padWidth = padNeededWidth > 0
+                           ? (layer->padType() == PoolPadType_SAME_LOWER ? padNeededWidth - padNeededWidth / 2
+                                                                        : padNeededWidth / 2)
+                           : 0;
+            padHeight = padNeededHeight > 0
+                            ? (layer->padType() == PoolPadType_SAME_LOWER ? padNeededHeight - padNeededHeight / 2
+                                                                         : padNeededHeight / 2)
+                            : 0;
         } else if (layer->padType() == PoolPadType_VALID) {
             padWidth = padHeight = 0;
         }

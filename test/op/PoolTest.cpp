@@ -305,3 +305,119 @@ public:
 };
 
 MNNTestSuiteRegister(AvgPoolAccumulationTest, "op/AvgPoolAccumulation");
+
+class OnnxSameLowerPoolTest : public MNNTestCase {
+    bool runPool(PoolType type, AvgPoolCountType countType, const std::vector<float>& expected, int kernel = 2,
+                 int stride = 2, bool withIndices = false) {
+        auto input = _Input({1, 1, 5, 5}, NCHW, halide_type_of<float>());
+        auto inputData = input->writeMap<float>();
+        for (int i = 0; i < 25; ++i) {
+            inputData[i] = static_cast<float>(i);
+        }
+        input->unMap();
+
+        std::unique_ptr<OpT> op(new OpT);
+        op->type = OpType_Pooling;
+        op->main.type = OpParameter_Pool;
+        op->main.value = new PoolT;
+        auto pool = op->main.AsPool();
+        pool->type = type;
+        pool->kernelX = pool->kernelY = kernel;
+        pool->strideX = pool->strideY = stride;
+        pool->padType = PoolPadType_SAME_LOWER;
+        pool->ceilModel = false;
+        pool->countType = countType;
+
+        auto expr = Expr::create(op.get(), {_Convert(input, NC4HW4)}, withIndices ? 2 : 1);
+        auto output = _Convert(Variable::create(expr, 0), NCHW);
+        auto info = output->getInfo();
+        auto outputData = output->readMap<float>();
+        if (info == nullptr || outputData == nullptr || info->dim != std::vector<int>({1, 1, 3, 3}) ||
+            !checkVectorByRelativeError<float>(outputData, expected.data(), expected.size(), 0.0001f)) {
+            return false;
+        }
+        if (withIndices) {
+            auto indices = _Convert(Variable::create(expr, 1), NCHW);
+            auto indicesInfo = indices->getInfo();
+            auto indicesData = indices->readMap<int>();
+            const std::vector<int> expectedIndices = {0, 2, 4, 10, 12, 14, 20, 22, 24};
+            return indicesInfo != nullptr && indicesData != nullptr &&
+                   indicesInfo->dim == std::vector<int>({1, 1, 3, 3}) &&
+                   checkVector<int>(indicesData, expectedIndices.data(), expectedIndices.size(), 0);
+        }
+        return true;
+    }
+
+    bool runInt8LargeKernel() {
+        const int channels = 16;
+        auto input = _Input({1, channels, 1, 3}, NCHW, halide_type_of<int8_t>());
+        auto inputData = input->writeMap<int8_t>();
+        for (int c = 0; c < channels; ++c) {
+            inputData[c * 3] = 9;
+            inputData[c * 3 + 1] = 1;
+            inputData[c * 3 + 2] = 2;
+        }
+        input->unMap();
+
+        std::unique_ptr<OpT> op(new OpT);
+        op->type = OpType_Pooling;
+        op->main.type = OpParameter_Pool;
+        op->main.value = new PoolT;
+        auto pool = op->main.AsPool();
+        pool->type = PoolType_MAXPOOL;
+        pool->kernelX = 4;
+        pool->kernelY = 1;
+        pool->strideX = 2;
+        pool->strideY = 1;
+        pool->padType = PoolPadType_SAME_LOWER;
+        pool->dataType = DataType_DT_INT8;
+        pool->ceilModel = false;
+
+        auto output = _Convert(Variable::create(Expr::create(op.get(), {_Convert(input, NC4HW4)})), NCHW);
+        auto info = output->getInfo();
+        auto outputData = output->readMap<int8_t>();
+        const std::vector<int8_t> expected(channels * 2, 9);
+        return info != nullptr && outputData != nullptr && info->dim == std::vector<int>({1, channels, 1, 2}) &&
+               checkVector<int8_t>(outputData, expected.data(), expected.size(), 0);
+    }
+
+public:
+    bool run(int precision) override {
+        (void)precision;
+        const std::vector<float> maxExpected = {0.f, 2.f, 4.f, 10.f, 12.f, 14.f, 20.f, 22.f, 24.f};
+        const std::vector<float> averageExpected = {0.f, 1.5f, 3.5f, 7.5f, 9.f, 11.f, 17.5f, 19.f, 21.f};
+        const std::vector<float> averageSmallIncludeExpected = {0.f, 0.75f, 1.75f, 3.75f, 9.f, 11.f, 8.75f, 19.f, 21.f};
+        const std::vector<float> averageIncludeExpected = {0.75f, 2.f, 2.0625f, 4.f, 9.f, 7.875f, 5.8125f, 12.375f,
+                                                           10.125f};
+        if (!runPool(PoolType_MAXPOOL, AvgPoolCountType_DEFAULT, maxExpected)) {
+            MNN_ERROR("ONNX SAME_LOWER MaxPool test failed\n");
+            return false;
+        }
+        if (!runPool(PoolType_AVEPOOL, AvgPoolCountType_DEFAULT, averageExpected)) {
+            MNN_ERROR("ONNX SAME_LOWER AveragePool test failed\n");
+            return false;
+        }
+        if (!runPool(PoolType_AVEPOOL, AvgPoolCountType_INCLUDE_PADDING, averageSmallIncludeExpected)) {
+            MNN_ERROR("ONNX SAME_LOWER AveragePool include-padding test failed\n");
+            return false;
+        }
+        if (!runPool(PoolType_AVEPOOL, AvgPoolCountType_INCLUDE_PADDING, averageIncludeExpected, 4, 2)) {
+            MNN_ERROR("ONNX SAME_LOWER AveragePool include-padding test failed\n");
+            return false;
+        }
+        auto backendType = getCurrentType();
+        if (backendType == MNN_FORWARD_CPU || backendType == MNN_FORWARD_CPU_EXTENSION) {
+            if (!runPool(PoolType_MAXPOOL, AvgPoolCountType_DEFAULT, maxExpected, 2, 2, true)) {
+                MNN_ERROR("ONNX SAME_LOWER MaxPool indices test failed\n");
+                return false;
+            }
+            if (!runInt8LargeKernel()) {
+                MNN_ERROR("ONNX SAME_LOWER int8 MaxPool large-kernel test failed\n");
+                return false;
+            }
+        }
+        return true;
+    }
+};
+
+MNNTestSuiteRegister(OnnxSameLowerPoolTest, "op/onnx_same_lower_pool");

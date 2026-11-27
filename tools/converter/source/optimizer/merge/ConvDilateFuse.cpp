@@ -48,7 +48,7 @@ static auto gRegister = []() {
             if (common->dilateX() > 1 || common->dilateY() > 1) {
                 return false;
             }
-            if (common->padMode() == PadMode_SAME) {
+            if (common->padMode() == PadMode_SAME || common->padMode() == PadMode_SAME_LOWER) {
                 return false;
             }
         }

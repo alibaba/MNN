@@ -119,12 +119,12 @@ ErrorCode VulkanConvolutionWinograd::onEncode(const std::vector<Tensor*>& inputs
     auto ohUnit = UP_DIV(oh, mUnit);
     int padX    = mCommon->padX();
     int padY    = mCommon->padY();
-    if (mCommon->padMode() == PadMode_SAME) {
-        int pad_needed_width  = (dst->width() - 1) * mCommon->strideX() + mCommon->kernelX() - src->width();
-        int pad_needed_height = (dst->height() - 1) * mCommon->strideY() + mCommon->kernelY() - src->height();
+    if (mCommon->padMode() == PadMode_SAME || mCommon->padMode() == PadMode_SAME_LOWER) {
+        int pad_needed_width  = std::max(0, (dst->width() - 1) * mCommon->strideX() + mCommon->kernelX() - src->width());
+        int pad_needed_height = std::max(0, (dst->height() - 1) * mCommon->strideY() + mCommon->kernelY() - src->height());
 
-        padX = pad_needed_width / 2;
-        padY = pad_needed_height / 2;
+        padX = mCommon->padMode() == PadMode_SAME_LOWER ? pad_needed_width - pad_needed_width / 2 : pad_needed_width / 2;
+        padY = mCommon->padMode() == PadMode_SAME_LOWER ? pad_needed_height - pad_needed_height / 2 : pad_needed_height / 2;
     }
     int maxNumber      = (mBackend->proty().limits.maxImageDimension1D * 4) / COMPUT_SIZE2;
     int totalNumber    = owUnit * ohUnit;

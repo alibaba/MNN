@@ -67,6 +67,15 @@ ErrorCode NPUPooling::onResize(const std::vector<Tensor *> &inputs, const std::v
         pads.push_back(static_cast<int64_t>(poolParam->padX()));
         pads.push_back(static_cast<int64_t>(poolParam->padX()));
     }
+    if (poolParam->padType() == PoolPadType_SAME_LOWER && !poolParam->isGlobal()) {
+        const int padY = std::max(0, (outputs[0]->height() - 1) * static_cast<int>(strideHeight) +
+                                      static_cast<int>(kernelH) - inputs[0]->height());
+        const int padX = std::max(0, (outputs[0]->width() - 1) * static_cast<int>(strideWidth) +
+                                      static_cast<int>(kernelW) - inputs[0]->width());
+        pads = {padY - padY / 2, padY / 2, padX - padX / 2, padX / 2};
+        pad_mode = 0; // Use explicit asymmetric pads for SAME_LOWER.
+        data_mode = 0;
+    }
     if (poolParam->isGlobal() == true && 
         kernelH%2 == 0 && kernelW%2==0 && kernelH*kernelW >65535) {
         shared_ptr<hiai::op::PoolingD> pooling2X2(new hiai::op::PoolingD(opName+"_2x2"));

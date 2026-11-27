@@ -23,6 +23,10 @@ public:
         auto output = outputs[0];
         
         auto layer = op->main_as_Pool3D();
+        if (layer->padType() == PoolPadType_SAME_LOWER) {
+            MNN_ERROR("3D pooling SAME_LOWER is not supported\n");
+            return false;
+        }
         auto format = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
         // only check channel dim when global pool
         int maxCheckDim = (layer->isGlobal() ? 1 :input->buffer().dimensions - 1);

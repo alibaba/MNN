@@ -49,8 +49,10 @@ ErrorCode QNNPool::onEncode(const std::vector<Tensor *> &inputs, const std::vect
     this->createParamTensor("pad_amount", QNN_DATATYPE_UINT_32, {2, 2}, (void *)padAmountData.data());
 
     if (mOp->main_as_Pool()->type() == PoolType_AVEPOOL) {
-        bool countType = mOp->main_as_Pool()->countType() ? true : false;
-        this->createParamScalar("count_pad_for_edges", countType);
+        auto pool = mOp->main_as_Pool();
+        bool countPadding = pool->countType() == AvgPoolCountType_INCLUDE_PADDING ||
+                            (pool->countType() == AvgPoolCountType_DEFAULT && pool->padType() == PoolPadType_CAFFE);
+        this->createParamScalar("count_pad_for_edges", countPadding);
     }
     this->createParamScalar("rounding_mode", roundingMode);
 
@@ -146,11 +148,13 @@ void QNNPool::setParamPool(std::string & nodeType, std::vector<uint32_t> & filte
     strideData[0] = pool->strideY();
     strideData[1] = pool->strideX();
 
-    if (pool->padType() == PoolPadType_SAME) {
-        int padNeededWidth  = (output->width() - 1) * strideData[1] + filterSizeData[1] - input->width();
-        int padNeededHeight = (output->height() - 1) * strideData[0] + filterSizeData[0] - input->height();
-        auto padLeft = padNeededWidth / 2;
-        auto padTop = padNeededHeight / 2;
+    if (pool->padType() == PoolPadType_SAME || pool->padType() == PoolPadType_SAME_LOWER) {
+        int padNeededWidth  = std::max(0, (output->width() - 1) * static_cast<int>(strideData[1]) +
+                                            static_cast<int>(filterSizeData[1]) - input->width());
+        int padNeededHeight = std::max(0, (output->height() - 1) * static_cast<int>(strideData[0]) +
+                                            static_cast<int>(filterSizeData[0]) - input->height());
+        auto padLeft = pool->padType() == PoolPadType_SAME_LOWER ? padNeededWidth - padNeededWidth / 2 : padNeededWidth / 2;
+        auto padTop = pool->padType() == PoolPadType_SAME_LOWER ? padNeededHeight - padNeededHeight / 2 : padNeededHeight / 2;
 
         auto padRight = padNeededWidth - padLeft;
         auto padBottom = padNeededHeight - padTop;

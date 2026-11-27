@@ -71,8 +71,9 @@ ErrorCode VulkanPool::onEncode(const std::vector<Tensor*>& inputs, const std::ve
         int strideHeight = mCommon->strideY();
 
         // edit const if global
-        int kernelWidth  = std::min(mCommon->kernelX(), iw);
-        int kernelHeight = std::min(mCommon->kernelY(), ih);
+        const bool samePadding = mCommon->padType() == PoolPadType_SAME || mCommon->padType() == PoolPadType_SAME_LOWER;
+        int kernelWidth  = samePadding ? mCommon->kernelX() : std::min(mCommon->kernelX(), iw);
+        int kernelHeight = samePadding ? mCommon->kernelY() : std::min(mCommon->kernelY(), ih);
         if (mCommon->isGlobal()) {
             kernelWidth  = iw;
             kernelHeight = ih;
@@ -82,11 +83,13 @@ ErrorCode VulkanPool::onEncode(const std::vector<Tensor*>& inputs, const std::ve
             padHeight    = 0;
         }
 
-        if(mCommon->padType() == PoolPadType_SAME){
+        if(mCommon->padType() == PoolPadType_SAME || mCommon->padType() == PoolPadType_SAME_LOWER){
             int padNeededWidth  = (output->width() - 1) * strideWidth + kernelWidth - input->width();
             int padNeededHeight = (output->height() - 1) * strideHeight + kernelHeight - input->height();
-            padWidth            = padNeededWidth > 0 ? padNeededWidth / 2 : 0;
-            padHeight           = padNeededHeight > 0 ? padNeededHeight / 2 : 0;
+            padWidth            = mCommon->padType() == PoolPadType_SAME_LOWER ? std::max(0, padNeededWidth) - std::max(0, padNeededWidth) / 2
+                                                                                : std::max(0, padNeededWidth) / 2;
+            padHeight           = mCommon->padType() == PoolPadType_SAME_LOWER ? std::max(0, padNeededHeight) - std::max(0, padNeededHeight) / 2
+                                                                                : std::max(0, padNeededHeight) / 2;
         } else if (mCommon->padType() == PoolPadType_VALID) {
             padWidth = padHeight = 0;
         }
@@ -131,6 +134,12 @@ class VulkanPoolCreator : public VulkanBackend::Creator {
 public:
     virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op,
                                 Backend* backend) const override {
+        auto pool = op->main_as_Pool();
+        // This image shader excludes padded lanes from the average.
+        if (pool->padType() == PoolPadType_SAME_LOWER && pool->type() == PoolType_AVEPOOL &&
+            pool->countType() == AvgPoolCountType_INCLUDE_PADDING) {
+            return nullptr;
+        }
         return new VulkanPool(op, backend);
     }
 };

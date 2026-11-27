@@ -73,15 +73,22 @@ ErrorCode NNAPIConvolution::onResize(const std::vector<Tensor *> &inputs, const 
         bottom = common->padY();
         right = common->padX();
     }
-    if (padMod == PadMode_SAME) {
+    if (padMod == PadMode_SAME || padMod == PadMode_SAME_LOWER) {
         int inputY = (outputs[0]->height() - 1) * strideY + (kernelY - 1) * dilateY + 1;
         int inputX = (outputs[0]->width() - 1) * strideX + (kernelX - 1) * dilateX + 1;
         int padY = std::max(inputY - inputs[0]->height(), 0);
         int padX = std::max(inputX - inputs[0]->width(), 0);
-        top = bottom = padY / 2;
-        left = right = padX / 2;
-        top += padY % 2;
-        left += padX % 2;
+        if (padMod == PadMode_SAME_LOWER) {
+            top = padY - padY / 2;
+            bottom = padY / 2;
+            left = padX - padX / 2;
+            right = padX / 2;
+        } else {
+            top = bottom = padY / 2;
+            left = right = padX / 2;
+            top += padY % 2;
+            left += padX % 2;
+        }
     }
     // NNAPI inputs:
     // conv2d: [input, weight, bias, pad_left, pad_right, pad_top, pad_bottom, stride_w, stride_h, fusecode, NCHW/NHWC, dilate_w, dilate_h]

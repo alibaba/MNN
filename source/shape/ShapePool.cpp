@@ -42,7 +42,9 @@ public:
                 return false;
             }
             // when given explicit pad value in tensorflow mode pool, size compute will fast failed to help find problem
-            if ((layer->padType() == PoolPadType_VALID || layer->padType() == PoolPadType_SAME) && (layer->padX() != 0 || layer->padY() != 0)) {
+            if ((layer->padType() == PoolPadType_VALID || layer->padType() == PoolPadType_SAME ||
+                 layer->padType() == PoolPadType_SAME_LOWER) &&
+                (layer->padX() != 0 || layer->padY() != 0)) {
                 MNN_PRINT("tensorflow mode pool should not have explict pad value\n");
                 return false;
             }
@@ -65,7 +67,8 @@ public:
             int kernelWidth  = std::min(layer->kernelX(), w);
             int kernelHeight = std::min(layer->kernelY(), h);
 
-            if (layer->padType() == PoolPadType_SAME) { // Tensorflow padding mode SAME
+            if (layer->padType() == PoolPadType_SAME || layer->padType() == PoolPadType_SAME_LOWER) {
+                // Tensorflow/ONNX SAME padding mode.
                 outw = ceil((float)w / (float)layer->strideX());
                 outh = ceil((float)h / (float)layer->strideY());
             } else if (layer->padType() == PoolPadType_VALID) { // Tensorflow padding mode VALID
