@@ -77,6 +77,10 @@ public:
     static Sampler* createSampler(std::shared_ptr<LlmContext> context, std::shared_ptr<LlmConfig> config);
     Sampler(std::shared_ptr<LlmContext> context, std::shared_ptr<LlmConfig> config);
     void setConfig(std::shared_ptr<LlmConfig> config);
+    // Merge sampling values set through Llm::set_config; they take effect at the next refresh().
+    void updateConfig(const ujson::json& content);
+    // Reload the sampling parameters if updateConfig() was called since the last refresh; keeps the RNG state.
+    void refresh();
     void setRuntimeManager(std::shared_ptr<MNN::Express::Executor::RuntimeManager> runtimeManager);
     bool prepareDeviceSample(MNN::Express::VARP logits);
     void clearDeviceSampleCache() { mDeviceSampleCache.clear(); }
@@ -84,7 +88,11 @@ public:
     int sample(MNN::Express::VARP logits, const std::vector<int>& indices);
 
 private:
+    friend struct SamplerTestAccess;
     std::shared_ptr<LlmContext> mContext;
+    // Own copy of the config: merges into the shared LlmConfig by another Llm (e.g. Omni's Talker) do not leak in.
+    std::shared_ptr<LlmConfig> mLlmConfig;
+    bool mConfigDirty = false;
     SamplerConfig mConfig;
     std::mt19937 mRng;
     // Fast top-k prefilter: fetch only top-k values/indices instead of the
@@ -116,6 +124,7 @@ private:
     // Pipeline
     using SamplerStep = std::function<void(SamplerState&)>;
     std::vector<SamplerStep> mPipeline;
+    void loadConfig();
     void buildPipeline();
     SamplerState createState(MNN::Express::VARP logits);
     SamplerState createState(MNN::Express::VARP logits, const std::vector<int>& indices);
