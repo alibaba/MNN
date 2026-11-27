@@ -15,6 +15,16 @@
 #include <MNN/MNNDefine.h>
 #include "ThreadPool.hpp"
 #include "core/MNNMemoryUtils.h"
+#if defined(__OHOS__)
+#include <dlfcn.h>
+#include <sched.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+#include <cstring>
+#include <algorithm>
+#include <cstdio>
+#include "CPURuntime.hpp"
+#endif
 
 #define MNN_THREAD_POOL_MAX_TASKS 2
 namespace MNN {
@@ -27,6 +37,104 @@ static std::mutex gInitMutex;
 // between cores (measured ~1us per empty dispatch at 8 threads). 128 covers
 // 128-byte-line ARM64 hosts and stays a multiple of 64-byte lines elsewhere.
 static constexpr size_t kFlagStride = 128;
+
+#if defined(__OHOS__)
+// HarmonyOS governs cluster frequency ramp-up per thread by QoS level; default
+// level keeps mid/big well below cap even at full load. Raise to USER_INTERACTIVE.
+static void MNNRaiseOHOSThreadQoS() {
+    typedef int (*QoSFunc)(int);
+    static QoSFunc setQoS = []() -> QoSFunc {
+        void* handle = dlopen("libqos.so", RTLD_NOW);
+        if (nullptr == handle) {
+            return nullptr;
+        }
+        return reinterpret_cast<QoSFunc>(dlsym(handle, "OH_QoS_SetThreadQoS"));
+    }();
+    if (nullptr != setQoS) {
+        setQoS(5); // QOS_USER_INTERACTIVE (official enum: 5, NOT 4)
+    }
+}
+// EAS util_clamp: uclamp.min=1024 forces the scheduler to pick the highest-capacity
+// core AND ramp its frequency, bypassing the default-QoS little-core placement and
+// low-frequency ramp on OHOS. Toggled from the app for A/B (0=off).
+static int gOHOSUclamp = 0;
+static int gOHOSPinMode = 0; // 1 = pin workers to mid PHYSICAL cores {4,6,8,10}
+extern "C" __attribute__((visibility("default"))) void MNNSetOHOSPinMode(int m) { gOHOSPinMode = m; }
+extern "C" __attribute__((visibility("default"))) void MNNSetOHOSUclamp(int on) { gOHOSUclamp = on; }
+static void MNNApplyOHOSUclamp() {
+    if (!gOHOSUclamp) return;
+    struct sched_attr {
+        uint32_t size; uint32_t sched_policy; uint64_t sched_flags;
+        int32_t sched_nice; uint32_t sched_priority;
+        uint64_t sched_runtime; uint64_t sched_deadline; uint64_t sched_period;
+        uint32_t sched_util_min; uint32_t sched_util_max;
+    } attr;
+    memset(&attr, 0, sizeof(attr));
+    attr.size = sizeof(attr);
+    attr.sched_flags = 0x20; // SCHED_FLAG_UTIL_CLAMP_MIN
+    attr.sched_util_min = 1024;
+    syscall(SYS_sched_setattr, 0, &attr, 0);
+}
+// Kirin 9030 mid/big are SMT (cpu4-5,6-7,8-9,10-11,12-13 = sibling pairs); adjacent
+// logical ids share one physical core's vector ports. Pin one worker per PHYSICAL
+// core (first logical of each sibling group), highest-freq group first, so workers
+// don't double-book SMT siblings or land on little cores under free EAS scheduling.
+static void MNNPinOHOSWorker(int threadIndex, int numberThread) {
+    auto info = MNNGetCPUInfo();
+    if (nullptr == info || info->groups.empty()) {
+        return;
+    }
+    std::vector<const CPUGroup*> gs;
+    for (auto& g : info->groups) {
+        gs.push_back(&g);
+    }
+    std::sort(gs.begin(), gs.end(), [](const CPUGroup* a, const CPUGroup* b) { return a->maxFreq > b->maxFreq; });
+    // physical representatives: skip a cpu if its sibling already chosen
+    std::vector<int> phys;
+    std::vector<bool> seen(64, false);
+    for (auto g : gs) {
+        for (int id : g->ids) {
+            if (id < 0 || id >= 64 || seen[id]) {
+                continue;
+            }
+            char path[128];
+            std::snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%d/topology/thread_siblings_list", id);
+            FILE* f = fopen(path, "r");
+            if (f) {
+                char buf[64];
+                if (fgets(buf, sizeof(buf), f)) {
+                    // mark all siblings seen (parse "a-b" or "a,b")
+                    int a = 0, b = 0;
+                    if (sscanf(buf, "%d-%d", &a, &b) == 2) {
+                        for (int c = a; c <= b && c < 64; ++c) seen[c] = true;
+                    } else if (sscanf(buf, "%d", &a) == 1) {
+                        seen[a] = true;
+                    }
+                }
+                fclose(f);
+            } else {
+                seen[id] = true;
+            }
+            phys.push_back(id);
+        }
+    }
+    // OHOS 9030P top-app cpuset = {0..8}; setaffinity to a core OUTSIDE the cpuset
+    // (e.g. super-big 12/13) returns 0 but punitively SHRINKS the cpuset (9->1 core).
+    // Only pin within the safe set; super-big is reached via soft mode (QoS5+uclamp).
+    std::vector<int> safe;
+    for (int c : phys) {
+        if (c <= 8) safe.push_back(c);
+    }
+    if (safe.empty()) {
+        return;
+    }
+    int cpu = safe[threadIndex % safe.size()];
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    CPU_SET(cpu, &set);
+    sched_setaffinity(0, sizeof(set), &set);
+}
+#endif
 
 // Number of cheap in-core backoff iterations before falling back to a real
 // scheduler yield. std::this_thread::yield() is a syscall (swtch_pri on
@@ -120,6 +228,16 @@ ThreadPool::ThreadPool(int numberThread) {
     for (int i = 1; i < mNumberThread; ++i) {
         int threadIndex = i;
         mWorkers.emplace_back([this, threadIndex]() {
+#if defined(__OHOS__)
+            MNNRaiseOHOSThreadQoS();
+            if (gOHOSPinMode == 1) {
+                const int midphys[4] = {4, 6, 8, 10};
+                cpu_set_t s;
+                CPU_ZERO(&s);
+                CPU_SET(midphys[threadIndex % 4], &s);
+                sched_setaffinity(0, sizeof(s), &s);
+            }
+#endif
             const uint64_t mySleepBit = threadIndex < kSleepMaskWidth ? (uint64_t(1) << threadIndex) : 0;
             while (!mStop) {
                 uint32_t spin = 0;

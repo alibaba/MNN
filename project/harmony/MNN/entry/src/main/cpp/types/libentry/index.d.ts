@@ -93,3 +93,13 @@ export const runDiffusion: (
   request: LlmDiffusionRequest,
   onProgress: (progress: number) => void
 ) => Promise<LlmDiffusionResult>;
+
+export interface NativeBenchResult {
+  exitCode: number;
+  output: string;
+}
+
+// Runs llm_bench in-process with the given command-line string (e.g.
+// "-m /path/config.json -a cpu -t 4 -c 2 -pg 512,128 -p 0 -n 0 -rep 1") and
+// resolves with its captured stdout/stderr. One run at a time; rejects if busy.
+export const runNativeBench: (args: string) => Promise<NativeBenchResult>;

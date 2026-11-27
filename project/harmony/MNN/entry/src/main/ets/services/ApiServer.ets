@@ -1,4 +1,5 @@
 import { tr } from './I18n';
+import testNapi from 'libentry.so';
 import { common } from '@kit.AbilityKit';
 import { util } from '@kit.ArkTS';
 import { socket } from '@kit.NetworkKit';
@@ -40,6 +41,15 @@ interface ChatRequestDocument {
 
 interface CancelRequestDocument {
   request_id: string;
+}
+
+interface NativeBenchDocument {
+  args?: string;
+}
+
+interface NativeBenchResultDocument {
+  exitCode: number;
+  output: string;
 }
 
 class ParsedRequest {
@@ -357,6 +367,32 @@ export class ApiServer {
       }
       GenerationCoordinator.getInstance().cancel(cancel.request_id);
       await this.sendAndClose(client, this.httpResponse(200, 'OK', '{"canceled":true}', client.origin));
+      return;
+    }
+    if (request.method === 'POST' && request.path === '/v1/native-bench') {
+      // CLI-equivalent channel: HarmonyOS NEXT code signing forbids executing
+      // standalone binaries from /data, so llm_bench runs in-process and its
+      // captured output is returned here. Long-running (minutes); the caller
+      // must keep the connection open.
+      let benchRequest: NativeBenchDocument;
+      try {
+        benchRequest = JSON.parse(request.body) as NativeBenchDocument;
+      } catch (error) {
+        await this.sendAndClose(client, this.errorResponse(400, 'body must be valid JSON', client.origin));
+        return;
+      }
+      if (!benchRequest.args) {
+        await this.sendAndClose(client, this.errorResponse(400, 'args is required', client.origin));
+        return;
+      }
+      try {
+        const result = await testNapi.runNativeBench(benchRequest.args) as NativeBenchResultDocument;
+        const body = JSON.stringify({ exitCode: result.exitCode, output: result.output });
+        await this.sendAndClose(client, this.httpResponse(200, 'OK', body, client.origin));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'native benchmark failed';
+        await this.sendAndClose(client, this.errorResponse(409, message, client.origin));
+      }
       return;
     }
     if (request.method === 'POST' &&

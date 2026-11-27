@@ -1543,7 +1543,7 @@ static void _getInfoAux(MNNCPUInfo* cpuinfo_isa) {
     // HWCAP2 features
     isa_features2 = (uint64_t)getauxval(AT_HWCAP2);
     if (isa_features2 & CPUINFO_ARM_LINUX_FEATURE2_I8MM) {
-        cpuinfo_isa->i8mm = true;
+        cpuinfo_isa->i8mm = false; // EXPERIMENT: force sdot path on Kirin, revert after A/B
     }
     if (isa_features2 & CPUINFO_ARM_LINUX_FEATURE2_SVE2) {
         cpuinfo_isa->sve2 = true;
