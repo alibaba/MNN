@@ -121,6 +121,15 @@ static inline HVX_Vector la_recip_1_2(HVX_Vector d) {
   return r;
 }
 
+// 1/sqrt(x) for x>0: fast bit-trick seed + 2 Newton steps (precision ~1e-9, better than sqrtf).
+static inline HVX_Vector la_rsqrt_v(HVX_Vector x) {
+  HVX_Vector       y  = Q6_Vw_vsub_VwVw(Q6_V_vsplat_R(0x5f3759df), Q6_Vuw_vlsr_VuwR(x, 1));
+  const HVX_Vector hx = la_mul(x, la_splat(0.5f));
+  y                   = la_mul(y, la_sub(la_splat(1.5f), la_mul(hx, la_mul(y, y))));
+  y                   = la_mul(y, la_sub(la_splat(1.5f), la_mul(hx, la_mul(y, y))));
+  return y;
+}
+
 // x * sigmoid(x). hvx_my_exp2_vsf is only used on non-positive arguments (as in the softmax kernels):
 // e = 2^(-|x| log2 e) in (0, 1], sigmoid = 1 / (1 + e) for x >= 0 and e / (1 + e) otherwise.
 static inline HVX_Vector la_silu(HVX_Vector x) {
@@ -1310,9 +1319,12 @@ static void la_hmx_phase_a(const la_args_t *a, la_hmx_head_t *H, int c) {
   LA_FENCE();
   la_hmx_row_sumsq(H->Kn, dk, nvk, H->kk);
   la_hmx_row_sumsq(H->Qn, dk, nvk, H->qq);
-  for (int i = 0; i < C; ++i) {
-    H->nk[i] = i < n ? 1.0f / sqrtf(H->kk[i] + 1e-6f) : 1.0f;
-    H->nq[i] = i < n ? qScale / sqrtf(H->qq[i] + 1e-6f) : qScale;
+  {
+    HVX_Vector     nk_v = la_rsqrt_v(la_add(vmem(H->kk), la_splat(1e-6f)));
+    HVX_Vector     nq_v = la_mul(la_rsqrt_v(la_add(vmem(H->qq), la_splat(1e-6f))), la_splat(qScale));
+    HVX_VectorPred qn   = Q6_Q_vsetq_R(n * 4);
+    vmem(H->nk)         = Q6_V_vmux_QVV(qn, nk_v, la_splat(1.0f));
+    vmem(H->nq)         = Q6_V_vmux_QVV(qn, nq_v, la_splat(qScale));
   }
   LA_FENCE();
   for (int t = 0; t < n; ++t) {
@@ -1327,6 +1339,13 @@ static void la_hmx_phase_a(const la_args_t *a, la_hmx_head_t *H, int c) {
   }
   // Gates, exactly as the HVX path.
   float *gc = H->gc, *beta = H->beta;
+  // gate layout [h/64][L][64]: per-head token reads are stride-128B gathers (DDR-latency bound).
+  // l2fetch this head's gate rows so the scalar reads hit L2.
+  {
+    const size_t goff = ((size_t) (h / 64) * L + c0) * 64;
+    l2fetch(a->in1 + goff, 128, 128, (uint32_t) n, 0);
+    l2fetch(a->in2 + goff, 128, 128, (uint32_t) n, 0);
+  }
   for (int t = 0; t < C; ++t) {
     gc[t]   = t < n ? la_read_gate(a->in1, L, c0 + t, h) : 0.0f;
     beta[t] = t < n ? la_read_gate(a->in2, L, c0 + t, h) : 0.0f;
@@ -2112,7 +2131,13 @@ static void la_grn_unit(const la_grn_args_t *g, int u, int next) {
     } r;
 
     r.v    = la_hsum(sq);
-    inv[i] = 1.0f / __builtin_sqrtf(r.f[0] * g->invInside + g->epsilon);
+    inv[i] = r.f[0] * g->invInside + g->epsilon;
+  }
+  // vectorized 1/sqrt over the n means (was per-token scalar sqrtf)
+  for (int i0 = 0; i0 < n; i0 += 32) {
+    HVX_VectorPred q = Q6_Q_vsetq_R((n - i0 < 32 ? n - i0 : 32) * 4);
+    HVX_Vector     x = vmemu(inv + i0);
+    vmemu(inv + i0)  = Q6_V_vmux_QVV(q, la_rsqrt_v(x), la_splat(1.0f));
   }
   for (int cb = 0; cb < nb; ++cb) {
     if (cb + 1 < nb) {

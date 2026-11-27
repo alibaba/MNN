@@ -70,8 +70,8 @@ static int sync_attention_can_group_causal_shape(int qo_len, int n_heads, int n_
 
 static int sync_attention_worker_count(int total_tasks, int decode_grouped, int qo_len) {
   int n_tasks = sync_attention_pick_task_count(total_tasks);
-  if (decode_grouped && qo_len == 1 && n_tasks > 2) {
-    n_tasks = 2;
+  if (decode_grouped && qo_len == 1 && n_tasks > 4) {
+    n_tasks = 4;
   }
   return n_tasks;
 }
