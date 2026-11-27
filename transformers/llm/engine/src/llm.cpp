@@ -1589,6 +1589,46 @@ std::vector<Express::VARP> Llm::getOutputs() const {
     return mGenerateParam->outputs;
 }
 
+bool Llm::prefillWithSnapshot(const std::vector<int>& input_ids, const std::string& filename) {
+    if (input_ids.empty()) return false;
+    if (mPrefixCacheMode || filename.empty() || mConfig->backend_type() != "cpu" ||
+        !mConfig->kvcache_mmap() || mConfig->config_.value("quant_kv", 0) != 0 ||
+        !mConfig->speculative_type().empty() || mConfig->num_kv_shared_layers() != 0) {
+        generate(input_ids, 0);
+        return false;
+    }
+    const auto base = MNNFilePathConcat(mConfig->prefix_cache_path(), filename);
+    MNNRemoveFile((base + "_state_format").c_str());
+    for (int i = 0; i < mPrefixCacheNums; ++i) {
+        const auto path = base + "_" + std::to_string(i);
+        for (const char* suffix : {".k", ".v", "_sync.k", "_sync.v"}) {
+            MNNRemoveFile((path + suffix).c_str());
+        }
+    }
+    const size_t expected = mMeta->previous - mMeta->remove + input_ids.size();
+    mMeta->file_name = filename;
+    mMeta->file_flag = KVMeta::PendingSnapshot;
+    mMeta->layer_index = 0;
+    generate(input_ids, 0);
+    const bool saved = mMeta->file_flag == KVMeta::PendingSnapshot && getCurrentHistory() == expected &&
+        (mContext->status == LlmStatus::RUNNING || mContext->status == LlmStatus::NORMAL_FINISHED ||
+         mContext->status == LlmStatus::MAX_TOKENS_FINISHED);
+    mMeta->file_flag = KVMeta::NoChange;
+    mMeta->file_name.clear();
+    mMeta->layer_index = 0;
+    if (!saved) return false;
+    for (int i = 0; i < mPrefixCacheNums; ++i) {
+        for (const char* suffix : {".k", ".v"}) {
+            const auto path = base + "_" + std::to_string(i);
+            if (!MNNFileExist((path + suffix).c_str())) continue;
+            const auto marker = MNNCreateFile((path + "_sync" + suffix).c_str());
+            if (marker == INVALID_FILE || MNNCloseFile(marker) != NO_ERROR) return false;
+        }
+    }
+    const auto graph = mConfig->resource(mConfig->llm_model());
+    return validatePrefixCacheFiles(graph.filePath(), base, mPrefixCacheNums, graph.data, graph.size);
+}
+
 bool Llm::setPrefixCacheFile(const std::string& filename, int flag) {
     // Prefix cache requires kvcache_mmap. Without it mKVCacheDir is unset and
     // the disk-backed alloc in CPUKVCacheManager::onAlloc crashes with a

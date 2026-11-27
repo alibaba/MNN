@@ -20,7 +20,9 @@ struct KVMeta {
     enum {
         NoChange,
         PendingWrite,
-        PendingRead
+        PendingRead,
+        PendingSnapshot,
+        SnapshotFailed
     } file_operation;
     size_t block = 4096;
     size_t previous = 0;

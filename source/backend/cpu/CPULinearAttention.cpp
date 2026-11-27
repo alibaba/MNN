@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <atomic>
 #include "CPULinearAttention.hpp"
+#include "CPUPrefixSnapshot.hpp"
 #include "CPUBackend.hpp"
 #include "core/MNNFileUtils.h"
 #include "compute/CommonOptFunction.h"
@@ -608,6 +609,19 @@ ErrorCode CPULinearAttention::onExecute(const std::vector<Tensor*>& inputs, cons
         gated_delta_rule_mnn(foldedInputs, outputs);
     } else {
         gated_delta_rule_mnn(inputs, outputs);
+    }
+
+    if (mMeta && mMeta->file_flag == KVMeta::PendingSnapshot) {
+        const int layer = mMeta->layer_index++;
+        mMeta->layer_index %= mMeta->layer_nums;
+        const auto base = MNNFilePathConcat(mPrefixCacheDir, mMeta->file_name) + "_" + std::to_string(layer);
+        bool saved = writePrefixSnapshot(base + ".k", mStateCache->mConvState->host<int8_t>(),
+                                         mStateCache->mConvState->elementSize());
+        if (saved && mStateCache->mRecurrentState) {
+            saved = writePrefixSnapshot(base + ".v", mStateCache->mRecurrentState->host<int8_t>(),
+                                        mStateCache->mRecurrentState->elementSize());
+        }
+        if (!saved) mMeta->file_flag = KVMeta::SnapshotFailed;
     }
 
     // Save prefix cache to disk (PendingWrite)
