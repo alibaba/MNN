@@ -74,6 +74,10 @@ __device__ __forceinline__ float linear_attn_beta_fold(float b) {
     return (float)(T)(1.0f / (1.0f + expf(fminf(fmaxf(-b, -87.0f), 87.0f))));
 }
 
+// The conv kernels stage at most this many tokens, plus the K-1 tokens before them, in shared memory per pass, so a
+// long prefill stays under the 48 KiB of dynamic shared memory a block gets without an opt-in.
+#define CONV_TILE_L 1024
+
 // ============================================================================
 // Kernel 1: Depthwise Conv1D + SiLU (fused)
 // ============================================================================
@@ -90,6 +94,7 @@ __global__ void conv1d_silu_kernel(const T* __restrict__ qkvInput,   // [B, D, L
     int b = channelIdx / D;
     const T* weight = convWeight + d * K_conv;
     float* outFp32 = convOutFp32 + channelIdx * L;
+    float* state = convState != nullptr ? convState + channelIdx * convStateSize : nullptr;
 
     extern __shared__ float smem[];
     float* wShared = smem;
@@ -98,30 +103,36 @@ __global__ void conv1d_silu_kernel(const T* __restrict__ qkvInput,   // [B, D, L
     for (int i = threadIdx.x; i < K_conv; i += blockDim.x)
         wShared[i] = (float)weight[i];
 
-    int totalLen = convStateSize + L;
-    if (convState != nullptr) {
-        float* state = convState + channelIdx * convStateSize;
-        for (int i = threadIdx.x; i < convStateSize; i += blockDim.x)
-            padded[i] = state[i];
-    }
-    for (int i = threadIdx.x; i < L; i += blockDim.x)
-        padded[convStateSize + i] = read_qkv(qkvInput, b, d, i, D, L, inputC4);
-    __syncthreads();
-
-    for (int l = threadIdx.x; l < L; l += blockDim.x) {
-        float sum = 0.0f;
-        #pragma unroll
-        for (int k = 0; k < K_conv; ++k)
-            sum += padded[l + k] * wShared[k];
-        float sigmoid_val = 1.0f / (1.0f + expf(-sum));
-        outFp32[l] = sum * sigmoid_val;
-    }
-
-    if (convState != nullptr && convStateSize > 0) {
+    int n = 0;
+    for (int l0 = 0; l0 < L; l0 += n) {
+        n = min(L - l0, CONV_TILE_L);
+        // padded[0, convStateSize) holds the tokens before l0; before token 0 they come from the carried state.
+        for (int i = threadIdx.x; i < convStateSize; i += blockDim.x) {
+            const int l = l0 - convStateSize + i;
+            if (l >= 0)
+                padded[i] = read_qkv(qkvInput, b, d, l, D, L, inputC4);
+            else if (state != nullptr)
+                padded[i] = state[convStateSize + l];
+        }
+        for (int i = threadIdx.x; i < n; i += blockDim.x)
+            padded[convStateSize + i] = read_qkv(qkvInput, b, d, l0 + i, D, L, inputC4);
         __syncthreads();
-        float* state = convState + channelIdx * convStateSize;
+
+        for (int l = threadIdx.x; l < n; l += blockDim.x) {
+            float sum = 0.0f;
+            #pragma unroll
+            for (int k = 0; k < K_conv; ++k)
+                sum += padded[l + k] * wShared[k];
+            float sigmoid_val = 1.0f / (1.0f + expf(-sum));
+            outFp32[l0 + l] = sum * sigmoid_val;
+        }
+        __syncthreads();
+    }
+
+    // The last tile ends at token L - 1, so its last convStateSize entries are the new state.
+    if (state != nullptr && L > 0) {
         for (int i = threadIdx.x; i < convStateSize; i += blockDim.x)
-            state[i] = padded[totalLen - convStateSize + i];
+            state[i] = padded[n + i];
     }
 }
 
@@ -134,29 +145,41 @@ __global__ void short_conv_kernel(const T* __restrict__ qkvInput, const T* __res
         return;
     const int b = channelIdx / H;
     const int h = channelIdx % H;
+    float* state = convState + channelIdx * convStateSize;
     extern __shared__ float padded[];
 
-    for (int i = threadIdx.x; i < convStateSize; i += blockDim.x) {
-        padded[i] = convState[channelIdx * convStateSize + i];
-    }
-    for (int l = threadIdx.x; l < L; l += blockDim.x) {
-        const float bValue = read_qkv(qkvInput, b, h, l, D, L, inputC4);
-        const float xValue = read_qkv(qkvInput, b, 2 * H + h, l, D, L, inputC4);
-        padded[convStateSize + l] = bValue * xValue;
-    }
-    __syncthreads();
-
-    for (int l = threadIdx.x; l < L; l += blockDim.x) {
-        float sum = 0.0f;
-        for (int k = 0; k < K; ++k) {
-            sum += padded[l + k] * (float)convWeight[h * K + k];
+    int n = 0;
+    for (int l0 = 0; l0 < L; l0 += n) {
+        n = min(L - l0, CONV_TILE_L);
+        // padded[0, convStateSize) holds the tokens before l0; before token 0 they come from the carried state.
+        for (int i = threadIdx.x; i < convStateSize; i += blockDim.x) {
+            const int l = l0 - convStateSize + i;
+            padded[i] =
+                l < 0 ? state[convStateSize + l]
+                      : read_qkv(qkvInput, b, h, l, D, L, inputC4) * read_qkv(qkvInput, b, 2 * H + h, l, D, L, inputC4);
         }
-        convOut[channelIdx * L + l] = sum;
-    }
-    __syncthreads();
+        for (int l = threadIdx.x; l < n; l += blockDim.x) {
+            const float bValue = read_qkv(qkvInput, b, h, l0 + l, D, L, inputC4);
+            const float xValue = read_qkv(qkvInput, b, 2 * H + h, l0 + l, D, L, inputC4);
+            padded[convStateSize + l] = bValue * xValue;
+        }
+        __syncthreads();
 
-    for (int i = threadIdx.x; i < convStateSize; i += blockDim.x) {
-        convState[channelIdx * convStateSize + i] = padded[L + i];
+        for (int l = threadIdx.x; l < n; l += blockDim.x) {
+            float sum = 0.0f;
+            for (int k = 0; k < K; ++k) {
+                sum += padded[l + k] * (float)convWeight[h * K + k];
+            }
+            convOut[channelIdx * L + l0 + l] = sum;
+        }
+        __syncthreads();
+    }
+
+    // The last tile ends at token L - 1, so its last convStateSize entries are the new state.
+    if (L > 0) {
+        for (int i = threadIdx.x; i < convStateSize; i += blockDim.x) {
+            state[i] = padded[n + i];
+        }
     }
 }
 
@@ -695,7 +718,7 @@ ErrorCode CUDALinearAttention::onExecute(const std::vector<Tensor*>& inputs, con
     if (mAttentionType == "short_conv") {
         const int shortHeads = D / 3;
         const int blockSize = L == 1 ? 32 : 128;
-        const int sharedBytes = (convStateSize + L) * sizeof(float);
+        const int sharedBytes = (convStateSize + ALIMIN(L, CONV_TILE_L)) * sizeof(float);
         float* convStatePtr =
             mStateCache->mConvState.get() != nullptr ? getDevPtr<float>(mStateCache->mConvState.get()) : nullptr;
         float* convOutPtr = getDevPtr<float>(mConvOut.get());
@@ -728,7 +751,7 @@ ErrorCode CUDALinearAttention::onExecute(const std::vector<Tensor*>& inputs, con
     // Step 1: Conv1D + SiLU -> [B, D, L]
     {
         int totalChannels = B * D;
-        int smemSize = (K_conv + convStateSize + L) * sizeof(float);
+        int smemSize = (K_conv + convStateSize + ALIMIN(L, CONV_TILE_L)) * sizeof(float);
         int blockSize = (L == 1) ? 32 : 128;
 
         float* convStatePtr = (mStateCache->mConvState.get() != nullptr) ?
