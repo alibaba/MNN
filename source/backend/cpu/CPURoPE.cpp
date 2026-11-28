@@ -68,6 +68,25 @@ static void unpackC4Token(const uint8_t* src, uint8_t* dst, int token, int seqLe
     }
 }
 
+// Transpose a [channel/4][seqLen][4] float plane into [seqLen][channel] rows.
+// Iterating channel blocks outermost keeps the source reads unit-stride, and the partial
+// cache lines written for consecutive channel blocks coalesce in L1/L2.
+static void transposeC4ToRows(float* dst, const float* src, int seqLen, int channel, int t0, int t1) {
+    constexpr int kGroup = 16; // 16 channel blocks = 64 floats = one cache line per token row
+    const int blocks = channel / 4;
+    for (int cb = 0; cb < blocks; cb += kGroup) {
+        const int cbEnd = std::min(blocks, cb + kGroup);
+        const int width = cbEnd - cb;
+        for (int t = t0; t < t1; ++t) {
+            const float* s = src + (size_t) cb * (size_t) seqLen * 4 + (size_t) t * 4;
+            float* o = dst + (size_t) t * channel + (size_t) cb * 4;
+            for (int k = 0; k < width; ++k) {
+                ::memcpy(o + k * 4, s + (size_t) k * seqLen * 4, 4 * sizeof(float));
+            }
+        }
+    }
+}
+
 static void applyRopeNorm(uint8_t* dst, const uint8_t* src, int heads, int headDim,
                           const std::shared_ptr<CPULayerNorm::Resource>& res, const CoreFunctions* core,
                           uint8_t* scratchBase, int scratchOffset) {
@@ -229,9 +248,19 @@ ErrorCode CPURoPE::onExecute(const std::vector<Tensor*>& inputs, const std::vect
     auto core = static_cast<CPUBackend*>(backend())->functions();
     MNN_ASSERT(mInterleaved || core->MNNRoPECompute != nullptr);
 
+    // fp32 C4 input: transpose each worker's token range once, straight into the output rows,
+    // instead of gathering one token's channel blocks with 4*seqLen float strides per token.
+    const bool fastTranspose = core->bytes == 4 && core->pack == 4 && (numHead * headDim) % 4 == 0 &&
+                              (kvnumHead * headDim) % 4 == 0;
     MNN_CONCURRENCY_BEGIN(tId, threadNum) {
         int start = tId * totalWork / threadNum;
         int end = (tId + 1) * totalWork / threadNum;
+        if (fastTranspose && end > start) {
+            transposeC4ToRows(reinterpret_cast<float*>(QOutput->host<void>()),
+                              reinterpret_cast<const float*>(Q->host<void>()), seqLen, numHead * headDim, start, end);
+            transposeC4ToRows(reinterpret_cast<float*>(KOutput->host<void>()),
+                              reinterpret_cast<const float*>(K->host<void>()), seqLen, kvnumHead * headDim, start, end);
+        }
         for (int i = start; i < end; ++i) {
             auto cosPtr = static_cast<const uint8_t*>(cos->host<void>()) + i * ropeDim * core->bytes;
             auto sinPtr = static_cast<const uint8_t*>(sin->host<void>()) + i * ropeDim * core->bytes;
@@ -239,51 +268,38 @@ ErrorCode CPURoPE::onExecute(const std::vector<Tensor*>& inputs, const std::vect
             auto cosOddPtr = cosPtr + ropeHalfDim * core->bytes;
             auto sinEvenPtr = sinPtr;
             auto sinOddPtr = sinPtr + ropeHalfDim * core->bytes;
-            auto qInput = static_cast<const uint8_t*>(Q->host<void>());
-            auto qTmp = static_cast<uint8_t*>(mTmpQC4.ptr()) + tId * numHead * headDim * core->bytes;
-            auto qPtrOut = static_cast<uint8_t*>(QOutput->host<void>()) + i * numHead * headDim * core->bytes;
-            unpackC4Token(qInput, qTmp, i, seqLen, numHead * headDim, core->bytes, core->pack);
-            auto qPtr = qTmp;
-            int qScratchOffset = tId * numHead * headDim * sizeof(float);
 
-            if (mQNorm && !mNormAfter) {
-                applyRopeNorm(qPtrOut, qPtr, numHead, headDim, mQNorm, core,
-                              static_cast<uint8_t*>(mTmpQFloat.ptr()), qScratchOffset);
-                qPtr = qPtrOut;
-            }
-            if (mInterleaved) {
-                core->MNNRoPEInterleavedCompute(qPtrOut, qPtr, cosPtr, sinPtr, numHead, headDim, mRopeCutHeadDim);
-            } else {
-                core->MNNRoPECompute(qPtrOut, qPtr, cosEvenPtr, cosOddPtr, sinEvenPtr, sinOddPtr, numHead, headDim,
-                                     mRopeCutHeadDim);
-            }
-            if (mQNorm && mNormAfter) {
-                applyRopeNorm(qPtrOut, qPtrOut, numHead, headDim, mQNorm, core,
-                              static_cast<uint8_t*>(mTmpQFloat.ptr()), qScratchOffset);
-            }
+            auto applyOne = [&](const uint8_t* inPtr, uint8_t* outPtr, int heads,
+                                const std::shared_ptr<CPULayerNorm::Resource>& norm, uint8_t* tmpC4,
+                                uint8_t* floatScratch) {
+                const uint8_t* srcPtr = outPtr;
+                if (!fastTranspose) {
+                    unpackC4Token(inPtr, tmpC4, i, seqLen, heads * headDim, core->bytes, core->pack);
+                    srcPtr = tmpC4;
+                }
+                if (norm && !mNormAfter) {
+                    applyRopeNorm(outPtr, srcPtr, heads, headDim, norm, core, floatScratch, 0);
+                    srcPtr = outPtr;
+                }
+                if (mInterleaved) {
+                    core->MNNRoPEInterleavedCompute(outPtr, srcPtr, cosPtr, sinPtr, heads, headDim, mRopeCutHeadDim);
+                } else {
+                    core->MNNRoPECompute(outPtr, srcPtr, cosEvenPtr, cosOddPtr, sinEvenPtr, sinOddPtr, heads, headDim,
+                                         mRopeCutHeadDim);
+                }
+                if (norm && mNormAfter) {
+                    applyRopeNorm(outPtr, outPtr, heads, headDim, norm, core, floatScratch, 0);
+                }
+            };
 
-            auto kInput = static_cast<const uint8_t*>(K->host<void>());
-            auto kTmp = static_cast<uint8_t*>(mTmpKC4.ptr()) + tId * kvnumHead * headDim * core->bytes;
-            auto kPtrOut = static_cast<uint8_t*>(KOutput->host<void>()) + i * kvnumHead * headDim * core->bytes;
-            unpackC4Token(kInput, kTmp, i, seqLen, kvnumHead * headDim, core->bytes, core->pack);
-            auto kPtr = kTmp;
-            int kScratchOffset = tId * kvnumHead * headDim * sizeof(float);
-
-            if (mKNorm && !mNormAfter) {
-                applyRopeNorm(kPtrOut, kPtr, kvnumHead, headDim, mKNorm, core,
-                              static_cast<uint8_t*>(mTmpKFloat.ptr()), kScratchOffset);
-                kPtr = kPtrOut;
-            }
-            if (mInterleaved) {
-                core->MNNRoPEInterleavedCompute(kPtrOut, kPtr, cosPtr, sinPtr, kvnumHead, headDim, mRopeCutHeadDim);
-            } else {
-                core->MNNRoPECompute(kPtrOut, kPtr, cosEvenPtr, cosOddPtr, sinEvenPtr, sinOddPtr, kvnumHead, headDim,
-                                     mRopeCutHeadDim);
-            }
-            if (mKNorm && mNormAfter) {
-                applyRopeNorm(kPtrOut, kPtrOut, kvnumHead, headDim, mKNorm, core,
-                              static_cast<uint8_t*>(mTmpKFloat.ptr()), kScratchOffset);
-            }
+            applyOne(static_cast<const uint8_t*>(Q->host<void>()),
+                     static_cast<uint8_t*>(QOutput->host<void>()) + i * numHead * headDim * core->bytes, numHead,
+                     mQNorm, static_cast<uint8_t*>(mTmpQC4.ptr()) + tId * numHead * headDim * core->bytes,
+                     static_cast<uint8_t*>(mTmpQFloat.ptr()) + tId * numHead * headDim * sizeof(float));
+            applyOne(static_cast<const uint8_t*>(K->host<void>()),
+                     static_cast<uint8_t*>(KOutput->host<void>()) + i * kvnumHead * headDim * core->bytes, kvnumHead,
+                     mKNorm, static_cast<uint8_t*>(mTmpKC4.ptr()) + tId * kvnumHead * headDim * core->bytes,
+                     static_cast<uint8_t*>(mTmpKFloat.ptr()) + tId * kvnumHead * headDim * sizeof(float));
         }
     }
     MNN_CONCURRENCY_END();
