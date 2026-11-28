@@ -161,8 +161,14 @@ static void poolingMax(const T *channelInput, int inputWidth, int inputHeight, T
 template<typename T, int MAXVALUE>
 static void poolingMaxWithRedice(const T *channelInput, int inputWidth, int inputHeight, T *channelOutput,
                        int outputWidth, int outputHeight, int kernelWidth, int kernelHeight, int strideWidth,
-                       int strideHeight, int padWidth, int padHeight, MNN::PoolPadType padType, MNN::AvgPoolCountType countType, int *rediceOutput) {
+                       int strideHeight, int padWidth, int padHeight, MNN::PoolPadType padType, MNN::AvgPoolCountType countType, int *rediceOutput, int channelBase) {
 
+    // ONNX addresses a max-pooling index over the whole input tensor as
+    // ((n * C + c) * H + h) * W + w, while this kernel only records the spatial
+    // position (h * W + w). The four lanes are four consecutive channels of a
+    // packed group, so each lane needs its own channel offset.
+    const int planeSize        = inputWidth * inputHeight;
+    const int rediceLaneOffset = channelBase * planeSize;
     const int inputStep4       = 4 * inputWidth;
     const int inputSize4       = inputStep4 * inputHeight;
     const int strideInputStep4 = strideHeight * inputStep4;
@@ -215,10 +221,10 @@ static void poolingMaxWithRedice(const T *channelInput, int inputWidth, int inpu
             offsetOutput[1] = max1;
             offsetOutput[2] = max2;
             offsetOutput[3] = max3;
-            offsetRediceOutput[0] = indice0;
-            offsetRediceOutput[1] = indice1;
-            offsetRediceOutput[2] = indice2;
-            offsetRediceOutput[3] = indice3;
+            offsetRediceOutput[0] = indice0 + rediceLaneOffset;
+            offsetRediceOutput[1] = indice1 + rediceLaneOffset + planeSize;
+            offsetRediceOutput[2] = indice2 + rediceLaneOffset + 2 * planeSize;
+            offsetRediceOutput[3] = indice3 + rediceLaneOffset + 3 * planeSize;
         }
     }
 }

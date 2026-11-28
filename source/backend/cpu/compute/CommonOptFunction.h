@@ -535,7 +535,7 @@ struct CoreFunctions {
     void (*MNNPoolingMaxWithRedice)(const void* channelInput, int inputWidth, int inputHeight, void* channelOutput,
                                     int outputWidth, int outputHeight, int kernelWidth, int kernelHeight,
                                     int strideWidth, int strideHeight, int padWidth, int padHeight, int padType,
-                                    int countType, int* RediceOutput);
+                                    int countType, int* RediceOutput, int channelBase);
     // ImageProcess Funtions
     void (*MNNRGBAToBGRA)(const unsigned char* source, unsigned char* dest, size_t count);
     void (*MNNNV21ToRGBA)(const unsigned char* source, unsigned char* dest, size_t count);
