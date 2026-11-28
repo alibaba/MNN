@@ -70,6 +70,24 @@ public:
         auto right = equation.substr(pos + 2, equation.size());
         if (inputs.size() == 1) {
             auto currentVar = inputs[0];
+            if (left.size() == 3 && left[1] == left[2] && left[0] != left[1] &&
+                right.size() == 1 && right[0] == left[0]) {
+                auto info = currentVar->getInfo();
+                if (info && info->dim.size() == 3 && info->dim[0] > 0 &&
+                    info->dim[1] > 0 && info->dim[1] <= 46340 && info->dim[1] == info->dim[2]) {
+                    const int width = info->dim[1];
+                    std::vector<int> diagonal(width);
+                    for (int i = 0; i < width; ++i) {
+                        diagonal[i] = i * (width + 1);
+                    }
+                    auto flat = _Reshape(currentVar, {info->dim[0], width * width});
+                    auto indices = _Const(diagonal.data(), {width}, NCHW, halide_type_of<int>());
+                    auto selected = _GatherV2(flat, indices, _Scalar<int>(1));
+                    auto result = _ReduceSum(selected, {1}, false);
+                    result->setName(expr->name());
+                    return result->expr().first;
+                }
+            }
             std::map<char, int> outputPos;
             for (int i = 0; i < right.size(); ++i) {
                 outputPos.insert(std::make_pair(right[i], i));
