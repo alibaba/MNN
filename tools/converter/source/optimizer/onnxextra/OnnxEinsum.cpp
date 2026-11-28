@@ -211,19 +211,19 @@ public:
             // bid, bjd -> bij
             if (input0.size() == 3 && input1.size() == 3) {
                 if (input0[0] == input1[0] && input0[0] == right[0]) {
-                    if (input0[2] == input1[2]) { // bid, bjd
+                    if (input0[2] == input1[2] && right[1] == input0[1] && right[2] == input1[1]) { // bid, bjd
                         auto output = _MatMul(var0, var1, false, true);
                         output->setName(expr->name());
                         return output->expr().first;
-                    } else if (input0[2] == input1[1]) { // bid, bdj
+                    } else if (input0[2] == input1[1] && right[1] == input0[1] && right[2] == input1[2]) { // bid, bdj
                         auto output = _MatMul(var0, var1, false, false);
                         output->setName(expr->name());
                         return output->expr().first;
-                    } else if (input0[1] == input1[1]) { // bdi, bdj
+                    } else if (input0[1] == input1[1] && right[1] == input0[2] && right[2] == input1[2]) { // bdi, bdj
                         auto output = _MatMul(var0, var1, true, false);
                         output->setName(expr->name());
                         return output->expr().first;
-                    } else if (input0[1] == input1[2]) { // bdi, bjd
+                    } else if (input0[1] == input1[2] && right[1] == input0[2] && right[2] == input1[1]) { // bdi, bjd
                         auto output = _MatMul(var0, var1, true, true);
                         output->setName(expr->name());
                         return output->expr().first;
