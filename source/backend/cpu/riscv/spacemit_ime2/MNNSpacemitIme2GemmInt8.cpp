@@ -1683,6 +1683,15 @@ private:
     std::atomic_flag mStartLock = ATOMIC_FLAG_INIT;
 };
 
+// Bytes available to one TCM task; callers size their scratch against it.
+extern "C" size_t MNNSpacemitIme2TcmBlockSize() {
+    auto& api = MNNSpacemitIme2Tcm();
+    if (!api.available) {
+        return 0;
+    }
+    return api.info.blkSize;
+}
+
 extern "C" size_t MNNSpacemitIme2RunTcmTasks(size_t taskCount, MNNSpacemitIme2TcmTask task, void* context) {
     if (task == nullptr || taskCount == 0) {
         return 0;

@@ -252,35 +252,46 @@ void MNNIme2OnlineSoftmaxBlock(float* row, int valid, int length, float scale, f
     runningSum = runningSum * alpha + blkSum;
 }
 
-static inline void MNNRvvFlashPackQ(_Float16* dst, const float* src, int srcStride, int rows, int dim, float scale) {
-    for (int row = 0; row < rows; ++row) {
-        int offset = 0;
-        while (offset < dim) {
-            const size_t vl = __riscv_vsetvl_e32m4(dim - offset);
-            vfloat32m4_t values = __riscv_vle32_v_f32m4(src + row * srcStride + offset, vl);
-            values = __riscv_vfmul_vf_f32m4(values, scale, vl);
-            const vfloat16m2_t half = __riscv_vfncvt_f_f_w_f16m2(values, vl);
-            __riscv_vse16_v_f16m2(dst + row * dim + offset, half, vl);
-            offset += vl;
+// Q tile packed as [(dim / 8)][rows][8]: one vfwmadot operand is 8 rows x 8 dims.
+static inline void MNNRvvFlashPackQ(_Float16* dst, const float* src, int srcStride, int rows, int dim, float scale,
+                                    int validRows = 64) {
+    const size_t vl = __riscv_vsetvl_e32m1(8);
+    const int packRows = std::min(rows, validRows);
+    for (int j = 0; j < dim; j += 8) {
+        for (int row = 0; row < rows; ++row) {
+            if (row >= packRows) {
+                // Tail rows of the last query tile do not exist in the source tensor.
+                __riscv_vse16_v_f16mf2(dst + (size_t) (j / 8) * rows * 8 + (size_t) row * 8,
+                                       __riscv_vfmv_v_f_f16mf2((_Float16) 0, vl), vl);
+                continue;
+            }
+            vfloat32m1_t values = __riscv_vle32_v_f32m1(src + row * srcStride + j, vl);
+            values = __riscv_vfmul_vf_f32m1(values, scale, vl);
+            const vfloat16mf2_t half = __riscv_vfncvt_f_f_w_f16mf2(values, vl);
+            __riscv_vse16_v_f16mf2(dst + (size_t) (j / 8) * rows * 8 + (size_t) row * 8, half, vl);
         }
     }
 }
 
+// K tile packed as [(dim / 8)][keys][8]. Source is [token / 4][dim][4]: the 4 lanes of a
+// segment hold the same dim for 4 consecutive tokens, so one vlsseg4e32 yields 4 tokens x 8 dims.
 static inline void MNNRvvFlashPackK(_Float16* dst, const float* src, int dim) {
     constexpr int kvTile = 64;
-    constexpr int tokenGroups = kvTile / 4;
-    const size_t vl = __riscv_vsetvl_e32m1(tokenGroups);
-    const ptrdiff_t srcStride = (ptrdiff_t)dim * 4 * sizeof(float);
-    for (int d = 0; d < dim; ++d) {
-        const vfloat32m1x4_t values = __riscv_vlsseg4e32_v_f32m1x4(src + d * 4, srcStride, vl);
-        const vfloat16mf2_t half0 = __riscv_vfncvt_f_f_w_f16mf2(__riscv_vget_v_f32m1x4_f32m1(values, 0), vl);
-        const vfloat16mf2_t half1 = __riscv_vfncvt_f_f_w_f16mf2(__riscv_vget_v_f32m1x4_f32m1(values, 1), vl);
-        const vfloat16mf2_t half2 = __riscv_vfncvt_f_f_w_f16mf2(__riscv_vget_v_f32m1x4_f32m1(values, 2), vl);
-        const vfloat16mf2_t half3 = __riscv_vfncvt_f_f_w_f16mf2(__riscv_vget_v_f32m1x4_f32m1(values, 3), vl);
-        __riscv_vsse16_v_f16mf2(dst + d * kvTile + 0, 4 * sizeof(_Float16), half0, vl);
-        __riscv_vsse16_v_f16mf2(dst + d * kvTile + 1, 4 * sizeof(_Float16), half1, vl);
-        __riscv_vsse16_v_f16mf2(dst + d * kvTile + 2, 4 * sizeof(_Float16), half2, vl);
-        __riscv_vsse16_v_f16mf2(dst + d * kvTile + 3, 4 * sizeof(_Float16), half3, vl);
+    const size_t vl = __riscv_vsetvl_e32m1(8);
+    for (int j = 0; j < dim; j += 8) {
+        _Float16* out = dst + (size_t) (j / 8) * kvTile * 8;
+        for (int i = 0; i < kvTile / 4; ++i) {
+            const float* s = src + (size_t) i * dim * 4 + (size_t) j * 4;
+            const vfloat32m1x4_t values = __riscv_vlsseg4e32_v_f32m1x4(s, 4 * sizeof(float), vl);
+            const vfloat16mf2_t half0 = __riscv_vfncvt_f_f_w_f16mf2(__riscv_vget_v_f32m1x4_f32m1(values, 0), vl);
+            const vfloat16mf2_t half1 = __riscv_vfncvt_f_f_w_f16mf2(__riscv_vget_v_f32m1x4_f32m1(values, 1), vl);
+            const vfloat16mf2_t half2 = __riscv_vfncvt_f_f_w_f16mf2(__riscv_vget_v_f32m1x4_f32m1(values, 2), vl);
+            const vfloat16mf2_t half3 = __riscv_vfncvt_f_f_w_f16mf2(__riscv_vget_v_f32m1x4_f32m1(values, 3), vl);
+            __riscv_vse16_v_f16mf2(out + (size_t) (i * 4 + 0) * 8, half0, vl);
+            __riscv_vse16_v_f16mf2(out + (size_t) (i * 4 + 1) * 8, half1, vl);
+            __riscv_vse16_v_f16mf2(out + (size_t) (i * 4 + 2) * 8, half2, vl);
+            __riscv_vse16_v_f16mf2(out + (size_t) (i * 4 + 3) * 8, half3, vl);
+        }
     }
 }
 
@@ -298,6 +309,81 @@ static inline void MNNRvvFlashPackV(_Float16* dst, const float* src, int dim) {
         __riscv_vsse16_v_f16m1(dst + d + 2, dim * sizeof(_Float16), half2, vl);
         __riscv_vsse16_v_f16m1(dst + d + 3, dim * sizeof(_Float16), half3, vl);
     }
+}
+
+// kq[r][n] = sum_d q[r][d] * k[n][d] for 8 q rows and 64 keys, on IME2 vfwmadot:
+// one instruction accumulates an 8x8 tile (8 rows x 8 keys) over 8 dims, 512 multiply-adds.
+// qp: [(dim/8)][64 rows][8], kp: [(dim/8)][64 keys][8]; kq is row-major with leading dim ld_kq (= 64).
+static inline void MNNRvvFlashQK8(float* kq, const _Float16* qp, const _Float16* kp, int64_t dk) {
+    const size_t vl = 64;
+    int64_t n = dk / 8;
+    const size_t qcs = 64 * 8 * sizeof(_Float16); // 8-row group, 8 dims, 64 rows per dim block
+    const int64_t ld = 64;
+    __asm__ volatile(
+        "vsetvli        zero, %[vl], e32, m2, ta, ma    \n\t"
+        "vmv.v.i        v16, 0                          \n\t"
+        "vmv.v.i        v18, 0                          \n\t"
+        "vmv.v.i        v20, 0                          \n\t"
+        "vmv.v.i        v22, 0                          \n\t"
+        "vmv.v.i        v24, 0                          \n\t"
+        "vmv.v.i        v26, 0                          \n\t"
+        "vmv.v.i        v28, 0                          \n\t"
+        "vmv.v.i        v30, 0                          \n\t"
+        "vsetvli        zero, %[vl], e16, m1, ta, ma    \n\t"
+        "1:                                             \n\t"
+        "vle16.v        v1, (%[q])                      \n\t"
+        "vle16.v        v2, (%[k])                      \n\t"
+        "addi           %[k], %[k], 128                 \n\t"
+        "vle16.v        v3, (%[k])                      \n\t"
+        "addi           %[k], %[k], 128                 \n\t"
+        "vle16.v        v4, (%[k])                      \n\t"
+        "addi           %[k], %[k], 128                 \n\t"
+        "vle16.v        v5, (%[k])                      \n\t"
+        "addi           %[k], %[k], 128                 \n\t"
+        "vfwmadot       v16, v1, v2, fp16               \n\t"
+        "vfwmadot       v18, v1, v3, fp16               \n\t"
+        "vfwmadot       v20, v1, v4, fp16               \n\t"
+        "vfwmadot       v22, v1, v5, fp16               \n\t"
+        "vle16.v        v6, (%[k])                      \n\t"
+        "addi           %[k], %[k], 128                 \n\t"
+        "vle16.v        v7, (%[k])                      \n\t"
+        "addi           %[k], %[k], 128                 \n\t"
+        "vle16.v        v8, (%[k])                      \n\t"
+        "addi           %[k], %[k], 128                 \n\t"
+        "vle16.v        v9, (%[k])                      \n\t"
+        "addi           %[k], %[k], 128                 \n\t"
+        "vfwmadot       v24, v1, v6, fp16               \n\t"
+        "vfwmadot       v26, v1, v7, fp16               \n\t"
+        "vfwmadot       v28, v1, v8, fp16               \n\t"
+        "vfwmadot       v30, v1, v9, fp16               \n\t"
+        "add            %[q], %[q], %[qcs]              \n\t"
+        "addi           %[n], %[n], -1                  \n\t"
+        "bnez           %[n], 1b                        \n\t"
+        "vsetvli        zero, %[vl], e32, m2, ta, ma    \n\t"
+        "vid.v          v10                             \n\t"
+        "vsrl.vi        v12, v10, 3                     \n\t"
+        "vand.vi        v10, v10, 7                     \n\t"
+        "vmacc.vx       v10, %[ld], v12                 \n\t"
+        "vsll.vi        v10, v10, 2                     \n\t"
+        "vsuxei32.v     v16, (%[kq]), v10               \n\t"
+        "addi           %[kq], %[kq], 32                \n\t"
+        "vsuxei32.v     v18, (%[kq]), v10               \n\t"
+        "addi           %[kq], %[kq], 32                \n\t"
+        "vsuxei32.v     v20, (%[kq]), v10               \n\t"
+        "addi           %[kq], %[kq], 32                \n\t"
+        "vsuxei32.v     v22, (%[kq]), v10               \n\t"
+        "addi           %[kq], %[kq], 32                \n\t"
+        "vsuxei32.v     v24, (%[kq]), v10               \n\t"
+        "addi           %[kq], %[kq], 32                \n\t"
+        "vsuxei32.v     v26, (%[kq]), v10               \n\t"
+        "addi           %[kq], %[kq], 32                \n\t"
+        "vsuxei32.v     v28, (%[kq]), v10               \n\t"
+        "addi           %[kq], %[kq], 32                \n\t"
+        "vsuxei32.v     v30, (%[kq]), v10               \n\t"
+        : [q] "+r"(qp), [k] "+r"(kp), [kq] "+r"(kq), [n] "+r"(n)
+        : [vl] "r"(vl), [qcs] "r"(qcs), [ld] "r"(ld)
+        : "cc", "memory", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11", "v12", "v13", "v16",
+          "v17", "v18", "v19", "v20", "v21", "v22", "v23", "v24", "v25", "v26", "v27", "v28", "v29", "v30", "v31");
 }
 
 static inline void MNNRvvFlashQK4(float* dst0, float* dst1, float* dst2, float* dst3, const _Float16* q0,
@@ -349,9 +435,9 @@ static inline void MNNRvvFlashPV4(float* dst0, float* dst1, float* dst2, float* 
 }
 
 static inline void MNNRvvFlashStoreC4(float* dst, const float* src, const float* reciprocal, int queryBase, int seqLen,
-                                      int dim) {
+                                      int dim, int rows = 64) {
     constexpr int queryTile = 64;
-    const size_t vl = __riscv_vsetvl_e32m2(queryTile);
+    const size_t vl = __riscv_vsetvl_e32m2(std::min(queryTile, rows));
     const ptrdiff_t srcStride = (ptrdiff_t)dim * sizeof(float);
     const vfloat32m2_t reciprocalValue = __riscv_vle32_v_f32m2(reciprocal, vl);
     for (int d = 0; d < dim; d += 4) {
@@ -373,11 +459,8 @@ static inline void MNNRvvFlashRunCausalBlock(const _Float16* query, const _Float
                                              int kvBase, int dim) {
     constexpr int queryTile = 64;
     constexpr int kvTile = 64;
-    for (int row = 0; row < queryTile; row += 4) {
-        const int tokenCount = std::min(kvTile, queryBase + row + 4 - kvBase);
-        MNNRvvFlashQK4(score + (row + 0) * kvTile, score + (row + 1) * kvTile, score + (row + 2) * kvTile,
-                       score + (row + 3) * kvTile, query + (row + 0) * dim, query + (row + 1) * dim,
-                       query + (row + 2) * dim, query + (row + 3) * dim, key, dim, tokenCount);
+    for (int row = 0; row < queryTile; row += 8) {
+        MNNRvvFlashQK8(score + row * kvTile, query + (size_t) (row / 8) * 64, key, dim);
     }
 
     for (int row = 0; row < queryTile; ++row) {
@@ -484,8 +567,7 @@ MNNSpacemitIme2FlashAttentionFp32C4PairBaseline(float* dst, const float* query, 
     if (__riscv_vlenb() != 128) {
         return -2;
     }
-    if (seqLen < queryTile || seqLen > 512 || (seqLen % queryTile) != 0 || headDim != 128 ||
-        scratchBytes < requiredBytes) {
+    if (seqLen < queryTile || headDim != 128 || scratchBytes < requiredBytes) {
         return -3;
     }
 
@@ -504,9 +586,10 @@ MNNSpacemitIme2FlashAttentionFp32C4PairBaseline(float* dst, const float* query, 
     }
 
     for (int queryBase = 0; queryBase < seqLen; queryBase += queryTile) {
+        const int validRows = std::min(queryTile, seqLen - queryBase);
         for (int head = 0; head < pairCount; ++head) {
             MNNRvvFlashPackQ(query16 + head * halfTile, query + head * headDim + queryBase * numHeads * headDim,
-                             numHeads * headDim, queryTile, headDim, scale);
+                             numHeads * headDim, queryTile, headDim, scale, validRows);
             std::memset(output + head * queryTile * headDim, 0, queryTile * headDim * sizeof(float));
             for (int row = 0; row < queryTile; ++row) {
                 maximum[head][row] = -FLT_MAX;
@@ -531,7 +614,7 @@ MNNSpacemitIme2FlashAttentionFp32C4PairBaseline(float* dst, const float* query, 
                 sum[head][row] = sum[head][row] > 0.0f ? 1.0f / sum[head][row] : 0.0f;
             }
             MNNRvvFlashStoreC4(dst + head * seqLen * headDim, output + head * queryTile * headDim, sum[head], queryBase,
-                               seqLen, headDim);
+                               seqLen, headDim, validRows);
         }
     }
     return 1;
