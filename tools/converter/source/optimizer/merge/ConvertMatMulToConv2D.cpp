@@ -174,6 +174,9 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
         auto fold = [this](EXPRP expr) -> bool {
             auto* param     = expr->get()->main_as_MatMul();
             bool transposeA = param->transposeA();
+            if (transposeA) {
+                return false;
+            }
             bool transposeB = param->transposeB();
 
             VARP input  = expr->inputs().at(0);
