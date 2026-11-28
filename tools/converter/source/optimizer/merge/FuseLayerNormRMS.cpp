@@ -94,6 +94,11 @@ FuseLayerNormRMS::FuseLayerNormRMS() {
         if (!helpers::IsReductionMean(mean) || !helpers::IsConstant(epsilon)) {
             return false;
         }
+        // A fused RMSNorm has one scalar epsilon.
+        const auto epsilonInfo = add->inputs().at(1)->getInfo();
+        if (!epsilonInfo || epsilonInfo->size != 1 || epsilonInfo->type.code != halide_type_float || epsilonInfo->type.bits != 32) {
+            return false;
+        }
         auto axisLoad = loadAxisFromReduction(mean, axis_var_);
         if (!axisLoad) {
             return false;
