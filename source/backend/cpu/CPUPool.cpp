@@ -72,15 +72,24 @@ public:
             padType = PoolPadType_VALID;
         }
         if(outputs.size() == 2){
+            const int packCount = UP_DIV(input->channel(), core->pack);
+            const int channels  = input->channel();
+            const int batches   = input->batch();
             mFunction = std::make_pair(threadNumber, [=](int tId) {
                 for (int channel = (int)tId; channel < totalDepth; channel += threadNumber) {
                     auto inputData         = input->host<uint8_t>();
                     auto outputData        = output->host<uint8_t>();
                     auto rediceData        = outputs[1]->host<uint8_t>();
+                    // The packed groups are ordered by channel group first and batch
+                    // second, so both the base channel and the index offset derive
+                    // from that order rather than from a batch-major index.
+                    const int batch       = channel % batches;
+                    const int pack        = channel / batches;
+                    const int channelBase = batch * channels + pack * core->pack;
                     // run
                     mComputeRedice(inputData + channel * inputPlaneStride * mBytes, input->width(), input->height(),
                              outputData + outputPlaneStride * channel * mBytes, output->width(), output->height(), kernelWidth,
-                             kernelHeight, strideWidth, strideHeight, padWidth, padHeight, padType, countType, rediceData + outputPlaneStride * channel * mBytes);
+                             kernelHeight, strideWidth, strideHeight, padWidth, padHeight, padType, countType, rediceData + outputPlaneStride * channel * mBytes, channelBase);
                 }
             });
         }else{
@@ -112,7 +121,8 @@ private:
                            int strideHeight, int padWidth, int padHeight, int padType, int countType);
     void(*mComputeRedice)(const void* channelInput, int inputWidth, int inputHeight, void *channelOutput,
                            int outputWidth, int outputHeight, int kernelWidth, int kernelHeight, int strideWidth,
-                           int strideHeight, int padWidth, int padHeight, int padType, int countType, void *rediceOutput);
+                           int strideHeight, int padWidth, int padHeight, int padType, int countType, void *rediceOutput,
+                           int channelBase);
     std::pair<int, std::function<void(int)> > mFunction;
     int mBytes;
 };
