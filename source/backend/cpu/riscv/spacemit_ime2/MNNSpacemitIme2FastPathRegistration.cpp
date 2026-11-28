@@ -45,6 +45,9 @@ void MNNRvvInitializeFastPathFunctions(CoreFunctions* core) {
     static constexpr CPUExtension extension(createInt8Gemm, nullptr);
 #endif
     core->kvUpdateConcurrent = true;
+    // The IME2 fused gate/up path captures the two child projections and runs
+    // them as one GEMM, so gate/up must stay as children.
+    core->supportFusedGateUpCapture = true;
     core->extension = &extension;
 }
 

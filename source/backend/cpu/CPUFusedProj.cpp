@@ -48,7 +48,10 @@ public:
         int experts, ic, oc;
         auto cpu = static_cast<CPUBackend*>(backend);
         const auto& hint = backend->getRuntime()->hint();
-        if (mIsGateUp && cpu->precisionMode() != BackendConfig::Precision_Low_BF16 &&
+        // A backend that captures the gate/up children to fuse them itself (e.g. SpacemiT
+        // IME2) must see them as two projections; the merged op would bypass it.
+        if (mIsGateUp && !cpu->functions()->supportFusedGateUpCapture &&
+            cpu->precisionMode() != BackendConfig::Precision_Low_BF16 &&
             (hint.useCachedMmap == 0 || hint.weightMemoryPath.empty()) &&
             IndexedLinearCommon::dimensions(op, experts, ic, oc) && ic % cpu->functions()->pack == 0 &&
             oc / 2 % cpu->functions()->pack == 0) {

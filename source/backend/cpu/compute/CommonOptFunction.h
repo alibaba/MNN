@@ -337,6 +337,10 @@ struct CoreFunctions {
     bool supportFp16FML = false;
 #endif
     bool supportRVV = false;
+    // The backend captures the two gate/up projections as children and fuses
+    // them itself (e.g. a matrix-extension backend). Keeping them split avoids
+    // hiding them inside a merged IndexedLinear op.
+    bool supportFusedGateUpCapture = false;
     int smeCoreNumber = 0;
     // Performance-cluster core count; 0 means unknown / not applicable.
     int perfCoreNumber = 0;
